@@ -1,0 +1,26 @@
+[project]
+name = "tme-analysis"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+    "datalair",
+    "gibbscellprism",
+    "icir",
+    "ipykernel>=7.1.0",
+    "jupyter>=1.1.1",
+    "gtfparse",
+    "pyensembl",
+    "seaborn>=0.13.2",
+    "singlecellrnasignature",
+    "tcga",
+]
+
+[tool.uv.sources]
+icir = { git = "https://github.com/LuJoHae/ICI-Response.git" }
+tcga = { git = "https://github.com/LuJoHae/TCGA.git" }
+gibbscellprism = { git = "https://github.com/LuJoHae/GibbsCellPrism.git" }
+datalair = { git = "https://github.com/LuJoHae/datalair.git" }
+singlecellrnasignature = { git = "https://github.com/LuJoHae/SingleCellRNASignature.git" }
+gtfparse = { git = "https://github.com/LuJoHae/gtfparse.git" }
+pyensembl = { git = "https://github.com/LuJoHae/pyensembl.git"}
