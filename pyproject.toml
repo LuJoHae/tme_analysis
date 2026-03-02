@@ -15,6 +15,8 @@ dependencies = [
     "singlecellrnasignature",
     "tcga",
     "scipy-stubs~=1.16.3",
+    "infercnvpy>=0.6.1",
+    "leidenalg>=0.11.0",
 ]
 
 [tool.uv.sources]
