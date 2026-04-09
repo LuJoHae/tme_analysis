@@ -1,5 +1,5 @@
 [project]
-name = "tme-analysis"
+name = "tme_analysis"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.14"
@@ -7,6 +7,7 @@ dependencies = [
     "datalair",
     "gibbscellprism",
     "icir",
+    "instaprism",
     "ipykernel>=7.1.0",
     "jupyter>=1.1.1",
     "gtfparse",
@@ -14,7 +15,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "singlecellrnasignature",
     "tcga",
-    "scipy-stubs~=1.16.3",
+    "scipy-stubs~=1.17.1",
     "infercnvpy>=0.6.1",
     "leidenalg>=0.11.0",
 ]
@@ -27,3 +28,4 @@ datalair = { git = "https://github.com/LuJoHae/datalair.git" }
 singlecellrnasignature = { git = "https://github.com/LuJoHae/SingleCellRNASignature.git" }
 gtfparse = { git = "https://github.com/LuJoHae/gtfparse.git" }
 pyensembl = { git = "https://github.com/LuJoHae/pyensembl.git"}
+instaprism = { git = "https://github.com/LuJoHae/instaprism.git"}
