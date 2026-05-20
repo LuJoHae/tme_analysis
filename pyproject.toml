@@ -18,7 +18,16 @@ dependencies = [
     "scipy-stubs~=1.17.1",
     "infercnvpy>=0.6.1",
     "leidenalg>=0.11.0",
+    "genentech-datasets",
+    "gene_utils",
+    "single_cell_datasets",
+    "references",
+    "tables>=3.11.1",
+    "optuna>=4.8.0",
 ]
+
+[tool.uv.workspace]
+members = ["packages/*"]
 
 [tool.uv.sources]
 icir = { git = "https://github.com/LuJoHae/ICI-Response.git" }
@@ -28,4 +37,8 @@ datalair = { git = "https://github.com/LuJoHae/datalair.git" }
 singlecellrnasignature = { git = "https://github.com/LuJoHae/SingleCellRNASignature.git" }
 gtfparse = { git = "https://github.com/LuJoHae/gtfparse.git" }
 pyensembl = { git = "https://github.com/LuJoHae/pyensembl.git"}
-instaprism = { git = "https://github.com/LuJoHae/instaprism.git"}
+instaprism = { workspace = true }
+genentech-datasets = { workspace = true }
+single_cell_datasets = { workspace = true }
+references = { workspace = true }
+gene_utils = { workspace = true }
