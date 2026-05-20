@@ -1,3 +1,6 @@
 .idea/
 .venv/
 .ai/
+.aiignore
+jupyter/
+data/
