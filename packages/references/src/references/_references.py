@@ -4,7 +4,7 @@ import pandas as pd
 
 
 class DatasetReferences(datalair.Dataset):
-    """Datalair Dataset class for all Datasets containing gene_utils."""
+    """Datalair Dataset class for all Datasets containing ml_pipelines."""
 
     def __init__(self) -> None:
         """Initialize this dataset class as a datalair.Dataset class with namespace `DatasetReferences`."""

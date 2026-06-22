@@ -1,6 +1,7 @@
 from sklearn.base import BaseEstimator, TransformerMixin
 from dataclasses import dataclass
 from typing import Any
+import seaborn as sns
 from numpy import dtype, generic, ndarray
 from pandas import DataFrame, Series
 import numpy as np
@@ -12,6 +13,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import precision_recall_curve, average_precision_score, roc_auc_score, roc_curve
 from sklearn.model_selection import LeaveOneOut
 from sklearn.ensemble import RandomForestClassifier
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 
 
 @dataclass
@@ -33,8 +36,8 @@ class BootstrapCIResult:
 
 class AppendCategoricalAfterPCA(BaseEstimator, TransformerMixin):
     """Custom transformer that performs PCA on the first `n_pca_features` columns,
-	then concatenates the remaining columns (one-hot encoded categorical metadata)
-	unchanged."""
+    then concatenates the remaining columns (one-hot encoded categorical metadata)
+    unchanged."""
 
     def __init__(self, n_components, n_pca_features):
         self.n_components = n_components
@@ -51,9 +54,17 @@ class AppendCategoricalAfterPCA(BaseEstimator, TransformerMixin):
         return np.hstack([x_pca, x_extra])
 
 
-def rf_pipeline(x, y, axes, n_estimators=50, n_components=2, categorical_metadata=None):
-    clf, x_input = construct_features_and_pipeline(categorical_metadata, n_components,
-                                                   n_estimators, x)
+def rf_pipeline(
+        x, y,
+        axes,
+        n_estimators=50,
+        n_components=2,
+        categorical_metadata=None,
+        max_depth: int | None = None
+):
+    clf, x_input = construct_features_and_pipeline(
+        x, categorical_metadata, n_components, n_estimators, max_depth=max_depth
+    )
 
     classes_ = np.unique(y)
     loo = LeaveOneOut()
@@ -65,9 +76,14 @@ def rf_pipeline(x, y, axes, n_estimators=50, n_components=2, categorical_metadat
 
     ci = bootstrap_ci_intervals(y_proba, y_true)
 
+    plot_decision_regions_pca(clf, x_input, y, axes[2], n_components,
+                              categorical_metadata,
+                              x.shape[1] if categorical_metadata is not None else
+                              x.shape[1])
+
     plot_rf_pipeline_results(axes, ci, y_proba, y_true)
 
-    return y_proba, axes
+    return y_proba, axes, clf
 
 
 def bootstrap_ci_intervals(y_proba,
@@ -182,9 +198,15 @@ def plot_rf_pipeline_results(axes, ci: BootstrapCIResult, y_proba,
     axes[1].legend(loc="lower left")
 
 
-def construct_features_and_pipeline(categorical_metadata, n_components: int,
-                                    n_estimators: int, x) -> tuple[
-    Pipeline, Series[Any] | DataFrame | Any]:
+def construct_features_and_pipeline(
+        x,
+        categorical_metadata,
+        n_components: int,
+        n_estimators: int,
+        max_depth: int | None = 0
+) -> tuple[
+    Pipeline, Series[Any] | DataFrame | Any
+]:
     # One-hot encode categorical metadata and append AFTER PCA via the custom transformer
     if categorical_metadata is not None:
         if isinstance(categorical_metadata, pd.Series):
@@ -208,7 +230,7 @@ def construct_features_and_pipeline(categorical_metadata, n_components: int,
             preprocessor,
             AppendCategoricalAfterPCA(n_components=n_components,
                                       n_pca_features=n_pca_features),
-            RandomForestClassifier(n_estimators=n_estimators,
+            RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth,
                                    class_weight="balanced", random_state=42)
         )
         x_input = x_full
@@ -221,3 +243,82 @@ def construct_features_and_pipeline(categorical_metadata, n_components: int,
         )
         x_input = x
     return clf, x_input
+
+
+def plot_decision_regions_pca(clf, x_input, y, ax, n_components, categorical_metadata,
+                              n_pca_features):
+    """Plot decision regions in PCA space (first 2 components only)."""
+    # Fit the classifier on all data
+    clf.fit(x_input, y)
+
+    # Transform data to PCA space for visualization
+    if categorical_metadata is not None:
+        # Extract the PCA transformation from the pipeline
+        preprocessor = clf.named_steps['columntransformer']
+        x_scaled = preprocessor.transform(x_input)
+        pca_transformer = clf.named_steps['appendcategoricalafterpca']
+        x_pca_full = pca_transformer.transform(x_scaled)
+        x_pca = x_pca_full[:, :n_components]
+    else:
+        scaler = clf.named_steps['standardscaler']
+        pca = clf.named_steps['pca']
+        x_scaled = scaler.transform(x_input)
+        x_pca = pca.transform(x_scaled)
+
+    # Create mesh grid
+    h = 0.02
+    x_min, x_max = x_pca[:, 0].min() - 1, x_pca[:, 0].max() + 1
+    y_min, y_max = x_pca[:, 1].min() - 1, x_pca[:, 1].max() + 1
+    xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
+
+    # For prediction, we need to pad with zeros for components > 2 and categorical features
+    mesh_points = np.c_[xx.ravel(), yy.ravel()]
+    if categorical_metadata is not None:
+        # Pad with zeros for additional PCA components and categorical features
+        n_extra_features = x_pca_full.shape[1] - n_components
+        mesh_points = np.hstack(
+            [mesh_points, np.zeros((mesh_points.shape[0], n_extra_features))])
+    elif n_components > 2:
+        # Pad with zeros for additional PCA components
+        mesh_points = np.hstack(
+            [mesh_points, np.zeros((mesh_points.shape[0], n_components - 2))])
+
+    # Predict on mesh
+    Z = clf.named_steps['randomforestclassifier'].predict(mesh_points)
+    Z_encoded = (Z == 'R').astype(int)
+    Z_encoded = Z_encoded.reshape(xx.shape)
+
+    # Plot decision boundary
+    cmap_light = ListedColormap(['#FFAAAA', '#AAAAFF'])
+    cmap_bold = ListedColormap(['#FF0000', '#0000FF'])
+    ax.contourf(xx, yy, Z_encoded, alpha=0.3, cmap=cmap_light)
+
+    # Plot data points
+    y_encoded = (y == 'R').astype(int)
+    scatter = ax.scatter(x_pca[:, 0], x_pca[:, 1], c=y_encoded, cmap=cmap_bold,
+                         edgecolor='k', s=50, alpha=0.7)
+
+    ax.set_xlabel('First Principal Component')
+    ax.set_ylabel('Second Principal Component')
+    ax.set_title('Decision Regions in PCA Space')
+    ax.legend(handles=scatter.legend_elements()[0], labels=['NR', 'R'], loc='best')
+
+
+def plot_subtype_responser_fractions(data, axes, title):
+    sns.countplot(
+        x="MFP",
+        hue="Response",
+        data=data,
+        ax=axes[0]
+    )
+    axes[0].set_title(title + ": Responses")
+
+    sns.histplot(
+        data=data,
+        x='MFP',
+        hue='Response',
+        multiple='fill',
+        shrink=0.8,
+        ax=axes[1]
+    )
+    axes[1].set_title(title + ": Response Fractions")

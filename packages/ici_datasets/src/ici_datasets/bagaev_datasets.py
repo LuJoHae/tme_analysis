@@ -1,33 +1,62 @@
 import datalair
-from pathlib import Path
+from gene_utils import download
 import pandas as pd
+import numpy as np
 
 
-class DatasetGenentechAlign(datalair.Dataset):
-    """Datalair Dataset class for all Datasets from Genentech."""
+class DatasetBagaev(datalair.Dataset):
+    """Datalair Dataset class for all single cell datasets."""
 
     def __init__(self) -> None:
-        """Initialize this dataset class as a datalair.Dataset class with namespace `DatasetGenentecAlign`."""
-        super().__init__(namespace="DatasetGenentecAlign")
+        """Initialize this dataset class as a datalair.Dataset class with namespace `DatasetSingleCell`."""
+        super().__init__(namespace="DatasetBagaev")
 
 
-class EGAD00001006631(DatasetGenentechAlign):
-    storage_path = Path("/storage/halu").resolve()
-
+class Signature(DatasetBagaev):
     def derive(self, lair: datalair.Lair) -> None:
         output_dir = lair.get_path(self)
-        all_counts = []
-        assert self.storage_path.exists()
-        for dirpath in (self.storage_path / "manual-download/EGAD00001006631-align").iterdir():
-            patient_id = dirpath.name
-            counts = pd.read_csv(dirpath / "ReadsPerGene.out.tab", sep="\t", header=None, skiprows=4, index_col=0)
-            counts = counts.rename(columns={0: None, 1: "unstranded", 2: "stranded_forward", 3: "stranded_reverse"})
-            counts.index.name = "gene_id"
-            assert counts["stranded_reverse"].mean() >= counts["stranded_forward"].mean()
-            # assert counts["stranded_reverse"].mean() >= counts["unstranded"].mean()
-            counts = counts["stranded_reverse"]
-            counts.name = patient_id
-            all_counts.append(counts)
-        all_counts = pd.concat(all_counts, axis=1).T
-        all_counts = all_counts[sorted(list(all_counts.columns))]
-        all_counts.to_hdf(output_dir / "counts.h5pd", key="counts")
+        download(
+            "https://raw.githubusercontent.com/BostonGene/MFP/refs/heads/master/signatures/gene_signatures.gmt",
+            output_dir.joinpath("gene_signatures.gmt"),
+        )
+        download(
+            "https://raw.githubusercontent.com/BostonGene/MFP/refs/heads/master/signatures/gene_signatures_order.tsv",
+            output_dir.joinpath("gene_signatures_order.tsv"),
+        )
+
+
+class PanMelanoma(DatasetBagaev):
+    def derive(self, lair: datalair.Lair) -> None:
+        output_dir = lair.get_path(self)
+        download(
+            "https://science.bostongene.com/tumor-portrait/api/annotation_panmi/",
+            output_dir.joinpath("annotations.tsv"),
+        )
+        download(
+            "https://science.bostongene.com/tumor-portrait/api/signatures_panmi/",
+            output_dir.joinpath("signature.tsv"),
+        )
+
+
+class TCGA(DatasetBagaev):
+    def derive(self, lair: datalair.Lair) -> None:
+        output_dir = lair.get_path(self)
+        download(
+            "https://science.bostongene.com/tumor-portrait/api/annotation_tcga/",
+            output_dir.joinpath("annotations.tsv"),
+        )
+        download(
+            "https://science.bostongene.com/tumor-portrait/api/signatures_tcga/",
+            output_dir.joinpath("signature.tsv"),
+        )
+
+
+def get_pan_melanoma_bagaev_dataset(lair):
+    ds = PanMelanoma()
+    lair.safe_derive(ds)
+    filepaths = lair.get_dataset_filepaths(ds)
+    annotations = pd.read_csv(filepaths["annotations.tsv"], sep="\t").set_index(
+        "Sample")
+    signature = pd.read_csv(filepaths["signature.tsv"], sep="\t", index_col=0)
+    signature = signature.loc[np.isnan(signature).sum(axis=1) == 0]
+    return annotations, signature

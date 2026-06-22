@@ -1,5 +1,5 @@
 [project]
-name = "genentech_datasets"
+name = "ici_datasets"
 version = "0.1.0"
 dependencies = []
 

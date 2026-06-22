@@ -4,3 +4,7 @@
 .aiignore
 jupyter/
 data/
+.make-sentinels/
+output/
+__pycache__/
+.DS_Store

@@ -4,27 +4,13 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-from gene_utils._gene_utils import (
-    norm_genes,
-    download,
-    ssgsea_score,
-    ssgsea_formula,
-    median_scale,
-    read_gene_sets,
-    read_gmt,
-    download_github_file,
-    download_from_cbioportal,
+from ml_pipelines.random_forest import (
+    rf_pipeline,
+    plot_subtype_responser_fractions
 )
 
 __all__ = [
     "__version__",
-    "norm_genes",
-    "download",
-    "ssgsea_score",
-    "ssgsea_formula",
-    "median_scale",
-    "read_gene_sets",
-    "read_gmt",
-    "download_github_file",
-    "download_from_cbioportal"
+    "rf_pipeline",
+    "plot_subtype_responser_fractions"
 ]

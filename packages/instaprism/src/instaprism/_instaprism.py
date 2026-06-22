@@ -90,6 +90,7 @@ def insta_prism(
     bulk: npt.NDArray[np.float64],  # shape (1, G) or (G,)
     reference: npt.NDArray[np.float64],  # shape (S, G): S cell types x G genes
     n_iter: int = 1000,
+    return_intermediate_cell_factions: bool = False
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Performs deconvolution of gene expression data.
 
@@ -119,11 +120,17 @@ def insta_prism(
             - cell_fractions: Estimated proportions of cell types in the bulk sample.
     """
     reference = reference.T  # (G, S)
+    if return_intermediate_cell_factions:
+        intermediate_cell_fractions = np.empty(shape=(n_iter+1, reference.shape[1]))
+    else:
+        intermediate_cell_fractions = None
 
     cell_fractions, cell_state_gene_expression, probability_matrix = (
         _initialize_deconvolution_arrays(reference)
     )
-    for _ in range(n_iter):
+    for i in range(n_iter):
+        if return_intermediate_cell_factions:
+            intermediate_cell_fractions[i, :] = cell_fractions
         _update_probability_matrix_inplace(
             reference, cell_fractions, probability_matrix
         )
@@ -133,7 +140,8 @@ def insta_prism(
         _update_cell_fractions_estimate_by_fixpoint_inplace(
             cell_fractions, cell_state_gene_expression
         )
-    return probability_matrix, cell_state_gene_expression, cell_fractions
+
+    return probability_matrix, cell_state_gene_expression, cell_fractions, intermediate_cell_fractions
 
 
 def _update_cell_state_gene_expression_by_fixpoint_inplace(

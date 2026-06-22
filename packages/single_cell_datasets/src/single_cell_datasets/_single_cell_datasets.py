@@ -139,7 +139,6 @@ class SingleCellDataProcessStep01(DatasetSingleCell):
 
 
 class SingleCellDataProcessStep02(DatasetSingleCell):
-    storage_path = Path("/storage/halu").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         output_dir = lair.get_path(self)
@@ -240,7 +239,6 @@ class SingleCellDataProcessStep02(DatasetSingleCell):
 
 
 class SingleCellDataProcessStep03(DatasetSingleCell):
-    storage_path = Path("/storage/halu").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -260,7 +258,6 @@ class SingleCellDataProcessStep03(DatasetSingleCell):
 
 
 class SingleCellDataProcessStep04(DatasetSingleCell):
-    storage_path = Path("/storage/halu").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -306,7 +303,6 @@ class SingleCellDataProcessStep04(DatasetSingleCell):
 
 
 class SingleCellDataProcessStep05(DatasetSingleCell):
-    storage_path = Path("/storage/halu").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -363,7 +359,6 @@ class SingleCellDataProcessStep05(DatasetSingleCell):
 
 
 class SingleCellDataProcessStep06(DatasetSingleCell):
-    storage_path = Path("/storage/halu").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -376,7 +371,6 @@ class SingleCellDataProcessStep06(DatasetSingleCell):
 
 
 class SingleCellDataProcessStep07(DatasetSingleCell):
-    storage_path = Path("/storage/halu").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True

@@ -21,9 +21,15 @@ dependencies = [
     "genentech-datasets",
     "gene_utils",
     "single_cell_datasets",
+    "ici_datasets",
     "references",
+    "ml_pipelines",
     "tables>=3.11.1",
     "optuna>=4.8.0",
+    "gseapy>=1.2.1",
+    "celltypist>=1.7.1",
+    "cbio-py>=0.1.4",
+    "setuptools<70",
 ]
 
 [tool.uv.workspace]
@@ -42,3 +48,5 @@ genentech-datasets = { workspace = true }
 single_cell_datasets = { workspace = true }
 references = { workspace = true }
 gene_utils = { workspace = true }
+ici_datasets = { workspace = true }
+ml_pipelines = { workspace = true }

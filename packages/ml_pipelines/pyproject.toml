@@ -1,5 +1,5 @@
 [project]
-name = "gene_utils"
+name = "ml_pipelines"
 version = "0.1.0"
 dependencies = []
 

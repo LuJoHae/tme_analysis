@@ -5,10 +5,32 @@ from __future__ import annotations
 __version__ = "0.1.0"
 
 from gene_utils._gene_utils import (
-    norm_genes
+    norm_genes,
+    download,
+    ssgsea_score,
+    ssgsea_formula,
+    median_scale,
+    read_gene_sets,
+    read_gmt,
+    download_github_file,
+    download_from_cbioportal,
+    rpkm_to_tpm,
+    calculate_maf_tmb,
+    print_tree
 )
 
 __all__ = [
     "__version__",
-    "norm_genes"
+    "norm_genes",
+    "download",
+    "ssgsea_score",
+    "ssgsea_formula",
+    "median_scale",
+    "read_gene_sets",
+    "read_gmt",
+    "download_github_file",
+    "download_from_cbioportal",
+    "rpkm_to_tpm",
+    "calculate_maf_tmb",
+    "print_tree"
 ]
