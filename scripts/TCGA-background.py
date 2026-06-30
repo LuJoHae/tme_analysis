@@ -45,15 +45,14 @@ def get_ensembl_union_exon_lengths(ensembl):
     return gene_lengths
 
 
-def tpm_normalize_adata(adata, gene_lengths):
+def compute_rpk_tcga(adata, gene_lengths):
     """
-    Performs TPM normalization on an AnnData object, then scales the sum of normalized counts
-    to exactly 1.0 for each sample using the pre-calculated exon union lengths.
+    Computes RPK (Reads Per Kilobase) on an AnnData object using pre-calculated exon union lengths.
     """
     import numpy as np
     import scipy.sparse as sp
     
-    print("TPM Normalizing TCGA data...")
+    print("Computing RPK on TCGA data...")
     # Map var_names to lengths
     lengths = []
     mapped_indices = []
@@ -80,20 +79,11 @@ def tpm_normalize_adata(adata, gene_lengths):
         # We can scale each column by multiplying by 1 / lengths_kb on the right
         diag_inv_lengths = sp.diags(1.0 / lengths_kb)
         X_rpk = X.dot(diag_inv_lengths)
-        
-        # Now normalize each sample to sum to 1.0
-        sample_sums = np.array(X_rpk.sum(axis=1)).flatten()
-        sample_sums[sample_sums == 0] = 1.0
-        diag_inv_sums = sp.diags(1.0 / sample_sums)
-        X_norm = diag_inv_sums.dot(X_rpk)
     else:
         # Dense matrix
         X_rpk = X / lengths_kb
-        sample_sums = X_rpk.sum(axis=1, keepdims=True)
-        sample_sums[sample_sums == 0] = 1.0
-        X_norm = X_rpk / sample_sums
         
-    adata_subset.X = X_norm.astype(np.float32)
+    adata_subset.X = X_rpk.astype(np.float32)
     return adata_subset
 
 
@@ -187,12 +177,8 @@ def load_and_transform_iatlas_properly(data_dir, ensembl, gene_lengths):
         # Divide by gene lengths in kb
         df_linear = df_linear.div(lengths_kb, axis=0)
         
-    # 3. Sum-to-one normalization: divide each column by its sum
-    sample_sums = df_linear.sum(axis=0)
-    sample_sums[sample_sums == 0] = 1.0
-    df_norm = df_linear.div(sample_sums, axis=1)
-    
-    return df_norm
+    # Do not sum-normalize here. We return the length-corrected linear abundance.
+    return df_linear
 
 
 def load_all_iatlas_datasets(lair, ensembl, gene_lengths):
@@ -225,9 +211,6 @@ def load_all_iatlas_datasets(lair, ensembl, gene_lengths):
             adata_ds.var_names = df_norm.index
             adata_ds.var_names_make_unique()
             adata_ds.obs["dataset"] = ds_name
-            
-            # Apply log1p normalization on the normalized iAtlas data
-            sc.pp.log1p(adata_ds)
             
             adatas.append(adata_ds)
             print(f"Loaded {ds_name} with shape {adata_ds.shape}")
@@ -371,8 +354,8 @@ def run_pca_umap_combined(adata_tcga, adata_iatlas, target_hugo_genes, output_di
     import matplotlib.pyplot as plt
     import seaborn as sns
     
-    print(f"[{title_prefix}] Subsetting TCGA to target genes...")
-    adata_tcga_sub = aggregate_and_subset_by_hugo(adata_tcga, target_hugo_genes)
+    target_subset = [g for g in target_hugo_genes if g in adata_tcga.var_names]
+    adata_tcga_sub = adata_tcga[:, target_subset].copy()
     
     # Intersect with iAtlas genes
     common_genes = sorted(list(
@@ -516,6 +499,179 @@ def run_pca_umap_combined(adata_tcga, adata_iatlas, target_hugo_genes, output_di
     plt.close(fig)
     print(f"[{title_prefix}] Plots successfully saved to {plot_path}")
     return df_pca, df_umap
+
+
+def find_source_de_genes(adata_tcga, adata_iatlas, n_top_genes=100):
+    """
+    Finds the most differentially expressed genes between TCGA and iAtlas datasets.
+    """
+    import anndata as ad
+    import scanpy as sc
+    
+    print("Concatenating datasets to find Source DE genes...")
+    adata_tcga_copy = adata_tcga.copy()
+    adata_iatlas_copy = adata_iatlas.copy()
+    
+    adata_tcga_copy.obs['Source'] = 'TCGA'
+    adata_iatlas_copy.obs['Source'] = 'iAtlas'
+    
+    adata_combined = ad.concat([adata_tcga_copy, adata_iatlas_copy], axis=0, join="inner")
+    
+    print("Running differential expression between TCGA and iAtlas...")
+    sc.tl.rank_genes_groups(
+        adata_combined,
+        groupby='Source',
+        method='wilcoxon',
+        key_added='source_de'
+    )
+    
+    de_genes = set()
+    for group in ['TCGA', 'iAtlas']:
+        result = sc.get.rank_genes_groups_df(adata_combined, group=group, key='source_de')
+        result['abs_score'] = result['scores'].abs()
+        top_df = result.sort_values(by='abs_score', ascending=False).head(n_top_genes)
+        de_genes.update(top_df['names'].tolist())
+        
+    de_genes_list = sorted(list(de_genes))
+    print(f"Total unique Source DE genes selected: {len(de_genes_list)}")
+    return de_genes_list
+
+
+def run_lda_and_plot(adata_tcga, adata_iatlas, target_genes, output_dir, filename, title_prefix):
+    """
+    Fits LDA on Source (1D) and Cohort (2D) and plots the projections.
+    """
+    import anndata as ad
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+    from sklearn.preprocessing import StandardScaler
+    
+    target_subset = [g for g in target_genes if g in adata_tcga.var_names and g in adata_iatlas.var_names]
+    
+    adata_tcga_sub = adata_tcga[:, target_subset].copy()
+    adata_iatlas_sub = adata_iatlas[:, target_subset].copy()
+    
+    adata_tcga_sub.obs['Source'] = 'TCGA'
+    adata_iatlas_sub.obs['Source'] = 'iAtlas'
+    
+    adata_combined = ad.concat([adata_tcga_sub, adata_iatlas_sub], axis=0, join="inner")
+    
+    X = adata_combined.X
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+        
+    # Scale features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # 1. LDA on Source (TCGA vs iAtlas) -> 1D
+    print(f"[{title_prefix}] Fitting LDA on Source (TCGA vs iAtlas)...")
+    y_source = adata_combined.obs['Source'].values
+    lda_source = LinearDiscriminantAnalysis(n_components=1)
+    X_lda_source = lda_source.fit_transform(X_scaled, y_source)
+    
+    df_lda_source = pd.DataFrame({
+        "LD1": X_lda_source[:, 0],
+        "Source": y_source
+    })
+    
+    if hasattr(lda_source, 'coef_'):
+        df_loadings = pd.DataFrame({
+            "Gene": adata_combined.var_names,
+            "LD1_Coefficient": lda_source.coef_[0]
+        })
+        df_loadings['Abs_Coefficient'] = df_loadings['LD1_Coefficient'].abs()
+        df_loadings = df_loadings.sort_values(by='Abs_Coefficient', ascending=False)
+        loadings_path = output_dir / "TCGA-background" / f"{filename.replace('.svg', '_loadings.csv')}"
+        df_loadings.to_csv(loadings_path, index=False)
+        print(f"[{title_prefix}] LDA Loadings saved to {loadings_path}")
+    
+    # 2. LDA on Cohort -> 2D
+    print(f"[{title_prefix}] Fitting LDA on Cohort...")
+    y_cohort = adata_combined.obs['dataset'].values
+    
+    # Filter out cohorts with too few samples to avoid singular covariance or bad splits
+    cohort_counts = pd.Series(y_cohort).value_counts()
+    valid_cohorts = cohort_counts[cohort_counts >= 5].index.tolist()
+    
+    mask = [c in valid_cohorts for c in y_cohort]
+    X_scaled_cohort = X_scaled[mask]
+    y_cohort_valid = y_cohort[mask]
+    source_valid = y_source[mask]
+    
+    n_classes = len(np.unique(y_cohort_valid))
+    n_components = min(2, n_classes - 1)
+    
+    if n_components >= 1:
+        lda_cohort = LinearDiscriminantAnalysis(n_components=n_components)
+        X_lda_cohort = lda_cohort.fit_transform(X_scaled_cohort, y_cohort_valid)
+        
+        df_lda_cohort = pd.DataFrame({
+            "LD1": X_lda_cohort[:, 0],
+            "LD2": X_lda_cohort[:, 1] if n_components >= 2 else 0,
+            "Cohort": y_cohort_valid,
+            "Source": source_valid
+        })
+    else:
+        df_lda_cohort = None
+        
+    # Plotting
+    print(f"[{title_prefix}] Generating LDA plots...")
+    fig, axes = plt.subplots(1, 2, figsize=(20, 8))
+    
+    # Plot 1: Source LDA Density
+    sns.kdeplot(
+        data=df_lda_source, x="LD1", hue="Source", 
+        fill=True, common_norm=False, alpha=0.5, ax=axes[0]
+    )
+    axes[0].set_title(f"LDA on Source ({title_prefix})", fontsize=16, fontweight='bold', pad=15)
+    axes[0].set_xlabel("Linear Discriminant 1 (Source Separation)", fontsize=12)
+    axes[0].grid(True, linestyle="--", alpha=0.3)
+    
+    # Plot 2: Cohort LDA Scatter
+    if df_lda_cohort is not None:
+        unique_cohorts = sorted(df_lda_cohort["Cohort"].unique())
+        palette = sns.color_palette("husl", len(unique_cohorts))
+        color_dict = {cohort: color for cohort, color in zip(unique_cohorts, palette)}
+        markers_dict = {"TCGA": "o", "iAtlas": "^"}
+        
+        # Sort so TCGA is plotted first
+        df_lda_cohort = df_lda_cohort.sort_values("Source", ascending=True)
+        
+        sns.scatterplot(
+            data=df_lda_cohort, x="LD1", y="LD2",
+            hue="Cohort", hue_order=unique_cohorts, palette=color_dict,
+            style="Source", markers=markers_dict,
+            alpha=0.8, s=50, edgecolor=None, ax=axes[1], legend=True
+        )
+        axes[1].set_title(f"LDA on Cohort ({title_prefix})", fontsize=16, fontweight='bold', pad=15)
+        axes[1].set_xlabel("Linear Discriminant 1", fontsize=12)
+        axes[1].set_ylabel("Linear Discriminant 2", fontsize=12)
+        axes[1].grid(True, linestyle="--", alpha=0.3)
+        
+        ncol = 2 if len(unique_cohorts) > 15 else 1
+        axes[1].legend(
+            title="Cohort & Source",
+            bbox_to_anchor=(1.02, 1),
+            loc='upper left',
+            borderaxespad=0,
+            ncol=ncol,
+            fontsize='small'
+        )
+    else:
+        axes[1].text(0.5, 0.5, "Not enough cohort classes for 2D LDA", ha='center', va='center')
+        axes[1].axis('off')
+        
+    fig.tight_layout()
+    plot_output_dir = output_dir / "TCGA-background"
+    plot_output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = plot_output_dir / filename
+    fig.savefig(plot_path, dpi=300)
+    plt.close(fig)
+    print(f"[{title_prefix}] LDA Plots successfully saved to {plot_path}")
 
 
 def run_kmeans_clustering(data_coords, output_dir, name, k_range=range(2, 9)):
@@ -932,6 +1088,117 @@ def perform_complete_clustering_analysis(df_pca, df_umap, output_dir, name_prefi
     shutil.copy(metrics_path, output_dir / "TCGA-background" / "clustering_metrics.csv")
 
 
+def analyze_cohort_distances(adata_combined, k_values=[50, 100, 200], pca_dims=[30, 40, 50], output_dir=None):
+    import pandas as pd
+    import numpy as np
+    from sklearn.cluster import KMeans
+    from scipy.spatial.distance import cdist
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+    import scanpy as sc
+
+    print("Analyzing distances between iAtlas and TCGA cohorts in PCA space...")
+
+    # We need PCA. Since adata_combined is already combat-corrected, we scale and run PCA.
+    # To save time and memory, we'll run PCA directly on a copy of the combined object.
+    adata_pca = adata_combined.copy()
+    
+    print("Scaling and computing PCA for distance analysis...")
+    sc.pp.scale(adata_pca)
+    sc.tl.pca(adata_pca, n_comps=max(pca_dims), svd_solver='arpack')
+    
+    full_pca = adata_pca.obsm['X_pca']
+
+    # Get metadata
+    source_labels = adata_pca.obs['Source'].astype(str).values
+    cohort_labels = adata_pca.obs['dataset'].astype(str).values
+    sample_ids = adata_pca.obs.index.values
+
+    tcga_mask = source_labels == 'TCGA'
+    iatlas_mask = source_labels == 'iAtlas'
+
+    tcga_cohorts = cohort_labels[tcga_mask]
+    iatlas_cohorts = cohort_labels[iatlas_mask]
+    iatlas_sample_ids = sample_ids[iatlas_mask]
+    
+    out_dir = output_dir / "TCGA-background" / "distances"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for n_pca in pca_dims:
+        if n_pca > full_pca.shape[1]:
+            print(f"Requested {n_pca} PCA dimensions, but only {full_pca.shape[1]} available. Skipping.")
+            continue
+            
+        pca_features = full_pca[:, :n_pca]
+        tcga_pca_coords = pca_features[tcga_mask]
+        iatlas_pca_coords = pca_features[iatlas_mask]
+
+        for k in k_values:
+            print(f"Running distance analysis for K={k}, PCA_dims={n_pca}...")
+            
+            # 1. KMeans on TCGA
+            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+            tcga_cluster_labels = kmeans.fit_predict(tcga_pca_coords)
+            centroids = kmeans.cluster_centers_
+
+            # 2. TCGA Centroid Composition
+            # Create a dataframe: rows=centroids, cols=tcga_cohorts, values=fraction
+            composition_df = pd.DataFrame({'Cluster': tcga_cluster_labels, 'Cohort': tcga_cohorts})
+            comp_counts = composition_df.groupby(['Cluster', 'Cohort']).size().unstack(fill_value=0)
+            comp_fractions = comp_counts.div(comp_counts.sum(axis=1), axis=0)
+            
+            comp_csv_path = out_dir / f"tcga_centroid_composition_k{k}_pca{n_pca}.csv"
+            comp_fractions.to_csv(comp_csv_path)
+
+            # 3. L1 Distances: iAtlas Samples to TCGA Centroids
+            distances = cdist(iatlas_pca_coords, centroids, metric='cityblock')
+            
+            dist_df = pd.DataFrame(distances, index=iatlas_sample_ids, columns=[f"Centroid_{i}" for i in range(k)])
+            dist_df['iAtlas_Cohort'] = iatlas_cohorts
+            dist_csv_path = out_dir / f"iatlas_sample_to_tcga_centroid_distances_k{k}_pca{n_pca}.csv"
+            dist_df.to_csv(dist_csv_path)
+
+            # 4. Average L1 Distance Heatmap (iAtlas Cohort -> TCGA Cohort)
+            # Average distance from each iAtlas cohort to each Centroid
+            # Exclude non-numeric columns like 'iAtlas_Cohort' from mean operation
+            numeric_dist_df = dist_df.drop(columns=['iAtlas_Cohort'])
+            numeric_dist_df['iAtlas_Cohort'] = dist_df['iAtlas_Cohort']
+            mean_dist_to_centroid = numeric_dist_df.groupby('iAtlas_Cohort').mean()
+            # Map centroids to TCGA cohorts using composition matrix
+            avg_dist_matrix = mean_dist_to_centroid.values @ comp_fractions.values
+            avg_dist_df = pd.DataFrame(avg_dist_matrix, index=mean_dist_to_centroid.index, columns=comp_fractions.columns)
+            
+            avg_dist_out = out_dir / f"iatlas_to_tcga_avg_distance_k{k}_pca{n_pca}.csv"
+            avg_dist_df.to_csv(avg_dist_out)
+            
+            plt.figure(figsize=(14, 10))
+            sns.heatmap(avg_dist_df, cmap="viridis_r", annot=False)
+            plt.title(f"Average L1 Distance (K={k}, PCA={n_pca})")
+            plt.ylabel("iAtlas Cohort")
+            plt.xlabel("TCGA Cohort")
+            plt.tight_layout()
+            plt.savefig(out_dir / f"iatlas_to_tcga_avg_distance_heatmap_k{k}_pca{n_pca}.svg")
+            plt.close()
+
+            # 5. Nearest Centroid Voting Heatmap
+            nearest_centroid_idx = np.argmin(distances, axis=1)
+            sample_votes = comp_fractions.values[nearest_centroid_idx]
+            votes_df = pd.DataFrame(sample_votes, index=iatlas_cohorts, columns=comp_fractions.columns)
+            cohort_votes = votes_df.groupby(votes_df.index).mean()
+            
+            votes_out = out_dir / f"iatlas_to_tcga_voting_k{k}_pca{n_pca}.csv"
+            cohort_votes.to_csv(votes_out)
+
+            plt.figure(figsize=(14, 10))
+            sns.heatmap(cohort_votes, cmap="YlGnBu", annot=False)
+            plt.title(f"Nearest Centroid Voting Fraction (K={k}, PCA={n_pca})")
+            plt.ylabel("iAtlas Cohort")
+            plt.xlabel("TCGA Cohort")
+            plt.tight_layout()
+            plt.savefig(out_dir / f"iatlas_to_tcga_voting_heatmap_k{k}_pca{n_pca}.svg")
+            plt.close()
+
+
 def main():
     lair = datalair.Lair("/storage/halu/lair")
     lair.assert_ok_satus()
@@ -968,31 +1235,76 @@ def main():
     print("Querying Ensembl union exon lengths...")
     gene_lengths = get_ensembl_union_exon_lengths(ensembl)
     
-    # TPM Normalize and scale sum to 1.0
-    print("Performing TPM and unit-sum normalization on TCGA...")
-    adata = tpm_normalize_adata(adata, gene_lengths)
-    
-    # Apply log1p transformation
-    print("Applying log1p transformation...")
-    sc.pp.log1p(adata)
+    # Calculate RPK on TCGA
+    print("Computing RPK on TCGA...")
+    adata = compute_rpk_tcga(adata, gene_lengths)
 
-    # Map TCGA Ensembl IDs to Hugo symbols
-    print("Mapping TCGA Ensembl IDs to Hugo symbols...")
+    # Map TCGA Ensembl IDs to Hugo symbols and filter biotypes
+    print("Mapping TCGA Ensembl IDs to Hugo symbols and filtering biotypes...")
     gene_id_to_hugo = {}
+    valid_ids = []
     for gene_id in adata.var_names:
         clean_id = gene_id.split(".")[0]
         try:
+            gene_obj = ensembl.gene_by_id(clean_id)
+            if gene_obj.biotype != "protein_coding":
+                continue
             name = ensembl.gene_name_of_gene_id(clean_id)
+            if name and name.startswith("MT-"):
+                continue
             gene_id_to_hugo[gene_id] = name if name else gene_id
+            valid_ids.append(gene_id)
         except ValueError:
-            gene_id_to_hugo[gene_id] = gene_id
+            pass
             
+    print(f"Filtered to {len(valid_ids)} protein-coding, non-mitochondrial genes.")
+    adata = adata[:, valid_ids].copy()
     adata.var['hugo_symbol'] = [gene_id_to_hugo[g] for g in adata.var_names]
+    
+    # Aggregate TCGA to valid Hugo symbols to collapse duplicates BEFORE intersecting
+    valid_hugo = list(set([h for h in adata.var['hugo_symbol'] if not h.startswith("ENSG")]))
+    adata = aggregate_and_subset_by_hugo(adata, valid_hugo)
 
+    # Load all iAtlas datasets
+    print("Loading all iAtlas datasets...")
+    adata_iatlas = load_all_iatlas_datasets(lair, ensembl, gene_lengths)
+    print(f"Loaded combined iAtlas data: {adata_iatlas.shape[0]} samples, {adata_iatlas.shape[1]} genes.")
+    
+    # Intersect transcriptomes to prevent compositional bias
+    print("Intersecting TCGA and iAtlas transcriptomes to prevent compositional bias...")
+    common_transcriptome = sorted(list(set(adata.var_names).intersection(adata_iatlas.var_names)))
+    print(f"Shared transcriptome size: {len(common_transcriptome)} genes.")
+    
+    adata = adata[:, common_transcriptome].copy()
+    adata_iatlas = adata_iatlas[:, common_transcriptome].copy()
+    
+    # Perform TPM normalization on shared transcriptome
+    print("Performing TPM normalisation (sum to 1e6) on shared transcriptome...")
+    import scipy.sparse as sp
+    for ad_obj in [adata, adata_iatlas]:
+        X = ad_obj.X
+        if sp.issparse(X):
+            sample_sums = np.array(X.sum(axis=1)).flatten()
+            sample_sums[sample_sums == 0] = 1.0
+            diag_inv_sums = sp.diags(1e6 / sample_sums)
+            ad_obj.X = diag_inv_sums.dot(X).astype(np.float32)
+        else:
+            sample_sums = X.sum(axis=1, keepdims=True)
+            sample_sums[sample_sums == 0] = 1.0
+            ad_obj.X = ((X / sample_sums) * 1e6).astype(np.float32)
+            
+    # Apply log1p transformation
+    print("Applying log1p transformation...")
+    sc.pp.log1p(adata)
+    sc.pp.log1p(adata_iatlas)
+    
+    # Find Source DE genes (TCGA vs iAtlas)
+    print("Finding Source DE genes between TCGA and iAtlas...")
+    source_de_genes = find_source_de_genes(adata, adata_iatlas, n_top_genes=100)
+    
     # Select top 10 differentially expressed genes for each cohort against the rest on TCGA
     print("Selecting top one-vs-rest differentially expressed genes on TCGA...")
-    de_genes = select_top_one_vs_rest_de_genes(adata, groupby="dataset", n_top_genes=10, method="wilcoxon")
-    de_hugo_genes = sorted(list(set([gene_id_to_hugo[g] for g in de_genes if g in gene_id_to_hugo])))
+    de_hugo_genes = select_top_one_vs_rest_de_genes(adata, groupby="dataset", n_top_genes=10, method="wilcoxon")
     print(f"Total unique DE Hugo genes selected: {len(de_hugo_genes)}")
     
     # Load Bagaev signatures
@@ -1005,15 +1317,11 @@ def main():
     bagaev_signature = read_gene_sets(filepaths_sig["gene_signatures.gmt"])
     bagaev_genes = sorted(list(set.union(*[x.genes for x in bagaev_signature.values()])))
     print(f"Loaded {len(bagaev_genes)} unique Bagaev signature genes.")
-    
-    # Load all iAtlas datasets (shared across combined runs)
-    print("Loading all iAtlas datasets...")
-    adata_iatlas = load_all_iatlas_datasets(lair, ensembl, gene_lengths)
-    print(f"Loaded combined iAtlas data: {adata_iatlas.shape[0]} samples, {adata_iatlas.shape[1]} genes.")
 
     # Run 1: TCGA-Only using DE genes
     print("Running TCGA-only analysis on DE genes...")
-    adata_tcga_de = aggregate_and_subset_by_hugo(adata, de_hugo_genes)
+    target_de = [g for g in de_hugo_genes if g in adata.var_names]
+    adata_tcga_de = adata[:, target_de].copy()
     run_pca_umap_tcga_only(
         adata_tcga_de, 
         output_dir, 
@@ -1022,8 +1330,8 @@ def main():
     )
     
     # Run 2: TCGA-Only using Bagaev signature genes
-    print("Running TCGA-only analysis on Bagaev signature genes...")
-    adata_tcga_bagaev = aggregate_and_subset_by_hugo(adata, bagaev_genes)
+    target_bagaev = [g for g in bagaev_genes if g in adata.var_names]
+    adata_tcga_bagaev = adata[:, target_bagaev].copy()
     run_pca_umap_tcga_only(
         adata_tcga_bagaev, 
         output_dir, 
@@ -1031,39 +1339,107 @@ def main():
         "TCGA-Only Bagaev Signature Genes"
     )
 
+    # ---------------- UNCORRECTED RUN ---------------- #
     # Run 3: Combined TCGA & iAtlas using DE genes
     df_pca_de, df_umap_de = run_pca_umap_combined(
-        adata,
-        adata_iatlas,
-        de_hugo_genes,
-        output_dir,
-        "tcga_combined_de_pca_umap.svg",
-        "TCGA & iAtlas DE Genes"
-    )
-    # Maintain original output file path as well
-    import shutil
-    shutil.copy(
-        output_dir / "TCGA-background" / "tcga_combined_de_pca_umap.svg",
-        output_dir / "TCGA-background" / "tcga_pca_umap.svg"
+        adata, adata_iatlas, de_hugo_genes, output_dir,
+        "tcga_combined_de_pca_umap_uncorrected.svg", "TCGA & iAtlas DE Genes (Uncorrected)"
     )
 
     # Run 4: Combined TCGA & iAtlas using Bagaev signatures
     df_pca_bagaev, df_umap_bagaev = run_pca_umap_combined(
-        adata,
-        adata_iatlas,
-        bagaev_genes,
-        output_dir,
-        "tcga_combined_bagaev_pca_umap.svg",
-        "TCGA & iAtlas Bagaev Signature Genes"
+        adata, adata_iatlas, bagaev_genes, output_dir,
+        "tcga_combined_bagaev_pca_umap_uncorrected.svg", "TCGA & iAtlas Bagaev (Uncorrected)"
+    )
+
+    # Run 5: LDA on Source DE genes
+    run_lda_and_plot(
+        adata, adata_iatlas, source_de_genes, output_dir,
+        "tcga_iatlas_source_de_lda_uncorrected.svg", "Source DE Genes (Uncorrected)"
     )
 
     # Perform clustering analysis on DE Genes PCA/UMAP
-    print("Performing complete clustering analysis on DE genes...")
-    perform_complete_clustering_analysis(df_pca_de, df_umap_de, output_dir, "DE", "DE Genes")
+    perform_complete_clustering_analysis(df_pca_de, df_umap_de, output_dir, "DE_Uncorrected", "DE Genes (Uncorrected)")
 
     # Perform clustering analysis on Bagaev Signature Genes PCA/UMAP
-    print("Performing complete clustering analysis on Bagaev signature genes...")
-    perform_complete_clustering_analysis(df_pca_bagaev, df_umap_bagaev, output_dir, "Bagaev", "Bagaev Signature Genes")
+    perform_complete_clustering_analysis(df_pca_bagaev, df_umap_bagaev, output_dir, "Bagaev_Uncorrected", "Bagaev (Uncorrected)")
+
+    # Maintain original output file path to satisfy any traditional checks
+    import shutil
+    shutil.copy(
+        output_dir / "TCGA-background" / "tcga_combined_de_pca_umap_uncorrected.svg",
+        output_dir / "TCGA-background" / "tcga_pca_umap.svg"
+    )
+
+
+    # ---------------- COMBAT CORRECTION ---------------- #
+    import anndata as ad
+    import scipy.sparse as sp
+    
+    print("Concatenating for ComBat correction...")
+    adata.obs['Source'] = 'TCGA'
+    adata_iatlas.obs['Source'] = 'iAtlas'
+    adata_combined_full = ad.concat([adata, adata_iatlas], axis=0, join="inner")
+    
+    print("Applying ComBat batch correction...")
+    if sp.issparse(adata_combined_full.X):
+        adata_combined_full.X = adata_combined_full.X.toarray()
+    sc.pp.combat(adata_combined_full, key='Source')
+    
+    print("Splitting ComBat-corrected data back into TCGA and iAtlas objects...")
+    adata_corr = adata_combined_full[adata_combined_full.obs['Source'] == 'TCGA'].copy()
+    adata_iatlas_corr = adata_combined_full[adata_combined_full.obs['Source'] == 'iAtlas'].copy()
+
+
+    # ---------------- CORRECTED RUN ---------------- #
+    # Run 6: Combined TCGA & iAtlas using DE genes
+    df_pca_de_corr, df_umap_de_corr = run_pca_umap_combined(
+        adata_corr, adata_iatlas_corr, de_hugo_genes, output_dir,
+        "tcga_combined_de_pca_umap_combat.svg", "TCGA & iAtlas DE Genes (ComBat)"
+    )
+
+    # Run 7: Combined TCGA & iAtlas using Bagaev signatures
+    df_pca_bagaev_corr, df_umap_bagaev_corr = run_pca_umap_combined(
+        adata_corr, adata_iatlas_corr, bagaev_genes, output_dir,
+        "tcga_combined_bagaev_pca_umap_combat.svg", "TCGA & iAtlas Bagaev (ComBat)"
+    )
+
+    # Run 8: LDA on Source DE genes
+    run_lda_and_plot(
+        adata_corr, adata_iatlas_corr, source_de_genes, output_dir,
+        "tcga_iatlas_source_de_lda_combat.svg", "Source DE Genes (ComBat)"
+    )
+
+    # Perform clustering analysis on DE Genes PCA/UMAP
+    perform_complete_clustering_analysis(df_pca_de_corr, df_umap_de_corr, output_dir, "DE_ComBat", "DE Genes (ComBat)")
+
+    # Perform clustering analysis on Bagaev Signature Genes PCA/UMAP
+    perform_complete_clustering_analysis(df_pca_bagaev_corr, df_umap_bagaev_corr, output_dir, "Bagaev_ComBat", "Bagaev (ComBat)")
+
+    # Run cohort distance matching
+    analyze_cohort_distances(
+        adata_combined_full, 
+        k_values=[50, 100, 200, 300, 400, 500], 
+        pca_dims=[10, 20, 30, 40, 50], 
+        output_dir=output_dir
+    )
+
+    # Save Harmonized Datasets to Datalair
+    print("Saving harmonized datasets to Datalair...")
+    from ici_datasets.other_datasets import HarmonizedTcgaIAtlas
+    ds_harmonized = HarmonizedTcgaIAtlas()
+    ds_path = lair.get_path(ds_harmonized)
+    ds_path.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Writing h5ad files to {ds_path}...")
+    # The prompt explicitly asked to save adata and adata_iatlas
+    adata.write_h5ad(ds_path / "tcga_harmonized_uncorrected.h5ad")
+    adata_iatlas.write_h5ad(ds_path / "iatlas_harmonized_uncorrected.h5ad")
+    
+    # We also save the ComBat corrected versions just in case
+    adata_corr.write_h5ad(ds_path / "tcga_harmonized_combat.h5ad")
+    adata_iatlas_corr.write_h5ad(ds_path / "iatlas_harmonized_combat.h5ad")
+    print("Harmonized datasets successfully saved to Datalair.")
 
 
 if __name__ == "__main__":

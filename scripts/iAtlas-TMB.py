@@ -1,21 +1,15 @@
 from itertools import product
-import os
-import sys
 import datalair
 import matplotlib.pyplot as plt
 import pprint as pprint
-from pandas import DataFrame
 import ici_datasets # pyrefly: ignore [missing-import]
 import seaborn as sns
 from pathlib import Path
 import numpy as np
 from scipy.stats import mannwhitneyu
-from pprint import pprint
-from gene_utils import calculate_maf_tmb, read_gene_sets, ssgsea_formula
-from pyensembl import EnsemblRelease
+from gene_utils import read_gene_sets, ssgsea_formula
 import pandas as pd
 from pathlib import Path
-from typing import Callable
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
@@ -27,165 +21,7 @@ from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.metrics import roc_curve, roc_auc_score, accuracy_score
 from sklearn.decomposition import PCA
 from sklearn.compose import ColumnTransformer
-from ici_datasets.bagaev_datasets import Signature
 
-
-def transform_expression_to_tpm(counts_df: pd.DataFrame, release: int = 110) -> pd.DataFrame:
-    """
-    Computes TPM from raw counts using pyensembl for local gene metrics lookup.
-
-    Parameters:
-    counts_df: DataFrame of raw counts (rows = Hugo symbols, cols = samples).
-    release: Ensembl release version number.
-    """
-    # 1. Initialize the local Ensembl database manager
-    data_source = EnsemblRelease(release)
-
-    def extract_kb_span(symbol: str) -> float | None:
-        """Maps a Hugo symbol to its genomic span in kilobases."""
-        try:
-            genes = data_source.genes_by_name(symbol)
-            # Map to the first transcript variant if multiple exist, else return None
-            return (genes[0].end - genes[0].start + 1) / 1e3 if genes else None
-        except ValueError:
-            return None
-
-    # 2. Filter-map operation over the index keyspace using assignment expression
-    gene_lengths = pd.Series({
-        symbol: length
-        for symbol in counts_df.index
-        if (length := extract_kb_span(symbol)) is not None
-    })
-
-    # 3. Restrict matrix operation to the intersection of existing annotations
-    common_genes = counts_df.index.intersection(gene_lengths.index)
-    counts = counts_df.loc[common_genes]
-    lengths = gene_lengths.loc[common_genes]
-
-    # 4. Matrix Transformations: RPK followed by TPM normalization
-    rpk = counts.div(lengths, axis=0)
-    return rpk.div(rpk.sum(axis=0), axis=1) * 1e6
-
-def transform_rpkm_to_tpm(rpkm_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Converts an RPKM/FPKM normalized DataFrame to TPM.
-    """
-    # Normalize each column such that its sum is strictly 10^6
-    tpm = rpkm_df.div(rpkm_df.sum(axis=0), axis=1) * 1e6
-
-    return tpm
-
-def transform_tpm_to_tpm(df: pd.DataFrame) -> pd.DataFrame: return df
-
-
-def load_and_transform_data_mrna(data_dir: str | Path) -> pd.DataFrame:
-    p_dir = Path(data_dir)
-    dispatch_map: dict[str, tuple[Callable[[pd.DataFrame], pd.DataFrame], str]] = {
-        "data_mrna_seq_expression.txt": (transform_expression_to_tpm, "none"),
-        "data_mrna_seq_tpm.txt": (transform_tpm_to_tpm, "tpm"),
-        "data_mrna_seq_rpkm.txt": (transform_rpkm_to_tpm, "rpkm"),
-    }
-
-    existing_files = tuple(filter(lambda f: (p_dir / f).is_file(), dispatch_map.keys()))
-    if len(existing_files) != 1:
-        raise ValueError(
-            f"Invariant violation: Expected exactly 1 file, but found {len(existing_files)} in {p_dir}."
-        )
-    target = existing_files[0]
-    transform_fn, normalization = dispatch_map[target]
-
-    data_mrna = transform_fn(pd.read_csv(p_dir / target, sep='\t', index_col=0))
-    data_mrna.attrs["original_normalization"] = normalization
-    if data_mrna.isna().any(axis=None):
-        raise ValueError("Data integrity violation: DataFrame contains NA values.")
-    return data_mrna
-
-
-def load_and_process_data(data_dir):
-    data_clinical = load_data_clinical(data_dir)
-    data_mrna_seq_expression = load_and_transform_data_mrna(data_dir)
-    return data_clinical, data_mrna_seq_expression
-
-
-def load_data_clinical(data_dir) -> DataFrame:
-    # Known aliases for the response column across cBioPortal datasets
-    RESPONSE_COL_CANDIDATES = [
-    "RESPONSE", "Response", "response",
-    "BEST_RESPONSE", "Best_Response", "best_response",
-    "RECIST", "recist",
-]
-
-    RESPONSE_VALUE_MAP = {
-        "Complete Response": "R",
-        "Partial Response": "R",
-        "Stable Disease": "NR",
-        "Progressive Disease": "NR",
-        # Add other common encodings as needed:
-        "CR": "R",
-        "PR": "R",
-        "SD": "NR",
-        "PD": "NR",
-    }
-
-    def _resolve_column(df, candidates):
-        """Return the actual column name matching any candidate (case/space-insensitive)."""
-        normalized = {c.strip().lower(): c for c in df.columns}
-        for cand in candidates:
-            key = cand.strip().lower()
-            if key in normalized:
-                return normalized[key]
-        raise KeyError(
-            f"None of {candidates} found. Available columns: {list(df.columns)}"
-        )
-
-    filepath_clinical_sample = data_dir / "data_clinical_sample.txt"
-    data_clinical_sample = pd.read_csv(filepath_clinical_sample, sep="\t", index_col=0, skiprows=4)
-
-    response_col = _resolve_column(data_clinical_sample, RESPONSE_COL_CANDIDATES)
-    if response_col is None:
-        raise KeyError(
-            "No response column found. Available columns: "
-            f"{list(data_clinical_sample.columns)}"
-        )
-
-    data_clinical_sample = data_clinical_sample.set_index("SAMPLE_ID")
-    data_clinical_sample = data_clinical_sample[response_col]
-
-
-    filepath_mutations = data_dir / "data_mutations.txt"
-    if filepath_mutations.exists():
-        data_mutations = pd.read_csv(data_dir / "data_mutations.txt", sep="\t", low_memory=False)
-        tmb_results = calculate_maf_tmb(data_mutations)
-        tmb_results = tmb_results.set_index("Tumor_Sample_Barcode")
-        data_clinical_sample = pd.concat([tmb_results, data_clinical_sample], join="inner", axis=1)
-
-    data_clinical_sample["response"] = data_clinical_sample[response_col].map(RESPONSE_VALUE_MAP)
-    return data_clinical_sample
-
-
-def get_dataset_dir(lair, dataset_class, ds_name):
-    ds = dataset_class(name=ds_name)
-    filepaths = lair.get_dataset_filepaths(ds)
-    unpacked_file_key = next(f for f in filepaths.keys() if not f.endswith('.tar.gz'))
-    filepath = filepaths[unpacked_file_key]
-    return filepath / filepath.name
-
-# def load_and_process_data(data_dir):
-#     data_mutations = pd.read_csv(data_dir / "data_mutations.txt", sep="\t")
-#     tmb_results = calculate_maf_tmb(data_mutations)
-#     tmb_results = tmb_results.set_index("Tumor_Sample_Barcode")
-#     data_clinical_sample = pd.read_csv(data_dir / "data_clinical_sample.txt", sep="\t",
-#                                        index_col=0, skiprows=4)
-#     data_clinical_sample = data_clinical_sample.set_index("SAMPLE_ID")
-#     data_clinical_sample = data_clinical_sample["RESPONSE"]
-#     df = pd.concat([tmb_results, data_clinical_sample], join="inner", axis=1)
-#     df["response"] = df["RESPONSE"].map({
-#         "Complete Response": "R",
-#         "Partial Response": "R",
-#         "Stable Disease": "NR",
-#         "Progressive Disease": "NR"
-#     })
-#     return df
 
 def plot_tmb_vs_response(df, ax, ds_name):
     ax.set_title(ds_name)
@@ -242,8 +78,8 @@ def plot_tmb_iatlas(lair):
     for ds_name, ax in zip(iatlas_dataset_names, axes, strict=True):
         ax.set_title(ds_name)
         try:
-            data_dir = get_dataset_dir(lair, dataset_class, ds_name)
-            df_clinical, _ = load_and_process_data(data_dir)
+            data_dir = ici_datasets.cbioportal_datasets.get_dataset_dir(lair, dataset_class, ds_name)
+            df_clinical, _ = ici_datasets.cbioportal_datasets.load_and_process_data(data_dir)
             plot_tmb_vs_response(df_clinical, ax, ds_name)
         except FileNotFoundError:
             print(ds_name, "\tFile not found")
@@ -368,7 +204,7 @@ def predict_response_from_mrna_and_tmb_iatlas(lair, use_features: str = "both", 
     iatlas_dataset_names = [s for s in dataset_class.get_dataset_name() if "iAtlas" in s]
     
     # Load Bagaev signatures once
-    ds_sig = Signature()
+    ds_sig = ici_datasets.bagaev_datasets.Signature()
     lair.safe_derive(ds_sig)
     filepaths = lair.get_dataset_filepaths(ds_sig)
     bagaev_signature = read_gene_sets(filepaths["gene_signatures.gmt"])
@@ -379,8 +215,8 @@ def predict_response_from_mrna_and_tmb_iatlas(lair, use_features: str = "both", 
     for ds_name, ax in zip(iatlas_dataset_names, axes, strict=True):
         ax.set_title(ds_name)
         try:
-            data_dir = get_dataset_dir(lair, dataset_class, ds_name)
-            df_clinical, data_mrna_seq_expression = load_and_process_data(data_dir)
+            data_dir = ici_datasets.cbioportal_datasets.get_dataset_dir(lair, dataset_class, ds_name)
+            df_clinical, data_mrna_seq_expression = ici_datasets.cbioportal_datasets.load_and_process_data(data_dir)
             accuracy, auc, y_pred, clf = predict_response(
                 df_clinical, data_mrna_seq_expression, bagaev_signature, ax, ds_name, use_features=use_features, n_components=n_components, balance_classes=balance_classes, classifier_type=classifier_type
             )
@@ -440,7 +276,7 @@ def load_and_combine_cohorts(lair, use_features: str = "both"):
     iatlas_dataset_names = [s for s in dataset_class.get_dataset_name() if "iAtlas" in s]
     
     # Load Bagaev signatures once
-    ds_sig = Signature()
+    ds_sig = ici_datasets.bagaev_datasets.Signature()
     lair.safe_derive(ds_sig)
     filepaths = lair.get_dataset_filepaths(ds_sig)
     bagaev_signature = read_gene_sets(filepaths["gene_signatures.gmt"])
@@ -451,8 +287,8 @@ def load_and_combine_cohorts(lair, use_features: str = "both"):
     
     for ds_name in iatlas_dataset_names:
         try:
-            data_dir = get_dataset_dir(lair, dataset_class, ds_name)
-            df_clinical, data_mrna_seq_expression = load_and_process_data(data_dir)
+            data_dir = ici_datasets.cbioportal_datasets.get_dataset_dir(lair, dataset_class, ds_name)
+            df_clinical, data_mrna_seq_expression = ici_datasets.cbioportal_datasets.load_and_process_data(data_dir)
             
             # Align samples
             df_clinical = df_clinical.copy()
