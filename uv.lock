@@ -10,6 +10,7 @@ members = [
     "instaprism",
     "ml-pipelines",
     "references",
+    "selective-inference",
     "single-cell-datasets",
     "tme-analysis",
 ]
@@ -3082,6 +3083,11 @@ wheels = [
 ]
 
 [[package]]
+name = "selective-inference"
+version = "0.1.0"
+source = { editable = "packages/selective_inference" }
+
+[[package]]
 name = "send2trash"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3442,6 +3448,7 @@ dependencies = [
     { name = "scanpy" },
     { name = "scipy-stubs" },
     { name = "seaborn" },
+    { name = "selective-inference" },
     { name = "setuptools" },
     { name = "single-cell-datasets" },
     { name = "singlecellrnasignature" },
@@ -3475,6 +3482,7 @@ requires-dist = [
     { name = "scanpy", specifier = ">=1.12.1" },
     { name = "scipy-stubs", specifier = "~=1.17.1" },
     { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "selective-inference", editable = "packages/selective_inference" },
     { name = "setuptools", specifier = "<70" },
     { name = "single-cell-datasets", editable = "packages/single_cell_datasets" },
     { name = "singlecellrnasignature", git = "https://github.com/LuJoHae/SingleCellRNASignature.git" },

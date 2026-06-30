@@ -33,6 +33,7 @@ dependencies = [
     "torch>=2.12.1",
     "scanpy>=1.12.1",
     "anndata>=0.12.17",
+    "selective-inference",
 ]
 
 [tool.uv.workspace]
@@ -53,3 +54,4 @@ references = { workspace = true }
 gene_utils = { workspace = true }
 ici_datasets = { workspace = true }
 ml_pipelines = { workspace = true }
+selective-inference = { workspace = true }
