@@ -1,14 +1,17 @@
+from dataclasses import dataclass, field
 import os
-import time
 import csv
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.cluster import KMeans
-from scipy.stats import norm
+from sklearn.mixture import GaussianMixture
+from scipy.stats import norm, uniform
 from tqdm import tqdm
 import logging
+import pandas as pd
+import altair as alt
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -127,6 +130,22 @@ def compute_analytical_limits(X, labels, centers, c1, c2, sigma=1.0):
                             
     return V_min, V_max, phi_obs, np.sqrt(v_norm_sq)
 
+@dataclass
+class AnalyticalStats:
+    naive_p: float
+    analytical_p: float
+    V_min: float
+    V_max: float
+    phi_obs: float
+    std_phi: float
+
+@dataclass
+class MCMCStats:
+    mcmc_p: float
+    acceptance_rate: float
+    accepted_z: np.ndarray = field(repr=False)
+
+
 def compute_naive_and_analytical_p(X, labels, centers, c1, c2, sigma=1.0):
     """
     Calculate naive and correct analytical selective p-values.
@@ -135,7 +154,7 @@ def compute_naive_and_analytical_p(X, labels, centers, c1, c2, sigma=1.0):
     
     if v_norm == 0:
         return 1.0, 1.0, V_min, V_max, phi_obs, 0.0
-        
+    
     std_phi = sigma * v_norm
     
     # Naive p-value (assuming normally distributed difference without selection)
@@ -155,10 +174,17 @@ def compute_naive_and_analytical_p(X, labels, centers, c1, c2, sigma=1.0):
         cdf_z = (norm.cdf(z_val) - norm.cdf(alpha_min)) / denom
         analytical_p = 2 * min(cdf_z, 1.0 - cdf_z)
         
-    return naive_p, analytical_p, V_min, V_max, phi_obs, std_phi
+    return AnalyticalStats(
+        naive_p=naive_p,
+        analytical_p=analytical_p,
+        V_min=V_min,
+        V_max=V_max,
+        phi_obs=phi_obs,
+        std_phi=std_phi
+    )
 
 def run_mcmc_metropolis_hastings(X, labels, c1, c2, sigma=1.0, max_mcmc_steps=2000, 
-                                 burn_in=500, random_state=42):
+                                 burn_in=500, random_state=42, model_type="kmeans", n_init=None):
     """
     Estimate the selective p-value using a Metropolis-Hastings Hit-and-Run sampler.
     """
@@ -210,10 +236,19 @@ def run_mcmc_metropolis_hastings(X, labels, c1, c2, sigma=1.0, max_mcmc_steps=20
         # Correctly scale the perturbation to keep projection equal to z_prop
         X_prop = X + (z_prop - phi_obs) * V / v_norm_sq
         
-        # Fit K-Means on perturbed data
-        kmeans_prop = KMeans(n_clusters=2, random_state=random_state, n_init=5)
-        kmeans_prop.fit(X_prop)
-        labels_prop = kmeans_prop.labels_
+        # Fit clustering model on perturbed data
+        if model_type == "kmeans":
+            n_init_km = n_init if n_init is not None else 5
+            kmeans_prop = KMeans(n_clusters=2, random_state=random_state, n_init=n_init_km)
+            kmeans_prop.fit(X_prop)
+            labels_prop = kmeans_prop.labels_
+        elif model_type in ["gmm_spherical", "gmm_diag", "gmm_full", "gmm_tied"]:
+            n_init_gmm = n_init if n_init is not None else 5
+            gmm_prop = GaussianMixture(n_components=2, covariance_type=model_type.split("_")[1], random_state=random_state, n_init=n_init_gmm)
+            gmm_prop.fit(X_prop)
+            labels_prop = gmm_prop.predict(X_prop)
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}")
         
         # Check if partition matches (up to cluster label swap)
         if np.array_equal(labels_prop, labels) or np.array_equal(labels_prop, 1 - labels):
@@ -230,41 +265,36 @@ def run_mcmc_metropolis_hastings(X, labels, c1, c2, sigma=1.0, max_mcmc_steps=20
     if len(accepted_z) == 0:
         mcmc_p = 1.0
     else:
-        mcmc_p = 2 * min(np.mean(accepted_z >= phi_obs), np.mean(accepted_z <= phi_obs))
+        mcmc_p = min(1.0, 2 * min(np.mean(accepted_z >= phi_obs), np.mean(accepted_z <= phi_obs)))
         
     acceptance_rate = accept_count / max_mcmc_steps
-    return mcmc_p, accepted_z, acceptance_rate
 
-def plot_generated_data(X, pred_labels, centers, args, out_dir):
+    return MCMCStats(mcmc_p=mcmc_p, accepted_z=accepted_z, acceptance_rate=acceptance_rate)
+
+def plot_generated_data(X, pred_labels, centers, args, ax):
+    model_type = getattr(args, 'model_type', 'kmeans')
+    model_name = "K-Means" if model_type == "kmeans" else "GMM"
+    center_label = f"{model_name} Centers"
     # Plot generated data
-    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
     sns.scatterplot(x=X[:, 0], y=X[:, 1], hue=pred_labels, palette="tab10", alpha=0.8, s=60, edgecolor='k', ax=ax)
-    ax.scatter(centers[:, 0], centers[:, 1], color='black', marker='X', s=250, label='K-Means Centers', zorder=10)
-    ax.set_title(f"K-Means Clustering (True Mean Difference = {args.mean_diff})")
+    ax.scatter(centers[:, 0], centers[:, 1], color='black', marker='X', s=250, label=center_label, zorder=10)
+    ax.set_title(f"{model_name} Clustering (True Mean Difference = {args.mean_diff})")
     ax.set_xlabel("$X_1$")
     ax.set_ylabel("$X_2$")
     ax.legend()
-    fig.tight_layout()
-    data_plot_path = os.path.join(out_dir, "generated_data.png")
-    fig.savefig(data_plot_path, dpi=150)
-    logging.info(f"Saved generated data plot to {data_plot_path}")
-    return fig, ax
+        
+    return ax
 
-def plot_mcmc_diagnostics(accepted_z, phi_obs, V_min, V_max, std_phi, out_dir):
+def plot_mcmc_diagnostics(accepted_z, ax):
     if len(accepted_z) == 0:
         logging.warning("No accepted MCMC samples to plot for diagnostics.")
-        return None, (None, None)
+        return (None, None)
 
     # Plot MCMC diagnostics vs Analytical Truncated Normal
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-    
+    ax1, ax2 = ax[0], ax[1]
+        
     # Trace Plot
     ax1.plot(accepted_z, color='teal', alpha=0.7)
-    ax1.axhline(phi_obs, color='red', linestyle='--', linewidth=2, label=f'Observed $\\phi$ ({phi_obs:.3f})')
-    if V_min > -np.inf and V_min > np.min(accepted_z):
-        ax1.axhline(V_min, color='darkorange', linestyle=':', linewidth=2, label=f'Analytical $V_{{min}}$ ({V_min:.3f})')
-    if V_max < np.inf and V_max < np.max(accepted_z):
-        ax1.axhline(V_max, color='darkorange', linestyle=':', linewidth=2, label=f'Analytical $V_{{max}}$ ({V_max:.3f})')
     ax1.set_title("MCMC Trace Plot")
     ax1.set_xlabel("Steps (post burn-in)")
     ax1.set_ylabel("Difference in means value ($z$)")
@@ -272,96 +302,133 @@ def plot_mcmc_diagnostics(accepted_z, phi_obs, V_min, V_max, std_phi, out_dir):
 
     # Density plot comparing empirical MCMC and analytical truncated normal
     sns.histplot(accepted_z, kde=False, color='teal', ax=ax2, stat="density", alpha=0.5, label="Empirical MCMC")
-    ax2.axvline(phi_obs, color='red', linestyle='--', linewidth=2, label='Observed $\\phi$')
-
-    # Plot analytical truncated normal PDF
-    if V_min > -np.inf or V_max < np.inf:
-        z_min_plot = max(V_min if V_min > -np.inf else np.min(accepted_z) - 0.5, np.min(accepted_z) - 0.5)
-        z_max_plot = min(V_max if V_max < np.inf else np.max(accepted_z) + 0.5, np.max(accepted_z) + 0.5)
-        z_grid = np.linspace(z_min_plot, z_max_plot, 200)
-
-        # Truncated normal density
-        denom = norm.cdf(V_max / std_phi) - norm.cdf(V_min / std_phi)
-        if denom > 0:
-            density = norm.pdf(z_grid / std_phi) / (std_phi * denom)
-            ax2.plot(z_grid, density, color='darkorange', linewidth=2.5, label='Analytical Truncated Normal')
-
-    # Unconditioned normal PDF (for comparison)
-    z_full_grid = np.linspace(np.min(accepted_z) - 1, np.max(accepted_z) + 1, 200)
-    ax2.plot(z_full_grid, norm.pdf(z_full_grid / std_phi) / std_phi, color='gray', linestyle=':', linewidth=1.5, label='Unconditioned Null')
-
     ax2.set_title("Distribution of Test Statistic")
     ax2.set_xlabel("Difference in means value ($z$)")
     ax2.set_ylabel("Density")
     ax2.legend()
+        
+    return (ax1, ax2)
 
-    plt.tight_layout()
-    diag_plot_path = os.path.join(out_dir, "mcmc_diagnostics.png")
-    plt.savefig(diag_plot_path, dpi=150)
-    plt.close()
-    logging.info(f"Saved MCMC diagnostics plot to {diag_plot_path}")
-    return fig, (ax1, ax2)
+def plot_generated_data_altair(X, pred_labels, centers, args):
+    df_points = pd.DataFrame({
+        'X_1': X[:, 0],
+        'X_2': X[:, 1],
+        'Cluster': pred_labels.astype(str)
+    })
+    
+    df_centers = pd.DataFrame({
+        'X_1': centers[:, 0],
+        'X_2': centers[:, 1]
+    })
+    
+    scatter = alt.Chart(df_points).mark_circle(size=60, opacity=0.8, stroke='black', strokeWidth=0.5).encode(
+        x=alt.X('X_1:Q', title='X1'),
+        y=alt.Y('X_2:Q', title='X2'),
+        color=alt.Color('Cluster:N', scale=alt.Scale(scheme='tableau10'), title='Cluster')
+    )
+    
+    centers_plot = alt.Chart(df_centers).mark_point(
+        shape='cross', 
+        size=250, 
+        color='black', 
+        strokeWidth=3,
+        opacity=1.0
+    ).encode(
+        x='X_1:Q',
+        y='X_2:Q'
+    )
+    
+    model_type = getattr(args, 'model_type', 'kmeans')
+    model_name = model_type
+    chart = (scatter + centers_plot).properties(
+        title=f"{model_name} Clustering (True Mean Difference = {args.mean_diff})",
+        width=400,
+        height=300
+    ).interactive()
+    
+    return chart
 
-def run_single_run_diagnostics(args, out_dir):
-    # -----------------------------------------------------------------
-    # Step 1: Single Run Diagnostics (Visualizing null or alternative)
-    # -----------------------------------------------------------------
+def plot_mcmc_diagnostics_altair(accepted_z, phi_obs):
+    if len(accepted_z) == 0:
+        logging.warning("No accepted MCMC samples to plot for diagnostics.")
+        return None
+        
+    df_trace = pd.DataFrame({
+        'Steps': np.arange(len(accepted_z)),
+        'z': accepted_z
+    })
+    
+    trace_chart = alt.Chart(df_trace).mark_line(color='teal', opacity=0.7).encode(
+        x=alt.X('Steps:Q', title='Steps (post burn-in)'),
+        y=alt.Y('z:Q', title='Difference in means value (z)', scale=alt.Scale(zero=False))
+    ).properties(
+        title='MCMC Trace Plot',
+        width=400,
+        height=300
+    ).interactive(name='trace_select')
+    
+    hline = alt.Chart(pd.DataFrame({'y': [phi_obs]})).mark_rule(
+        color='red',
+        strokeDash=[4, 4]
+    ).encode(
+        y='y:Q'
+    )
+
+    trace_chart = trace_chart + hline
+
+    df_density = pd.DataFrame({
+        'z': accepted_z
+    })
+    
+    density_chart = alt.Chart(df_density).mark_bar(opacity=0.5, color='teal').encode(
+        x=alt.X('z:Q', bin=alt.Bin(maxbins=30), title='Difference in means value (z)'),
+        y=alt.Y('count():Q', title='Frequency')
+    ).properties(
+        title='Distribution of Test Statistic',
+        width=400,
+        height=300
+    ).interactive(name='density_select')
+    
+    return trace_chart, density_chart
+
+def run_single_run_diagnostics(args):
     logging.info("Generating dataset for single run diagnostics...")
-    X, true_labels = generate_mixture_data(n_samples_comp1=75, n_samples_comp2=75, 
+    X, true_labels = generate_mixture_data(n_samples_comp1=args.n_samples, n_samples_comp2=args.n_samples, 
                                            mean_diff=args.mean_diff, sigma=1.0, random_state=args.seed)
     
-    kmeans = KMeans(n_clusters=2, random_state=args.seed, n_init=10)
-    kmeans.fit(X)
-    pred_labels = kmeans.labels_
-    centers = kmeans.cluster_centers_
+    model_type = getattr(args, 'model_type', 'kmeans')
+    if model_type == "kmeans":
+        kmeans = KMeans(n_clusters=2, random_state=args.seed, n_init=args.n_init)
+        kmeans.fit(X)
+        pred_labels = kmeans.labels_
+        centers = kmeans.cluster_centers_
+    elif model_type in ["gmm_spherical", "gmm_diag", "gmm_full", "gmm_tied"]:
+        gmm = GaussianMixture(n_components=2, covariance_type=model_type.split("_")[1], random_state=args.seed, n_init=args.n_init)
+        gmm.fit(X)
+        pred_labels = gmm.predict(X)
+        centers = gmm.means_
+    else:
+        raise ValueError(f"Unknown model_type: {model_type}")
     
-    _, ax1 = plot_generated_data(X, pred_labels, centers, args, out_dir)
-
-    
-    # Run p-value calculations
-    naive_p, analytical_p, V_min, V_max, phi_obs, std_phi = compute_naive_and_analytical_p(
-        X, pred_labels, centers, c1=0, c2=1, sigma=1.0
-    )
-    
-    logging.info(f"Analytical Single Run Results:")
-    logging.info(f"  Observed Test Statistic (phi_obs): {phi_obs:.4f}")
-    logging.info(f"  Standard Deviation (std_phi):       {std_phi:.4f}")
-    logging.info(f"  Truncation Interval:                 [{V_min:.4f}, {V_max:.4f}]")
-    logging.info(f"  Naive p-value:                       {naive_p:.6f}")
-    logging.info(f"  Analytical Selective p-value:        {analytical_p:.6f}")
-    
+   
     logging.info("Running MCMC Metropolis-Hastings sampler for single run...")
-    mcmc_p, accepted_z, acceptance_rate = run_mcmc_metropolis_hastings(
+    mcmc_stats = run_mcmc_metropolis_hastings(
         X, pred_labels, c1=0, c2=1, sigma=1.0, max_mcmc_steps=args.mcmc_steps, 
-        burn_in=args.burn_in, random_state=args.seed
+        burn_in=args.burn_in, random_state=args.seed, model_type=args.model_type,
+        n_init=args.n_init
     )
+    logging.info(mcmc_stats)
     
-    logging.info(f"MCMC Single Run Results:")
-    logging.info(f"  MCMC Selective p-value:              {mcmc_p:.6f}")
-    logging.info(f"  MCMC Acceptance Rate:                {acceptance_rate:.2%}")
-    
-    _, (ax2, ax3) = plot_mcmc_diagnostics(accepted_z, phi_obs, V_min, V_max, std_phi, out_dir)
+    analytical_stats = compute_naive_and_analytical_p(X, pred_labels, centers, c1=0, c2=1, sigma=1.0)
+    logging.info(analytical_stats)
 
-    
-    # Write Single Run Results to CSV
-    csv_single_path = os.path.join(out_dir, "single_run_results.csv")
-    with open(csv_single_path, mode="w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["metric", "value"])
-        writer.writerow(["mean_diff_setting", args.mean_diff])
-        writer.writerow(["phi_obs", phi_obs])
-        writer.writerow(["std_phi", std_phi])
-        writer.writerow(["V_min", V_min])
-        writer.writerow(["V_max", V_max])
-        writer.writerow(["naive_p", naive_p])
-        writer.writerow(["analytical_p", analytical_p])
-        writer.writerow(["mcmc_p", mcmc_p])
-        writer.writerow(["mcmc_acceptance_rate", acceptance_rate])
-    logging.info(f"Saved single run CSV results to {csv_single_path}")
+    # Use Altair function
+    chart_data = plot_generated_data_altair(X, pred_labels, centers, args)
+    trace_chart, density_chart = plot_mcmc_diagnostics_altair(mcmc_stats.accepted_z, analytical_stats.phi_obs)
 
-    return (ax1, ax2, ax3)
+    return (chart_data, trace_chart, density_chart), (mcmc_stats, analytical_stats)
 
-def run_ecdf_simulation(args, out_dir):
+def run_ecdf_simulation(args, out_dir, ax=None):
     # -----------------------------------------------------------------
     # Step 2: Multi-Iteration ECDF Simulation under the Null (D = 0)
     # -----------------------------------------------------------------
@@ -413,35 +480,88 @@ def run_ecdf_simulation(args, out_dir):
     logging.info(f"Saved null simulation CSV results to {csv_sim_path}")
     
     # Plot ECDF comparison
-    plt.figure(figsize=(10, 7))
-    plt.plot([0, 1], [0, 1], color='gray', linestyle='--', label='Uniform (Ideal Calibration)')
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 7))
+        fig_created = True
+    # else:
+    #     fig = ax.get_figure()
+    #     fig_created = False
+
+    ax.plot([0, 1], [0, 1], color='gray', linestyle='--', label='Uniform (Ideal Calibration)')
     
-    # Plot Naive
-    x_naive = np.sort(naive_null_pvals)
-    y_naive = np.arange(1, len(x_naive) + 1) / len(x_naive)
-    plt.step(x_naive, y_naive, label=f'Naive p-values (mean={np.mean(x_naive):.3f}, Type I={np.mean(x_naive <= 0.05):.3f})', 
-             color='crimson', linewidth=2.5)
+    # # Plot Naive
+    # x_naive = np.sort(naive_null_pvals)
+    # y_naive = np.arange(1, len(x_naive) + 1) / len(x_naive)
+    # ax.step(x_naive, y_naive, label=f'Naive p-values (mean={np.mean(x_naive):.3f}, Type I={np.mean(x_naive <= 0.05):.3f})', 
+    #          color='crimson', linewidth=2.5)
     
-    # Plot Analytical
-    x_ana = np.sort(analytical_null_pvals)
-    y_ana = np.arange(1, len(x_ana) + 1) / len(x_ana)
-    plt.step(x_ana, y_ana, label=f'Analytical Selective p-values (mean={np.mean(x_ana):.3f}, Type I={np.mean(x_ana <= 0.05):.3f})', 
-             color='darkorange', linewidth=2.5)
+    # # Plot Analytical
+    # x_ana = np.sort(analytical_null_pvals)
+    # y_ana = np.arange(1, len(x_ana) + 1) / len(x_ana)
+    # ax.step(x_ana, y_ana, label=f'Analytical Selective p-values (mean={np.mean(x_ana):.3f}, Type I={np.mean(x_ana <= 0.05):.3f})', 
+    #          color='darkorange', linewidth=2.5)
     
     # Plot MCMC
     x_mcmc = np.sort(mcmc_null_pvals)
     y_mcmc = np.arange(1, len(x_mcmc) + 1) / len(x_mcmc)
-    plt.step(x_mcmc, y_mcmc, label=f'MCMC Selective p-values (mean={np.mean(x_mcmc):.3f}, Type I={np.mean(x_mcmc <= 0.05):.3f})', 
+    ax.step(x_mcmc, y_mcmc, label=f'MCMC Selective p-values (mean={np.mean(x_mcmc):.3f}, Type I={np.mean(x_mcmc <= 0.05):.3f})', 
              color='teal', linewidth=2.5)
     
-    plt.title("Empirical Cumulative Distribution Function (ECDF) under the Null")
-    plt.xlabel("p-value")
-    plt.ylabel("Fraction of trials <= p-value")
-    plt.xlim(0, 1)
-    plt.ylim(0, 1)
-    plt.legend(loc='lower right')
-    plt.tight_layout()
-    ecdf_plot_path = os.path.join(out_dir, "ecdf_comparison.png")
-    plt.savefig(ecdf_plot_path, dpi=150)
-    plt.close()
-    logging.info(f"Saved ECDF calibration plot to {ecdf_plot_path}")
+    ax.set_title("Empirical Cumulative Distribution Function (ECDF) under the Null")
+    ax.set_xlabel("p-value")
+    ax.set_ylabel("Fraction of trials <= p-value")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.legend(loc='lower right')
+    
+    # if fig_created:
+    #     fig.tight_layout()
+    #     ecdf_plot_path = os.path.join(out_dir, "ecdf_comparison.png")
+    #     fig.savefig(ecdf_plot_path, dpi=150)
+    #     plt.close(fig)
+    #     logging.info(f"Saved ECDF calibration plot to {ecdf_plot_path}")
+
+    return ax
+
+def qq_plot(data: np.ndarray, dist=uniform, params=()):
+    """
+    Creates an interactive Q-Q plot using Altair and NumPy.
+    """
+    # 1. Sort data and compute empirical quantiles
+    sorted_data = np.sort(data)
+    n = len(sorted_data)
+    probs = (np.arange(n) + 0.5) / n
+    
+    # 2. Compute theoretical quantiles
+    theoretical_quantiles = dist.ppf(probs, *params)
+    
+    # 3. Prepare data for Altair
+    source = alt.Data(values=[
+        {"sample": float(s), "theoretical": float(t)} 
+        for s, t in zip(sorted_data, theoretical_quantiles)
+    ])
+    
+    # 4. Create base plot
+    points = alt.Chart(source).mark_point().encode(
+        x=alt.X('theoretical:Q', title='Theoretical Quantiles'),
+        y=alt.Y('sample:Q', title='Sample Quantiles')
+    )
+    
+    # 5. Add reference line (y = x) without Pandas
+    # Casting to float is required for Altair's JSON serialization
+    min_val = float(min(sorted_data[0], theoretical_quantiles[0]))
+    max_val = float(max(sorted_data[-1], theoretical_quantiles[-1]))
+    
+    line_data = alt.Data(values=[
+        {'x': min_val, 'y': min_val},
+        {'x': max_val, 'y': max_val}
+    ])
+    
+    line = alt.Chart(line_data).mark_line(
+        color='red', strokeDash=[5, 5]
+    ).encode(
+        x='x:Q', 
+        y='y:Q'
+    )
+    
+    return points + line

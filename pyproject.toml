@@ -34,6 +34,10 @@ dependencies = [
     "scanpy>=1.12.1",
     "anndata>=0.12.17",
     "selective-inference",
+    "altair>=6.2.2",
+    "vega>=4.1.0",
+    "notebook>=7.5.7",
+    "vl-convert-python>=1.9.0.post1",
 ]
 
 [tool.uv.workspace]

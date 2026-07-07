@@ -1,0 +1,4 @@
+{
+  "system_instruction": "Prefer functional paradigm with pure functions with type signatures and immutable data structures.",
+  "language_server": "python"
+}
