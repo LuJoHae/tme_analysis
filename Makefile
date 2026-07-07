@@ -3,7 +3,7 @@ REMOTE_DIR = ~/python-venv/tme_analysis
 SCRIPT = scripts/iAtlas-TMB.py
 REMOTE_UV = /home/halu/.local/bin/uv
 
-SCRIPTS := $(wildcard scripts/*.py)
+SCRIPTS := $(wildcard scripts/*.py) $(wildcard scripts/tcga_background/*.py)
 SENTINELS := $(patsubst scripts/%.py,.make-sentinels/%.done,$(SCRIPTS))
 
 .PHONY: sync run-remote run-all-remote
@@ -13,6 +13,7 @@ sync:
 	rsync -qavz --delete packages scripts pyproject.toml uv.lock $(REMOTE_HOST):$(REMOTE_DIR)/
 	ssh $(REMOTE_HOST) "mkdir -p $(REMOTE_DIR)/output"	
 	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) sync"
+	rsync -qavz $(REMOTE_HOST):$(REMOTE_DIR)/output/ output/
 
 run-remote: sync
 	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run python $(SCRIPT)"
@@ -25,6 +26,11 @@ run-all-remote: sync $(SENTINELS)
 	rsync -qavz $(REMOTE_HOST):$(REMOTE_DIR)/output/ output/
 
 .make-sentinels/%.done: scripts/%.py
-	@mkdir -p .make-sentinels
+	@mkdir -p $(dir $@)
 	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run python scripts/$*.py"
 	@touch $@
+
+.make-sentinels/tcga_background/02_dim_reduction.done: .make-sentinels/tcga_background/01_harmonize.done
+.make-sentinels/tcga_background/03_clustering.done: .make-sentinels/tcga_background/01_harmonize.done
+.make-sentinels/tcga_background/04_distance_analysis.done: .make-sentinels/tcga_background/01_harmonize.done
+

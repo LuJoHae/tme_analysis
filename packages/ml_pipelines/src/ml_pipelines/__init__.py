@@ -8,9 +8,11 @@ from ml_pipelines.random_forest import (
     rf_pipeline,
     plot_subtype_responser_fractions
 )
+from ml_pipelines import tcga_background
 
 __all__ = [
     "__version__",
     "rf_pipeline",
-    "plot_subtype_responser_fractions"
+    "plot_subtype_responser_fractions",
+    "tcga_background"
 ]
