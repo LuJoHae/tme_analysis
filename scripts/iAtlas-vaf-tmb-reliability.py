@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import mannwhitneyu, pearsonr, gaussian_kde
+from scipy.stats import mannwhitneyu, pearsonr, spearmanr, gaussian_kde
 from scipy.signal import find_peaks
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from sklearn.mixture import GaussianMixture
@@ -133,15 +133,18 @@ def get_cohort_data(lair, ds_name):
         data_dir = ici_datasets.cbioportal_datasets.get_dataset_dir(lair, dataset_class, ds_name)
         df_clinical = ici_datasets.cbioportal_datasets.load_data_clinical(data_dir)
         df_clinical = df_clinical[df_clinical['response'].isin(['R', 'NR'])]
+        df_clinical.index = df_clinical.index.astype(str)
         
         mut_file = data_dir / "data_mutations.txt"
         if not mut_file.exists():
             return None, None, None
             
         df_mut = pd.read_csv(mut_file, sep="\t", low_memory=False)
+        df_mut['Tumor_Sample_Barcode'] = df_mut['Tumor_Sample_Barcode'].astype(str)
         
         # Load mRNA expression
         _, df_mrna = ici_datasets.cbioportal_datasets.load_and_process_data(data_dir)
+        df_mrna.columns = df_mrna.columns.astype(str)
         df_mrna = df_mrna.loc[~df_mrna.index.duplicated(keep='first')]
         df_mrna = df_mrna.loc[:, ~df_mrna.columns.duplicated(keep='first')]
         
@@ -179,6 +182,8 @@ def main():
     vaf_density_curves = []
     improvement_stats = []
     sample_tmb_distributions = []
+    tmb_correlation_stats = []
+    paired_tmb_samples = []
     
     print("\n--- Processing Cohorts & Estimating VAF Thresholds ---")
     for cohort in individual_cohorts:
@@ -365,28 +370,60 @@ def main():
             'RNA_TMB_p_value': rna_pval
         })
         
+        # DNA-TMB vs Expressed RNA-TMB correlation analysis
+        if len(dna_tmb) > 2:
+            p_corr, p_pval = pearsonr(dna_tmb, rna_tmb)
+            s_corr, s_pval = spearmanr(dna_tmb, rna_tmb)
+        else:
+            p_corr, p_pval, s_corr, s_pval = np.nan, np.nan, np.nan, np.nan
+            
+        tmb_correlation_stats.append({
+            'Cohort': cohort,
+            'Pearson_r': p_corr,
+            'Pearson_p': p_pval,
+            'Spearman_rho': s_corr,
+            'Spearman_p': s_pval
+        })
+        
+        for sample in df_clin.index:
+            paired_tmb_samples.append({
+                'Cohort': cohort,
+                'Sample': sample,
+                'Response': df_clin.loc[sample, 'response'],
+                'DNA_TMB': dna_tmb.loc[sample],
+                'RNA_TMB': rna_tmb.loc[sample]
+            })
+        
         print(f"  {cohort} processed. KDE Valley: {valley_val:.2f}, Otsu: {otsu_val:.2f}, GMM: {gmm_val:.2f}, True Optimal: {best_vaf_true:.2f}")
 
     df_cohort_stats = pd.DataFrame(cohort_stats)
     df_curves = pd.DataFrame(vaf_density_curves)
     df_improvement = pd.DataFrame(improvement_stats)
     df_sample_tmb = pd.DataFrame(sample_tmb_distributions)
+    df_tmb_corr = pd.DataFrame(tmb_correlation_stats)
+    df_paired_samples = pd.DataFrame(paired_tmb_samples)
     
     # Save files
     stats_csv_path = output_dir / "cohort_reliability_stats.csv"
     curves_csv_path = output_dir / "vaf_density_curves.csv"
     improvement_csv_path = output_dir / "tmb_expression_improvement_comparison.csv"
     sample_tmb_csv_path = output_dir / "cohort_sample_tmb_distributions.csv"
+    tmb_corr_csv_path = output_dir / "dna_vs_rna_tmb_correlation_stats.csv"
+    paired_samples_csv_path = output_dir / "dna_vs_rna_tmb_samples.csv"
     
     df_cohort_stats.to_csv(stats_csv_path, index=False)
     df_curves.to_csv(curves_csv_path, index=False)
     df_improvement.to_csv(improvement_csv_path, index=False)
     df_sample_tmb.to_csv(sample_tmb_csv_path, index=False)
+    df_tmb_corr.to_csv(tmb_corr_csv_path, index=False)
+    df_paired_samples.to_csv(paired_samples_csv_path, index=False)
     
     print(f"\nSaved cohort stats to {stats_csv_path.name}")
     print(f"Saved VAF density curves to {curves_csv_path.name}")
     print(f"Saved improvement comparison stats to {improvement_csv_path.name}")
     print(f"Saved sample TMB distributions to {sample_tmb_csv_path.name}")
+    print(f"Saved DNA vs RNA TMB correlation stats to {tmb_corr_csv_path.name}")
+    print(f"Saved paired DNA/RNA TMB samples to {paired_samples_csv_path.name}")
 
     # --- PLOT 1: VAF Densities with Peaks and Valleys ---
     plt.figure(figsize=(14, 9), dpi=300)
@@ -552,7 +589,48 @@ def main():
     plt.savefig(output_dir / "cohort_tmb_response_distributions.svg", format='svg', bbox_inches='tight')
     plt.close()
     
-    print(f"\nSuccessfully generated cohort individual distributions and updated scatter plots!")
+    # Helper to format p-values cleanly
+    def format_p_val(pval):
+        if pd.isna(pval):
+            return "N/A"
+        return f"{pval:.3f}" if pval >= 0.001 else f"{pval:.1e}"
+
+    # --- PLOT 7: Correlation between DNA-TMB and Expressed RNA-TMB ---
+    plt.figure(figsize=(15, 10), dpi=300)
+    for idx, cohort in enumerate(df_cohort_stats['Cohort'].unique()):
+        plt.subplot(3, 3, idx + 1)
+        sub_samples = df_paired_samples[df_paired_samples['Cohort'] == cohort]
+        corr_c = df_tmb_corr[df_tmb_corr['Cohort'] == cohort].iloc[0]
+        
+        # Scatter plot colored by response
+        sns.scatterplot(
+            x='DNA_TMB', y='RNA_TMB', hue='Response', data=sub_samples,
+            palette={'R': '#2ECC71', 'NR': '#E74C3C'}, alpha=0.8, edgecolor='black', s=40
+        )
+        
+        # Regression line
+        if len(sub_samples) > 2:
+            sns.regplot(
+                x='DNA_TMB', y='RNA_TMB', data=sub_samples,
+                scatter=False, color='#34495E', line_kws={'linestyle': '--', 'linewidth': 1.2}
+            )
+            
+        pearson_p_str = format_p_val(corr_c['Pearson_p'])
+        spearman_p_str = format_p_val(corr_c['Spearman_p'])
+        
+        plt.title(f"{cohort}\nPearson r={corr_c['Pearson_r']:.2f} (p={pearson_p_str})\nSpearman rho={corr_c['Spearman_rho']:.2f} (p={spearman_p_str})", 
+                  fontsize=9, fontweight='bold', color='#2C3E50')
+        plt.xlabel("Standard DNA-TMB (VAF >= 0.05)", fontsize=8)
+        plt.ylabel("Expressed RNA-TMB", fontsize=8)
+        plt.grid(True, color='#E5E5E5', linestyle='-', linewidth=0.5)
+        plt.legend(fontsize=7, loc='upper left')
+        
+    plt.suptitle("Correlation: Standard DNA-TMB vs. Expressed RNA-TMB", fontsize=13, fontweight='bold', color='#2C3E50', y=0.995)
+    plt.tight_layout()
+    plt.savefig(output_dir / "dna_vs_rna_tmb_correlation.svg", format='svg', bbox_inches='tight')
+    plt.close()
+    
+    print(f"\nSuccessfully generated cohort individual distributions, correlation plots, and saved CSV files!")
 
 
 if __name__ == "__main__":

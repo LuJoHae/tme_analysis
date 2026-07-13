@@ -14,6 +14,14 @@ from single_cell_datasets._single_cell_datasets import (
     SingleCellDataProcessStep07
 )
 
+from single_cell_datasets._single_cell_reference import (
+    SingleCellReference,
+    SingleCellClustered,
+    SingleCellSubclustered,
+    SingleCellClusterMeans,
+    SingleCellDeconvolution
+)
+
 __all__ = [
     "__version__",
     "SingleCellDataProcessStep01",
@@ -22,5 +30,10 @@ __all__ = [
     "SingleCellDataProcessStep04",
     "SingleCellDataProcessStep05",
     "SingleCellDataProcessStep06",
-    "SingleCellDataProcessStep07"
+    "SingleCellDataProcessStep07",
+    "SingleCellReference",
+    "SingleCellClustered",
+    "SingleCellSubclustered",
+    "SingleCellClusterMeans",
+    "SingleCellDeconvolution"
 ]
