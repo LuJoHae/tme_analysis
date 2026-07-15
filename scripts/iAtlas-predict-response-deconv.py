@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Predict response to immunotherapy from deconvolution cell fractions using Random Forest.
+Computes and plots multiple performance metrics (ROC AUC, PR AUC, Accuracy, Precision, Recall, F1, MCC)
+and compares them directly against a random classifier baseline.
 """
 
 import sys
@@ -11,7 +13,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import (
+    roc_auc_score, average_precision_score, accuracy_score,
+    precision_score, recall_score, f1_score, matthews_corrcoef
+)
 
 # Ensure local packages are in path
 sys.path.append(str(Path(__file__).resolve().parent.parent / "packages"))
@@ -116,6 +121,9 @@ def main():
         if df_clin is not None:
             clinical_data[cohort] = df_clin
             
+    # Calculate Random Baselines first to append to final results
+    random_baselines = []
+    
     for resolution in resolutions:
         print(f"\n--- Running Random Forest predictions for {resolution} ---")
         
@@ -148,18 +156,48 @@ def main():
             
             oof_preds, importances = run_cross_val_rf(X, y)
             
+            # Compute probabilities metrics
             roc_auc = roc_auc_score(y, oof_preds)
             pr_auc = average_precision_score(y, oof_preds)
             
-            print(f"  {cohort}: ROC AUC = {roc_auc:.4f}, PR AUC = {pr_auc:.4f} (n={len(y)})")
+            # Compute classification metrics (threshold 0.5)
+            y_pred = (oof_preds >= 0.5).astype(int)
+            acc = accuracy_score(y, y_pred)
+            prec = precision_score(y, y_pred, zero_division=0)
+            rec = recall_score(y, y_pred, zero_division=0)
+            f1 = f1_score(y, y_pred, zero_division=0)
+            mcc = matthews_corrcoef(y, y_pred)
+            
+            print(f"  {cohort}: ROC AUC={roc_auc:.3f}, PR AUC={pr_auc:.3f}, Acc={acc:.3f}, MCC={mcc:.3f} (n={len(y)})")
             
             results_rows.append({
                 'Resolution': resolution,
                 'Cohort': cohort,
                 'ROC_AUC': roc_auc,
                 'PR_AUC': pr_auc,
+                'Accuracy': acc,
+                'Precision': prec,
+                'Recall': rec,
+                'F1_Score': f1,
+                'MCC': mcc,
                 'Num_Samples': len(y)
             })
+            
+            # Theoretical Random Baseline calculation for this cohort (only add once)
+            if resolution == resolutions[0]:
+                p = y.mean()
+                random_baselines.append({
+                    'Resolution': 'random_baseline',
+                    'Cohort': cohort,
+                    'ROC_AUC': 0.5,
+                    'PR_AUC': p,
+                    'Accuracy': 0.5,
+                    'Precision': p,
+                    'Recall': 0.5,
+                    'F1_Score': p / (p + 0.5) if p > 0 else 0.0,
+                    'MCC': 0.0,
+                    'Num_Samples': len(y)
+                })
             
             # Save feature importances
             imp_df = pd.DataFrame({
@@ -181,18 +219,49 @@ def main():
             y_mel = pd.concat(melanoma_targets_list, axis=0)
             
             oof_preds, importances = run_cross_val_rf(X_mel.values, y_mel.values)
+            
+            # Compute probabilities metrics
             roc_auc = roc_auc_score(y_mel.values, oof_preds)
             pr_auc = average_precision_score(y_mel.values, oof_preds)
             
-            print(f"  Combined-Melanoma: ROC AUC = {roc_auc:.4f}, PR AUC = {pr_auc:.4f} (n={len(y_mel)})")
+            # Compute classification metrics (threshold 0.5)
+            y_pred = (oof_preds >= 0.5).astype(int)
+            acc = accuracy_score(y_mel.values, y_pred)
+            prec = precision_score(y_mel.values, y_pred, zero_division=0)
+            rec = recall_score(y_mel.values, y_pred, zero_division=0)
+            f1 = f1_score(y_mel.values, y_pred, zero_division=0)
+            mcc = matthews_corrcoef(y_mel.values, y_pred)
+            
+            print(f"  Combined-Melanoma: ROC AUC={roc_auc:.3f}, PR AUC={pr_auc:.3f}, Acc={acc:.3f}, MCC={mcc:.3f} (n={len(y_mel)})")
             
             results_rows.append({
                 'Resolution': resolution,
                 'Cohort': 'Combined-Melanoma',
                 'ROC_AUC': roc_auc,
                 'PR_AUC': pr_auc,
+                'Accuracy': acc,
+                'Precision': prec,
+                'Recall': rec,
+                'F1_Score': f1,
+                'MCC': mcc,
                 'Num_Samples': len(y_mel)
             })
+            
+            # Theoretical Random Baseline calculation for Combined Melanoma
+            if resolution == resolutions[0]:
+                p = y_mel.values.mean()
+                random_baselines.append({
+                    'Resolution': 'random_baseline',
+                    'Cohort': 'Combined-Melanoma',
+                    'ROC_AUC': 0.5,
+                    'PR_AUC': p,
+                    'Accuracy': 0.5,
+                    'Precision': p,
+                    'Recall': 0.5,
+                    'F1_Score': p / (p + 0.5) if p > 0 else 0.0,
+                    'MCC': 0.0,
+                    'Num_Samples': len(y_mel)
+                })
             
             imp_df = pd.DataFrame({
                 'Feature': X_mel.columns,
@@ -202,6 +271,9 @@ def main():
             })
             importance_dfs.append(imp_df)
             
+    # Add random baselines to final results
+    results_rows.extend(random_baselines)
+    
     # Save performance metrics table
     df_perf = pd.DataFrame(results_rows)
     df_perf.to_csv(output_dir / "deconv_prediction_performance.csv", index=False)
@@ -212,29 +284,69 @@ def main():
     df_imp_all.to_csv(output_dir / "deconv_feature_importances.csv", index=False)
     
     # --- Plotting ---
-    # Plot 1: Performance comparison bar plot
-    plt.figure(figsize=(12, 6), dpi=300)
     # Filter out Combined-Melanoma for trial cohort comparison
     df_trials = df_perf[df_perf['Cohort'] != 'Combined-Melanoma']
     
+    # Plot 1: ROC AUC comparison bar plot
+    plt.figure(figsize=(12, 5), dpi=300)
     sns.barplot(
         data=df_trials, x='Cohort', y='ROC_AUC', hue='Resolution',
-        palette={'leiden_res_0.5': '#3498DB', 'kmeans_subcluster_res_0.5': '#E67E22'},
+        palette={'leiden_res_0.5': '#3498DB', 'kmeans_subcluster_res_0.5': '#E67E22', 'random_baseline': '#7F8C8D'},
         edgecolor='black', linewidth=0.8
     )
     plt.axhline(0.5, color='#7F8C8D', linestyle='--', label='Chance (AUC=0.5)')
     plt.title("Immunotherapy Response Prediction (ROC AUC) using Deconvolution Fractions", fontsize=12, fontweight='bold', pad=15)
     plt.xlabel("Trial Cohort", fontsize=10, fontweight='bold')
     plt.ylabel("Cross-Validated ROC AUC", fontsize=10, fontweight='bold')
-    plt.ylim(0.3, 0.8)
-    plt.legend(loc='upper right', title="Reference Clustering")
+    plt.ylim(0.3, 0.95)
+    plt.legend(loc='upper right', title="Model Resolution")
     plt.grid(True, linestyle='--', alpha=0.3, axis='y')
     sns.despine()
     plt.tight_layout()
     plt.savefig(output_dir / "deconv_prediction_performance.svg", format='svg', bbox_inches='tight')
     plt.close()
     
-    # Plot 2: Feature Importances for Combined-Melanoma & Rosenberg-iAtlas
+    # Plot 2: 2x3 Grid of other metrics: PR AUC, Accuracy, Precision, Recall, F1 Score, MCC
+    metrics_to_plot = [
+        ('PR_AUC', 'PR AUC', 0.0, 1.0, None),
+        ('Accuracy', 'Accuracy', 0.0, 1.0, 0.5),
+        ('Precision', 'Precision', 0.0, 1.0, None),
+        ('Recall', 'Recall', 0.0, 1.0, 0.5),
+        ('F1_Score', 'F1 Score', 0.0, 1.0, None),
+        ('MCC', 'Matthews Coeff (MCC)', -0.3, 0.8, 0.0)
+    ]
+    
+    fig, axes = plt.subplots(3, 2, figsize=(18, 16), dpi=300)
+    axes_flat = axes.flatten()
+    
+    for idx, (col_name, title, ymin, ymax, chance_line) in enumerate(metrics_to_plot):
+        ax = axes_flat[idx]
+        sns.barplot(
+            data=df_trials, x='Cohort', y=col_name, hue='Resolution', ax=ax,
+            palette={'leiden_res_0.5': '#1ABC9C', 'kmeans_subcluster_res_0.5': '#9B59B6', 'random_baseline': '#7F8C8D'},
+            edgecolor='black', linewidth=0.6
+        )
+        if chance_line is not None:
+            ax.axhline(chance_line, color='#E74C3C', linestyle=':', alpha=0.8)
+            
+        ax.set_title(title, fontsize=12, fontweight='bold')
+        ax.set_xlabel("Trial Cohort", fontsize=9)
+        ax.set_ylabel(title, fontsize=9)
+        ax.set_ylim(ymin, ymax)
+        ax.grid(True, linestyle='--', alpha=0.3, axis='y')
+        ax.tick_params(axis='x', rotation=15)
+        ax.legend().remove()
+        
+    # Put a single legend on the top right
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right', bbox_to_anchor=(0.95, 0.98), title="Model Resolution", fontsize=10)
+    
+    plt.suptitle("Deconvolution-Based Response Prediction Performance Metrics", fontsize=16, fontweight='bold', y=0.99)
+    plt.tight_layout()
+    plt.savefig(output_dir / "deconv_prediction_metrics_grid.svg", format='svg', bbox_inches='tight')
+    plt.close()
+    
+    # Plot 3: Feature Importances
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), dpi=300)
     
     # Leiden 0.5 Combined-Melanoma

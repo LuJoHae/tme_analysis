@@ -581,8 +581,19 @@ class SingleCellDeconvolution(ReferenceSingleCell):
                 raise FileNotFoundError(f"No bulk mRNA expression file found in {p_dir}")
             target = existing[0]
             df = pd.read_csv(p_dir / target, sep='\t', index_col=0)
+            
+            import numpy as np
+            if df.max().max() < 50:
+                print(f"    Detected log-transformed expression for {cohort_name} (max={df.max().max():.2f}). Linearizing...")
+                df = np.power(2, df) - 1
+            
             transform_fn, _ = dispatch_map[target]
-            return transform_fn(df)
+            df = transform_fn(df)
+            
+            if target in ["data_mrna_seq_tpm.txt", "data_mrna_seq_rpkm.txt"]:
+                df = df.div(df.sum(axis=0), axis=1) * 1e6
+                
+            return df
             
         # Target cohorts to deconvolute
         cohorts = [
@@ -697,6 +708,11 @@ class SingleCellDeconvolution(ReferenceSingleCell):
                     print(f"  Warning: No common genes between bulk {cohort} and reference {clustering_name}. Skipping.")
                     continue
                     
+                out_csv = output_dir / f"deconv_{cohort}_{clustering_name}.csv"
+                if out_csv.is_file():
+                    print(f"  Cell fractions already exist for {cohort} using {clustering_name}. Skipping.")
+                    continue
+                    
                 print(f"  Deconvoluting {cohort} using {clustering_name} (common genes: {len(common_genes)})...")
                 
                 bulk_aligned = bulk_df.loc[common_genes].copy()
@@ -717,7 +733,7 @@ class SingleCellDeconvolution(ReferenceSingleCell):
                     _, _, cell_fracs, _ = instaprism.insta_prism(
                         bulk=bulk_sample,
                         reference=reference_matrix,
-                        n_iter=50
+                        n_iter=30
                     )
                     return cell_fracs
                     
@@ -731,3 +747,230 @@ class SingleCellDeconvolution(ReferenceSingleCell):
                 out_csv = output_dir / f"deconv_{cohort}_{clustering_name}.csv"
                 deconv_df.to_csv(out_csv)
                 print(f"  Saved cell fractions to {out_csv.name}")
+
+
+class SingleCellBagaevDeconvolution(ReferenceSingleCell):
+    """
+    Datalair Dataset class for Single-Cell iAtlas Bagaev-Constrained Deconvolution.
+    Deconvolutes bulk expression from iAtlas and TCGA datasets using cluster mean profiles as reference,
+    constraining the gene space to BostonGene Bagaev signatures.
+    Uses instaprism with 50 iterations.
+    """
+    storage_path = Path("/storage/halu").resolve()
+
+    def derive(self, lair: datalair.Lair) -> None:
+        ad.settings.allow_write_nullable_strings = True
+        output_dir = lair.get_path(self)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 1. Load SingleCellClusterMeans files
+        ds_means = SingleCellClusterMeans()
+        means_paths = lair.get_dataset_filepaths(ds_means)
+        
+        # 2. Load Bagaev Signature Genes
+        from ici_datasets.bagaev_datasets import Signature as BagaevSignature
+        from gene_utils import read_gene_sets
+        ds_sig = BagaevSignature()
+        lair.safe_derive(ds_sig)
+        filepaths_sig = lair.get_dataset_filepaths(ds_sig)
+        bagaev_signature = read_gene_sets(filepaths_sig["gene_signatures.gmt"])
+        bagaev_genes = set.union(*[x.genes for x in bagaev_signature.values()])
+        bagaev_genes = set([g.upper() for g in bagaev_genes])
+        
+        import instaprism
+        import ici_datasets
+        from pyensembl import EnsemblRelease
+        from joblib import Parallel, delayed
+        
+        # Ensembl Release for TPM transformation if needed
+        data_source = EnsemblRelease(110)
+        
+        def extract_kb_span(symbol: str) -> float | None:
+            try:
+                genes = data_source.genes_by_name(symbol)
+                return (genes[0].end - genes[0].start + 1) / 1e3 if genes else None
+            except Exception:
+                return None
+
+        def transform_expr_to_tpm(counts_df: pd.DataFrame) -> pd.DataFrame:
+            gene_lengths = pd.Series({
+                symbol: length
+                for symbol in counts_df.index
+                if (length := extract_kb_span(symbol)) is not None
+            })
+            common_genes = counts_df.index.intersection(gene_lengths.index)
+            counts = counts_df.loc[common_genes]
+            lengths = gene_lengths.loc[common_genes]
+            rpk = counts.div(lengths, axis=0)
+            return rpk.div(rpk.sum(axis=0), axis=1) * 1e6
+
+        def load_bulk_data(cohort_name: str) -> pd.DataFrame:
+            dataset_class = ici_datasets.cbioportal_datasets.CBioPortalDataset
+            ds = dataset_class(name=cohort_name)
+            lair.safe_derive(ds)
+            
+            filepaths = lair.get_dataset_filepaths(ds)
+            unpacked_key = next(f for f in filepaths.keys() if not f.endswith('.tar.gz'))
+            p_dir = filepaths[unpacked_key] / filepaths[unpacked_key].name
+            
+            dispatch_map = {
+                "data_mrna_seq_expression.txt": (transform_expr_to_tpm, "none"),
+                "data_mrna_seq_tpm.txt": (lambda df: df, "tpm"),
+                "data_mrna_seq_rpkm.txt": (lambda df: df.div(df.sum(axis=0), axis=1) * 1e6, "rpkm"),
+            }
+            existing = [f for f in dispatch_map if (p_dir / f).is_file()]
+            if not existing:
+                raise FileNotFoundError(f"No bulk mRNA expression file found in {p_dir}")
+            target = existing[0]
+            df = pd.read_csv(p_dir / target, sep='\t', index_col=0)
+            
+            import numpy as np
+            if df.max().max() < 50:
+                print(f"    Detected log-transformed expression for {cohort_name} (max={df.max().max():.2f}). Linearizing...")
+                df = np.power(2, df) - 1
+            
+            transform_fn, _ = dispatch_map[target]
+            df = transform_fn(df)
+            
+            if target in ["data_mrna_seq_tpm.txt", "data_mrna_seq_rpkm.txt"]:
+                df = df.div(df.sum(axis=0), axis=1) * 1e6
+                
+            return df
+            
+        cohorts = [
+            "Hugo-iAtlas",
+            "Riaz-iAtlas",
+            "Liu-iAtlas",
+            "Gide-iAtlas",
+            "Rosenberg-iAtlas",
+            "Padron-iAtlas",
+            "Anders-iAtlas",
+            "McDermott-iAtlas",
+            "Choueiri-iAtlas"
+        ]
+        
+        tcga_projects = ["SKCM", "BLCA", "PAAD", "BRCA", "KIRC"]
+        
+        bulk_datasets = {}
+        for cohort in cohorts:
+            try:
+                df = load_bulk_data(cohort)
+                df.index = df.index.str.upper()
+                df = df.groupby(level=0).mean()
+                bulk_datasets[cohort] = df
+                print(f"  Successfully loaded {cohort} bulk expression with shape {df.shape}")
+            except Exception as e:
+                print(f"  Could not load expression for {cohort}: {e}")
+                
+        # Load and preprocess TCGA cohorts
+        print("  Loading TCGA datasets...")
+        import tcga
+        ds_tcga = tcga.AllProjectsAdata()
+        paths_tcga = lair.get_dataset_filepaths(ds_tcga)
+        
+        from ml_pipelines.tcga_background import aggregate_and_subset_by_hugo
+        from pyensembl import EnsemblRelease
+        ensembl = EnsemblRelease(release=111, species="human")
+        
+        for project in tcga_projects:
+            try:
+                file_key = f"{project}.h5ad"
+                adata_tcga = ad.read_h5ad(paths_tcga[file_key]).T
+                adata_tcga.var_names_make_unique()
+                
+                gene_id_to_hugo = {}
+                valid_ids = []
+                for gene_id in adata_tcga.var_names:
+                    clean_id = gene_id.split(".")[0]
+                    try:
+                        gene_obj = ensembl.gene_by_id(clean_id)
+                        if gene_obj.biotype != "protein_coding":
+                            continue
+                        name = ensembl.gene_name_of_gene_id(clean_id)
+                        if name and name.startswith("MT-"):
+                            continue
+                        gene_id_to_hugo[gene_id] = name if name else gene_id
+                        valid_ids.append(gene_id)
+                    except Exception:
+                        pass
+                        
+                adata_tcga = adata_tcga[:, valid_ids].copy()
+                adata_tcga.var['hugo_symbol'] = [gene_id_to_hugo[g] for g in adata_tcga.var_names]
+                
+                valid_hugo = list(set([h for h in adata_tcga.var['hugo_symbol'] if not h.startswith("ENSG")]))
+                adata_agg = aggregate_and_subset_by_hugo(adata_tcga, valid_hugo)
+                
+                df_tcga = pd.DataFrame(
+                    adata_agg.X.T,
+                    index=adata_agg.var_names,
+                    columns=adata_agg.obs_names
+                )
+                df_tcga.index = df_tcga.index.str.upper()
+                df_tcga = df_tcga.groupby(level=0).mean()
+                
+                cohort_key = f"TCGA-{project}"
+                bulk_datasets[cohort_key] = df_tcga
+                print(f"  Successfully loaded {cohort_key} bulk expression with shape {df_tcga.shape}")
+            except Exception as e:
+                print(f"  Could not load/process TCGA-{project}: {e}")
+                
+        # Loop over each clustering means file
+        for file_key, file_path in sorted(list(means_paths.items())):
+            if file_key.startswith("means_"):
+                clustering_name = file_key[6:].replace(".h5ad", "")
+            else:
+                clustering_name = file_key.replace(".h5ad", "")
+            print(f"\nDeconvoluting with reference clustering: {clustering_name} (Bagaev constrained)...")
+            
+            # Load cluster means AnnData
+            adata_mean = ad.read_h5ad(file_path)
+            adata_mean.var_names = adata_mean.var_names.str.upper()
+            ref_sum = adata_mean.X.sum(axis=0)
+            if hasattr(ref_sum, "A1"):
+                ref_sum = ref_sum.A1
+            valid_ref_genes = adata_mean.var_names[ref_sum > 0]
+            adata_mean = adata_mean[:, valid_ref_genes].copy()
+            
+            for cohort, bulk_df in bulk_datasets.items():
+                common_genes = bulk_df.index.intersection(adata_mean.var_names).intersection(bagaev_genes)
+                if len(common_genes) == 0:
+                    print(f"  Warning: No common Bagaev genes between bulk {cohort} and reference {clustering_name}. Skipping.")
+                    continue
+                    
+                out_csv = output_dir / f"deconv_bagaev_{cohort}_{clustering_name}.csv"
+                if out_csv.is_file():
+                    print(f"  Bagaev cell fractions already exist for {cohort} using {clustering_name}. Skipping.")
+                    continue
+                    
+                print(f"  Deconvoluting {cohort} using {clustering_name} (common Bagaev genes: {len(common_genes)})...")
+                
+                bulk_aligned = bulk_df.loc[common_genes].copy()
+                ref_aligned = adata_mean[:, common_genes].copy()
+                
+                reference_matrix = ref_aligned.X
+                if hasattr(reference_matrix, "toarray"):
+                    reference_matrix = reference_matrix.toarray()
+                reference_matrix = reference_matrix / reference_matrix.sum(axis=1, keepdims=True)
+                
+                cell_types = adata_mean.obs['cluster_label'].values
+                sample_ids = bulk_df.columns
+                
+                # Run instaprism deconvolution
+                def deconvolute_sample(sample_id):
+                    bulk_sample = bulk_aligned[sample_id].values
+                    _, _, cell_fracs, _ = instaprism.insta_prism(
+                        bulk=bulk_sample,
+                        reference=reference_matrix,
+                        n_iter=30
+                    )
+                    return cell_fracs
+                    
+                results = Parallel(n_jobs=-1)(
+                    delayed(deconvolute_sample)(sid) for sid in sample_ids
+                )
+                
+                # Save resulting cell fractions
+                deconv_df = pd.DataFrame(results, index=sample_ids, columns=cell_types)
+                out_csv = output_dir / f"deconv_bagaev_{cohort}_{clustering_name}.csv"
+                deconv_df.to_csv(out_csv)
+                print(f"  Saved Bagaev cell fractions to {out_csv.name}")

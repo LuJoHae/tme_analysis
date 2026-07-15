@@ -19,7 +19,8 @@ from single_cell_datasets._single_cell_reference import (
     SingleCellClustered,
     SingleCellSubclustered,
     SingleCellClusterMeans,
-    SingleCellDeconvolution
+    SingleCellDeconvolution,
+    SingleCellBagaevDeconvolution
 )
 
 __all__ = [
@@ -35,5 +36,6 @@ __all__ = [
     "SingleCellClustered",
     "SingleCellSubclustered",
     "SingleCellClusterMeans",
-    "SingleCellDeconvolution"
+    "SingleCellDeconvolution",
+    "SingleCellBagaevDeconvolution"
 ]
