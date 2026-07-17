@@ -50,6 +50,11 @@ def main():
     subprocess.run([python_bin, "scripts/investigate-cohort-clustering.py"], check=True)
     
     print("\n====================================================")
+    print("STEP 7: Rerunning Response Correlation Analysis (Self-Constructed Reference)...")
+    print("====================================================")
+    subprocess.run([python_bin, "scripts/iAtlas-self-ref-correlation.py"], check=True)
+    
+    print("\n====================================================")
     print("Pipeline Rerun Complete!")
     print("====================================================")
 

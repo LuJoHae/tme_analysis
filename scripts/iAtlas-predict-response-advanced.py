@@ -161,7 +161,9 @@ def main():
         "Anders-iAtlas",
         "McDermott-iAtlas",
         "Choueiri-iAtlas",
-        "Combined-Melanoma"
+        "Combined-Melanoma",
+        "Combined-RCC",
+        "Combined-All"
     ]
     
     resolutions = ["leiden_res_0.5", "kmeans_subcluster_res_0.5"]
@@ -171,7 +173,7 @@ def main():
     # Pre-load clinical data
     clinical_data = {}
     for cohort in cohorts:
-        if cohort != 'Combined-Melanoma':
+        if cohort not in ['Combined-Melanoma', 'Combined-RCC', 'Combined-All']:
             df_clin = load_clinical_and_tmb(cohort, lair)
             if df_clin is not None:
                 clinical_data[cohort] = df_clin
@@ -189,10 +191,17 @@ def main():
             
             for cohort in cohorts:
                 # Load aligned X and y
-                if cohort == 'Combined-Melanoma':
-                    mel_features_list = []
-                    mel_targets_list = []
-                    for c in ['Hugo-iAtlas', 'Riaz-iAtlas', 'Liu-iAtlas', 'Gide-iAtlas']:
+                if cohort in ['Combined-Melanoma', 'Combined-RCC', 'Combined-All']:
+                    features_list = []
+                    targets_list = []
+                    if cohort == 'Combined-Melanoma':
+                        sub_cohorts = ['Hugo-iAtlas', 'Riaz-iAtlas', 'Liu-iAtlas', 'Gide-iAtlas']
+                    elif cohort == 'Combined-RCC':
+                        sub_cohorts = ['McDermott-iAtlas', 'Choueiri-iAtlas']
+                    else:
+                        sub_cohorts = [c for c in cohorts if c not in ['Combined-Melanoma', 'Combined-RCC', 'Combined-All']]
+                        
+                    for c in sub_cohorts:
                         key = f"deconv_{c}_{resolution}.csv"
                         path = deconv_paths.get(key)
                         df_clin = clinical_data.get(c)
@@ -201,12 +210,12 @@ def main():
                             df_fracs.index = df_fracs.index.astype(str)
                             common_samples = df_fracs.index.intersection(df_clin.index)
                             if len(common_samples) >= 10:
-                                mel_features_list.append(df_fracs.loc[common_samples])
-                                mel_targets_list.append(df_clin.loc[common_samples, 'response'].map({'R': 1, 'NR': 0}))
-                    if not mel_features_list:
+                                features_list.append(df_fracs.loc[common_samples])
+                                targets_list.append(df_clin.loc[common_samples, 'response'].map({'R': 1, 'NR': 0}))
+                    if not features_list:
                         continue
-                    X_df = pd.concat(mel_features_list, axis=0)
-                    y_series = pd.concat(mel_targets_list, axis=0)
+                    X_df = pd.concat(features_list, axis=0)
+                    y_series = pd.concat(targets_list, axis=0)
                 else:
                     key = f"deconv_{cohort}_{resolution}.csv"
                     path = deconv_paths.get(key)
@@ -273,8 +282,8 @@ def main():
     for resolution in resolutions:
         df_res = df_results[df_results['Resolution'] == resolution]
         
-        # Re-order cohorts so Combined-Melanoma is last
-        cohort_order = [c for c in cohorts if c != 'Combined-Melanoma'] + ['Combined-Melanoma']
+        combined_names = ['Combined-Melanoma', 'Combined-RCC', 'Combined-All']
+        cohort_order = [c for c in cohorts if c not in combined_names] + combined_names
         
         fig, axes = plt.subplots(2, 2, figsize=(18, 14), dpi=300)
         axes_flat = axes.flatten()

@@ -100,7 +100,15 @@ def load_and_transform_data_mrna(data_dir: str | Path) -> pd.DataFrame:
     target = existing_files[0]
     transform_fn, normalization = dispatch_map[target]
 
-    data_mrna = transform_fn(pd.read_csv(p_dir / target, sep='\t', index_col=0))
+    df = pd.read_csv(p_dir / target, sep='\t', index_col=0)
+    if df.max().max() < 50:
+        print(f"    Detected log-transformed expression for {p_dir.name} (max={df.max().max():.2f}). Linearizing...")
+        df = np.power(2, df) - 1
+
+    data_mrna = transform_fn(df)
+    if target in ["data_mrna_seq_tpm.txt", "data_mrna_seq_rpkm.txt"]:
+        data_mrna = data_mrna.div(data_mrna.sum(axis=0), axis=1) * 1e6
+
     data_mrna.attrs["original_normalization"] = normalization
     if data_mrna.isna().any(axis=None):
         raise ValueError("Data integrity violation: DataFrame contains NA values.")

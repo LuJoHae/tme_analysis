@@ -130,6 +130,12 @@ def main():
         melanoma_features_list = []
         melanoma_targets_list = []
         
+        rcc_features_list = []
+        rcc_targets_list = []
+        
+        all_features_list = []
+        all_targets_list = []
+        
         for cohort in cohorts:
             key = f"deconv_{cohort}_{resolution}.csv"
             path = deconv_paths.get(key)
@@ -212,31 +218,37 @@ def main():
             if cohort in ['Hugo-iAtlas', 'Riaz-iAtlas', 'Liu-iAtlas', 'Gide-iAtlas']:
                 melanoma_features_list.append(X_df)
                 melanoma_targets_list.append(y_series)
-                
-        # Run Combined Melanoma
-        if melanoma_features_list:
-            X_mel = pd.concat(melanoma_features_list, axis=0)
-            y_mel = pd.concat(melanoma_targets_list, axis=0)
+            if cohort in ['McDermott-iAtlas', 'Choueiri-iAtlas']:
+                rcc_features_list.append(X_df)
+                rcc_targets_list.append(y_series)
+            all_features_list.append(X_df)
+            all_targets_list.append(y_series)
             
-            oof_preds, importances = run_cross_val_rf(X_mel.values, y_mel.values)
+        def run_and_record_combined(features_list, targets_list, name):
+            if not features_list:
+                return
+            X_comb = pd.concat(features_list, axis=0)
+            y_comb = pd.concat(targets_list, axis=0)
+            
+            oof_preds, importances = run_cross_val_rf(X_comb.values, y_comb.values)
             
             # Compute probabilities metrics
-            roc_auc = roc_auc_score(y_mel.values, oof_preds)
-            pr_auc = average_precision_score(y_mel.values, oof_preds)
+            roc_auc = roc_auc_score(y_comb.values, oof_preds)
+            pr_auc = average_precision_score(y_comb.values, oof_preds)
             
             # Compute classification metrics (threshold 0.5)
             y_pred = (oof_preds >= 0.5).astype(int)
-            acc = accuracy_score(y_mel.values, y_pred)
-            prec = precision_score(y_mel.values, y_pred, zero_division=0)
-            rec = recall_score(y_mel.values, y_pred, zero_division=0)
-            f1 = f1_score(y_mel.values, y_pred, zero_division=0)
-            mcc = matthews_corrcoef(y_mel.values, y_pred)
+            acc = accuracy_score(y_comb.values, y_pred)
+            prec = precision_score(y_comb.values, y_pred, zero_division=0)
+            rec = recall_score(y_comb.values, y_pred, zero_division=0)
+            f1 = f1_score(y_comb.values, y_pred, zero_division=0)
+            mcc = matthews_corrcoef(y_comb.values, y_pred)
             
-            print(f"  Combined-Melanoma: ROC AUC={roc_auc:.3f}, PR AUC={pr_auc:.3f}, Acc={acc:.3f}, MCC={mcc:.3f} (n={len(y_mel)})")
+            print(f"  {name}: ROC AUC={roc_auc:.3f}, PR AUC={pr_auc:.3f}, Acc={acc:.3f}, MCC={mcc:.3f} (n={len(y_comb)})")
             
             results_rows.append({
                 'Resolution': resolution,
-                'Cohort': 'Combined-Melanoma',
+                'Cohort': name,
                 'ROC_AUC': roc_auc,
                 'PR_AUC': pr_auc,
                 'Accuracy': acc,
@@ -244,15 +256,14 @@ def main():
                 'Recall': rec,
                 'F1_Score': f1,
                 'MCC': mcc,
-                'Num_Samples': len(y_mel)
+                'Num_Samples': len(y_comb)
             })
             
-            # Theoretical Random Baseline calculation for Combined Melanoma
             if resolution == resolutions[0]:
-                p = y_mel.values.mean()
+                p = y_comb.values.mean()
                 random_baselines.append({
                     'Resolution': 'random_baseline',
-                    'Cohort': 'Combined-Melanoma',
+                    'Cohort': name,
                     'ROC_AUC': 0.5,
                     'PR_AUC': p,
                     'Accuracy': 0.5,
@@ -260,16 +271,20 @@ def main():
                     'Recall': 0.5,
                     'F1_Score': p / (p + 0.5) if p > 0 else 0.0,
                     'MCC': 0.0,
-                    'Num_Samples': len(y_mel)
+                    'Num_Samples': len(y_comb)
                 })
-            
+                
             imp_df = pd.DataFrame({
-                'Feature': X_mel.columns,
+                'Feature': X_comb.columns,
                 'Importance': importances,
-                'Cohort': 'Combined-Melanoma',
+                'Cohort': name,
                 'Resolution': resolution
             })
             importance_dfs.append(imp_df)
+
+        run_and_record_combined(melanoma_features_list, melanoma_targets_list, 'Combined-Melanoma')
+        run_and_record_combined(rcc_features_list, rcc_targets_list, 'Combined-RCC')
+        run_and_record_combined(all_features_list, all_targets_list, 'Combined-All')
             
     # Add random baselines to final results
     results_rows.extend(random_baselines)
@@ -285,7 +300,7 @@ def main():
     
     # --- Plotting ---
     # Filter out Combined-Melanoma for trial cohort comparison
-    df_trials = df_perf[df_perf['Cohort'] != 'Combined-Melanoma']
+    df_trials = df_perf[~df_perf['Cohort'].isin(['Combined-Melanoma', 'Combined-RCC', 'Combined-All'])]
     
     # Plot 1: ROC AUC comparison bar plot
     plt.figure(figsize=(12, 5), dpi=300)

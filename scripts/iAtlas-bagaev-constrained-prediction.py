@@ -189,6 +189,10 @@ def main():
             continue
             
         df_expr = pd.read_csv(target_file, sep='\t', index_col=0)
+        import numpy as np
+        if df_expr.max().max() < 50:
+            print(f"    Detected log-transformed expression for {cohort} (max={df_expr.max().max():.2f}). Linearizing...")
+            df_expr = np.power(2, df_expr) - 1
         df_expr.index = df_expr.index.str.upper()
         df_expr = df_expr.groupby(level=0).mean()
         
@@ -254,6 +258,75 @@ def main():
                 'Accuracy': acc_fracs,
                 'MCC': mcc_fracs
             })
+    # Run Combined Cohorts
+    combined_specs = [
+        ('Combined-Melanoma', ['Hugo-iAtlas', 'Riaz-iAtlas', 'Liu-iAtlas', 'Gide-iAtlas']),
+        ('Combined-RCC', ['McDermott-iAtlas', 'Choueiri-iAtlas']),
+        ('Combined-All', ['Hugo-iAtlas', 'Riaz-iAtlas', 'Liu-iAtlas', 'Gide-iAtlas', 'Rosenberg-iAtlas', 'Padron-iAtlas', 'Anders-iAtlas', 'McDermott-iAtlas', 'Choueiri-iAtlas'])
+    ]
+    
+    for comb_name, sub_cohorts in combined_specs:
+        print(f"\nProcessing combined cohort: {comb_name}...")
+        expr_list = []
+        fracs_list = []
+        y_list = []
+        
+        for c in sub_cohorts:
+            if c in expression_matrices:
+                expr_list.append(expression_matrices[c])
+                fracs_list.append(deconv_matrices[c])
+                df_clin = clinical_labels[c]
+                common = expression_matrices[c].index
+                y_list.append(df_clin.loc[common, 'response'].map({'R': 1, 'NR': 0}))
+                
+        if not expr_list:
+            continue
+            
+        df_expr_comb = pd.concat(expr_list, axis=0)
+        df_fracs_comb = pd.concat(fracs_list, axis=0)
+        y_series_comb = pd.concat(y_list, axis=0)
+        
+        X_expr = df_expr_comb.values
+        X_fracs = df_fracs_comb.values
+        y = y_series_comb.values
+        
+        seeds = [42, 101, 2023, 7, 888]
+        for seed in seeds:
+            # Mode A: Gene Expression Directly
+            oof_expr = run_cross_val_rf(X_expr, y, seed)
+            auc_expr = roc_auc_score(y, oof_expr)
+            pr_expr = average_precision_score(y, oof_expr)
+            pred_class_expr = (oof_expr >= 0.5).astype(int)
+            acc_expr = accuracy_score(y, pred_class_expr)
+            mcc_expr = matthews_corrcoef(y, pred_class_expr)
+            
+            results_rows.append({
+                'Cohort': comb_name,
+                'Mode': 'Direct Expression',
+                'Seed': seed,
+                'ROC_AUC': auc_expr,
+                'PR_AUC': pr_expr,
+                'Accuracy': acc_expr,
+                'MCC': mcc_expr
+            })
+            
+            # Mode B: Deconvoluted Fractions
+            oof_fracs = run_cross_val_rf(X_fracs, y, seed)
+            auc_fracs = roc_auc_score(y, oof_fracs)
+            pr_fracs = average_precision_score(y, oof_fracs)
+            pred_class_fracs = (oof_fracs >= 0.5).astype(int)
+            acc_fracs = accuracy_score(y, pred_class_fracs)
+            mcc_fracs = matthews_corrcoef(y, pred_class_fracs)
+            
+            results_rows.append({
+                'Cohort': comb_name,
+                'Mode': 'Deconvoluted Fractions',
+                'Seed': seed,
+                'ROC_AUC': auc_fracs,
+                'PR_AUC': pr_fracs,
+                'Accuracy': acc_fracs,
+                'MCC': mcc_fracs
+            })
 
     # Save comparative metrics to CSV
     df_results = pd.DataFrame(results_rows)
@@ -269,7 +342,10 @@ def main():
     }).reset_index()
     df_summary.columns = ['Cohort', 'Mode', 'ROC_AUC_mean', 'ROC_AUC_std', 'PR_AUC_mean', 'PR_AUC_std', 'Accuracy_mean', 'Accuracy_std', 'MCC_mean', 'MCC_std']
     
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    combined_names = ['Combined-Melanoma', 'Combined-RCC', 'Combined-All']
+    cohort_order = [c for c in cohorts if c not in combined_names] + combined_names
+
+    fig, axes = plt.subplots(2, 2, figsize=(20, 12))
     metrics = ['ROC_AUC', 'PR_AUC', 'Accuracy', 'MCC']
     
     for idx, metric in enumerate(metrics):
@@ -280,7 +356,8 @@ def main():
             y=f'{metric}_mean',
             hue='Mode',
             ax=ax,
-            palette='Set2'
+            palette='Set2',
+            order=cohort_order
         )
         
         # Add error bars manually
