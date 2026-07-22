@@ -47,10 +47,10 @@ def compute_rbf_kernel(X, bandwidth_factor=1.0, gamma=None):
     return K, gamma
 
 
-def compute_hsic(X, Y, bandwidth_factor=1.0, n_permutations=200, seed=42):
+def compute_hsic(X, Y, bandwidth_factor=1.0, n_permutations=100, seed=42):
     """
-    Compute Hilbert-Schmidt Independence Criterion (HSIC) statistic and p-value.
-    Uses asymptotic Gamma distribution approximation under H0 for fast p-value calculation.
+    Compute Hilbert-Schmidt Independence Criterion (HSIC) statistic and permutation test p-value.
+    Permutation resampling evaluates the empirical null distribution H0, preventing false positive inflation.
     """
     if seed is not None:
         np.random.seed(seed)
@@ -66,22 +66,14 @@ def compute_hsic(X, Y, bandwidth_factor=1.0, n_permutations=200, seed=42):
     Kc = H @ K @ H
     Lc = H @ L @ H
 
-    hsic_stat = float(np.trace(Kc @ Lc) / ((N - 1) ** 2))
+    hsic_stat = float(np.sum(Kc * Lc) / ((N - 1) ** 2))
 
     if n_permutations > 0:
         perm_stats = np.zeros(n_permutations)
         for b in range(n_permutations):
             perm_idx = np.random.permutation(N)
-            perm_stats[b] = np.sum(Kc * L[perm_idx, :][:, perm_idx]) / ((N - 1) ** 2)
-
-        mu_null = float(np.mean(perm_stats))
-        var_null = float(np.var(perm_stats))
-        if var_null > 0 and hsic_stat > 0:
-            shape_k = (mu_null ** 2) / var_null
-            scale_theta = var_null / mu_null
-            p_val = float(stats.gamma.sf(hsic_stat, a=shape_k, scale=scale_theta))
-        else:
-            p_val = float((1 + np.sum(perm_stats >= hsic_stat)) / (n_permutations + 1))
+            perm_stats[b] = np.sum(Kc * Lc[perm_idx, :][:, perm_idx]) / ((N - 1) ** 2)
+        p_val = float((1.0 + np.sum(perm_stats >= hsic_stat)) / (n_permutations + 1.0))
     else:
         p_val = 1.0
 
