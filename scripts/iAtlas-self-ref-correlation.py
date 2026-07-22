@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
+from scipy.spatial.distance import pdist, squareform
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -17,6 +18,64 @@ import seaborn as sns
 sys.path.append(str(Path(__file__).resolve().parent.parent / "packages"))
 import datalair
 from single_cell_datasets._single_cell_reference import SingleCellDeconvolution
+
+
+def compute_rbf_kernel(X, gamma=None):
+    """Compute RBF kernel matrix using median heuristic for gamma."""
+    X = np.atleast_2d(X)
+    if X.shape[0] == 1:
+        X = X.T
+    dists_sq = squareform(pdist(X, metric="sqeuclidean"))
+    if gamma is None:
+        dists = np.sqrt(dists_sq)
+        median_dist = np.median(dists[dists > 0])
+        if median_dist == 0 or np.isnan(median_dist):
+            median_dist = 1.0
+        sigma = median_dist
+        gamma = 1.0 / (2.0 * sigma**2)
+    K = np.exp(-gamma * dists_sq)
+    return K, gamma
+
+
+def compute_hsic(X, Y, n_permutations=200, seed=42):
+    """
+    Compute Hilbert-Schmidt Independence Criterion (HSIC) statistic and p-value.
+    Uses asymptotic Gamma distribution approximation under H0 for fast p-value calculation.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+    X = np.ravel(X)[:, np.newaxis]
+    Y = np.ravel(Y)[:, np.newaxis]
+    N = len(X)
+    if N < 4:
+        return 0.0, 1.0
+
+    K, _ = compute_rbf_kernel(X)
+    L, _ = compute_rbf_kernel(Y)
+    H = np.eye(N) - (1.0 / N) * np.ones((N, N))
+    Kc = H @ K @ H
+    Lc = H @ L @ H
+
+    hsic_stat = float(np.trace(Kc @ Lc) / ((N - 1) ** 2))
+
+    if n_permutations > 0:
+        perm_stats = np.zeros(n_permutations)
+        for b in range(n_permutations):
+            perm_idx = np.random.permutation(N)
+            perm_stats[b] = np.sum(Kc * L[perm_idx, :][:, perm_idx]) / ((N - 1) ** 2)
+
+        mu_null = float(np.mean(perm_stats))
+        var_null = float(np.var(perm_stats))
+        if var_null > 0 and hsic_stat > 0:
+            shape_k = (mu_null ** 2) / var_null
+            scale_theta = var_null / mu_null
+            p_val = float(stats.gamma.sf(hsic_stat, a=shape_k, scale=scale_theta))
+        else:
+            p_val = float((1 + np.sum(perm_stats >= hsic_stat)) / (n_permutations + 1))
+    else:
+        p_val = 1.0
+
+    return hsic_stat, p_val
 
 
 def load_clinical_response(cohort_name: str, lair):
@@ -141,6 +200,9 @@ def main():
                     _, mwu_p = stats.mannwhitneyu(nr_vals, r_vals, alternative='two-sided')
                 else:
                     mwu_p = 1.0
+                
+                # Hilbert-Schmidt Independence Criterion (HSIC)
+                hsic_stat, hsic_p = compute_hsic(vals, y)
                     
                 correlation_rows.append({
                     'Resolution': resolution,
@@ -151,7 +213,9 @@ def main():
                     'Spearman_R': spearman_r,
                     'Spearman_P': spearman_p,
                     'MWU_P': mwu_p,
-                    'IsSignificant': spearman_p < 0.05 or pearson_p < 0.05
+                    'HSIC': hsic_stat,
+                    'HSIC_P': hsic_p,
+                    'IsSignificant': spearman_p < 0.05 or pearson_p < 0.05 or hsic_p < 0.05
                 })
         # Calculate for combined cohorts
         combined_specs = [
@@ -198,6 +262,10 @@ def main():
                     _, mwu_p = stats.mannwhitneyu(nr_vals, r_vals, alternative='two-sided')
                 else:
                     mwu_p = 1.0
+                
+                # Hilbert-Schmidt Independence Criterion (HSIC)
+                hsic_stat, hsic_p = compute_hsic(vals, y)
+
                 correlation_rows.append({
                     'Resolution': resolution,
                     'Cohort': comb_name,
@@ -207,7 +275,9 @@ def main():
                     'Spearman_R': spearman_r,
                     'Spearman_P': spearman_p,
                     'MWU_P': mwu_p,
-                    'IsSignificant': spearman_p < 0.05 or pearson_p < 0.05
+                    'HSIC': hsic_stat,
+                    'HSIC_P': hsic_p,
+                    'IsSignificant': spearman_p < 0.05 or pearson_p < 0.05 or hsic_p < 0.05
                 })
 
     df_corrs = pd.DataFrame(correlation_rows)
@@ -223,6 +293,32 @@ def main():
     else:
         print("None found.")
         
+    # Unique name mapping for leiden_res_0.5 clusters based on marker gene analysis
+    CELL_TYPE_NAMES_LEIDEN_05 = {
+        '0': 'CD4+ Helper T (c0)',
+        '1': 'Epithelial Tumor c1',
+        '2': 'M1 Macrophage c2',
+        '3': 'CD8+ Cytotoxic T c3',
+        '4': 'M1 Macrophage c4',
+        '5': 'Naive B (c5)',
+        '6': 'CD8+ Cytotoxic T / NK (c6)',
+        '7': 'CAF c7',
+        '8': 'Melanoma Tumor c8',
+        '9': 'Melanoma Tumor c9',
+        '10': 'Normal Fibroblast c10',
+        '11': 'Epithelial Tumor c11',
+        '12': 'Plasma Cell c12',
+        '13': 'Epithelial Tumor c13',
+        '14': 'Blood Endothelial c14',
+        '15': 'CD8+ Cytotoxic T c15',
+        '16': 'Epithelial Tumor c16',
+        '17': 'Epithelial Tumor c17',
+        '18': 'Plasma Cell c18',
+        '19': 'Mast Cell c19',
+        '20': 'Melanoma Tumor c20',
+        '21': 'Epithelial Tumor c21'
+    }
+
     # Generate Heatmaps for each resolution
     for resolution in resolutions:
         df_res = df_corrs[df_corrs['Resolution'] == resolution]
@@ -239,6 +335,24 @@ def main():
         pivot_r_sp = pivot_r_sp[existing_cohorts]
         pivot_p_sp = pivot_p_sp[existing_cohorts]
         
+        # Sort index numerically if possible
+        if resolution == "leiden_res_0.5":
+            pivot_r_sp.index = pd.Categorical(pivot_r_sp.index, categories=[str(i) for i in range(22)], ordered=True)
+            pivot_r_sp = pivot_r_sp.sort_index()
+            pivot_p_sp.index = pd.Categorical(pivot_p_sp.index, categories=[str(i) for i in range(22)], ordered=True)
+            pivot_p_sp = pivot_p_sp.sort_index()
+            
+            new_index = [CELL_TYPE_NAMES_LEIDEN_05[str(i)] for i in pivot_r_sp.index]
+            pivot_r_sp.index = new_index
+            pivot_p_sp.index = new_index
+        elif resolution == "kmeans_subcluster_res_0.5":
+            # Sort subclusters cleanly
+            sorted_cats = sorted(pivot_r_sp.index, key=lambda x: [int(s) if s.isdigit() else s for s in x.split('_')])
+            pivot_r_sp.index = pd.Categorical(pivot_r_sp.index, categories=sorted_cats, ordered=True)
+            pivot_r_sp = pivot_r_sp.sort_index()
+            pivot_p_sp.index = pd.Categorical(pivot_p_sp.index, categories=sorted_cats, ordered=True)
+            pivot_p_sp = pivot_p_sp.sort_index()
+        
         annot_matrix_sp = pd.DataFrame("", index=pivot_r_sp.index, columns=pivot_r_sp.columns)
         for r_idx in pivot_r_sp.index:
             for c_idx in pivot_r_sp.columns:
@@ -253,7 +367,7 @@ def main():
                 elif p_val < 0.05:
                     annot_matrix_sp.loc[r_idx, c_idx] = "*"
                     
-        plt.figure(figsize=(12, 10), dpi=300)
+        plt.figure(figsize=(14, 11), dpi=300)
         sns.heatmap(
             pivot_r_sp,
             annot=annot_matrix_sp,
@@ -268,10 +382,15 @@ def main():
         plt.xlabel("Cohort", fontweight='bold')
         plt.ylabel("Inferred Cell Type / Cluster", fontweight='bold')
         plt.tight_layout()
+        
         plot_path_sp = output_dir / f"self_ref_response_correlation_spearman_{resolution}.svg"
         plt.savefig(plot_path_sp, bbox_inches='tight')
+        
+        # Save additional copy without "spearman_" in name as requested by the user
+        plot_path_alt = output_dir / f"self_ref_response_correlation_{resolution}.svg"
+        plt.savefig(plot_path_alt, bbox_inches='tight')
         plt.close()
-        print(f"Saved Spearman response correlation heatmap to {plot_path_sp}")
+        print(f"Saved Spearman response correlation heatmap to {plot_path_sp} and {plot_path_alt}")
         
         # --- Pearson Heatmap ---
         pivot_r_pe = df_res.pivot(index='CellType', columns='Cohort', values='Pearson_R')
@@ -279,6 +398,20 @@ def main():
         
         pivot_r_pe = pivot_r_pe[existing_cohorts]
         pivot_p_pe = pivot_p_pe[existing_cohorts]
+        
+        if resolution == "leiden_res_0.5":
+            pivot_r_pe.index = pd.Categorical(pivot_r_pe.index, categories=[str(i) for i in range(22)], ordered=True)
+            pivot_r_pe = pivot_r_pe.sort_index()
+            pivot_p_pe.index = pd.Categorical(pivot_p_pe.index, categories=[str(i) for i in range(22)], ordered=True)
+            pivot_p_pe = pivot_p_pe.sort_index()
+            
+            pivot_r_pe.index = new_index
+            pivot_p_pe.index = new_index
+        elif resolution == "kmeans_subcluster_res_0.5":
+            pivot_r_pe.index = pd.Categorical(pivot_r_pe.index, categories=sorted_cats, ordered=True)
+            pivot_r_pe = pivot_r_pe.sort_index()
+            pivot_p_pe.index = pd.Categorical(pivot_p_pe.index, categories=sorted_cats, ordered=True)
+            pivot_p_pe = pivot_p_pe.sort_index()
         
         annot_matrix_pe = pd.DataFrame("", index=pivot_r_pe.index, columns=pivot_r_pe.columns)
         for r_idx in pivot_r_pe.index:
@@ -294,7 +427,7 @@ def main():
                 elif p_val < 0.05:
                     annot_matrix_pe.loc[r_idx, c_idx] = "*"
                     
-        plt.figure(figsize=(12, 10), dpi=300)
+        plt.figure(figsize=(14, 11), dpi=300)
         sns.heatmap(
             pivot_r_pe,
             annot=annot_matrix_pe,
@@ -309,10 +442,74 @@ def main():
         plt.xlabel("Cohort", fontweight='bold')
         plt.ylabel("Inferred Cell Type / Cluster", fontweight='bold')
         plt.tight_layout()
+        
         plot_path_pe = output_dir / f"self_ref_response_correlation_pearson_{resolution}.svg"
         plt.savefig(plot_path_pe, bbox_inches='tight')
+        
+        # Save additional copy without "pearson_" in name for reference/safety
+        plot_path_pe_alt = output_dir / f"self_ref_response_correlation_pearson_{resolution}_alt.svg"
+        plt.savefig(plot_path_pe_alt, bbox_inches='tight')
         plt.close()
         print(f"Saved Pearson response correlation heatmap to {plot_path_pe}")
+        
+        # --- HSIC Heatmap ---
+        pivot_r_hsic = df_res.pivot(index='CellType', columns='Cohort', values='HSIC')
+        pivot_p_hsic = df_res.pivot(index='CellType', columns='Cohort', values='HSIC_P')
+        
+        pivot_r_hsic = pivot_r_hsic[existing_cohorts]
+        pivot_p_hsic = pivot_p_hsic[existing_cohorts]
+        
+        if resolution == "leiden_res_0.5":
+            pivot_r_hsic.index = pd.Categorical(pivot_r_hsic.index, categories=[str(i) for i in range(22)], ordered=True)
+            pivot_r_hsic = pivot_r_hsic.sort_index()
+            pivot_p_hsic.index = pd.Categorical(pivot_p_hsic.index, categories=[str(i) for i in range(22)], ordered=True)
+            pivot_p_hsic = pivot_p_hsic.sort_index()
+            
+            pivot_r_hsic.index = new_index
+            pivot_p_hsic.index = new_index
+        elif resolution == "kmeans_subcluster_res_0.5":
+            pivot_r_hsic.index = pd.Categorical(pivot_r_hsic.index, categories=sorted_cats, ordered=True)
+            pivot_r_hsic = pivot_r_hsic.sort_index()
+            pivot_p_hsic.index = pd.Categorical(pivot_p_hsic.index, categories=sorted_cats, ordered=True)
+            pivot_p_hsic = pivot_p_hsic.sort_index()
+        
+        annot_matrix_hsic = pd.DataFrame("", index=pivot_r_hsic.index, columns=pivot_r_hsic.columns)
+        for r_idx in pivot_r_hsic.index:
+            for c_idx in pivot_r_hsic.columns:
+                p_val = pivot_p_hsic.loc[r_idx, c_idx]
+                r_val = pivot_r_hsic.loc[r_idx, c_idx]
+                if pd.isna(p_val) or pd.isna(r_val):
+                    continue
+                if p_val < 0.001:
+                    annot_matrix_hsic.loc[r_idx, c_idx] = "***"
+                elif p_val < 0.01:
+                    annot_matrix_hsic.loc[r_idx, c_idx] = "**"
+                elif p_val < 0.05:
+                    annot_matrix_hsic.loc[r_idx, c_idx] = "*"
+                    
+        plt.figure(figsize=(14, 11), dpi=300)
+        sns.heatmap(
+            pivot_r_hsic,
+            annot=annot_matrix_hsic,
+            fmt="",
+            cmap="OrRd",
+            cbar_kws={'label': "Hilbert-Schmidt Independence Criterion (HSIC)"},
+            linewidths=0.5,
+            edgecolor='black'
+        )
+        plt.title(f"HSIC Clinical Response Dependence: Single-Cell Reference Deconvolution ({resolution})\n(* p < 0.05, ** p < 0.01, *** p < 0.001)", fontsize=13, fontweight='bold', y=1.02)
+        plt.xlabel("Cohort", fontweight='bold')
+        plt.ylabel("Inferred Cell Type / Cluster", fontweight='bold')
+        plt.tight_layout()
+        
+        plot_path_hsic = output_dir / f"self_ref_response_correlation_hsic_{resolution}.svg"
+        plt.savefig(plot_path_hsic, bbox_inches='tight')
+        
+        # Save additional png for easy visual artifact rendering
+        plot_path_hsic_png = output_dir / f"self_ref_response_correlation_hsic_{resolution}.png"
+        plt.savefig(plot_path_hsic_png, bbox_inches='tight')
+        plt.close()
+        print(f"Saved HSIC response dependence heatmap to {plot_path_hsic} and {plot_path_hsic_png}")
 
 
 if __name__ == "__main__":

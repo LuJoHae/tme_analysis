@@ -740,6 +740,20 @@ wheels = [
 ]
 
 [[package]]
+name = "firthmodels"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/65/ec/406a5939ac57f17d5b278f34a495c4a318383b1352dee2d85230188bba53/firthmodels-0.7.2.tar.gz", hash = "sha256:28e9b06b2698a6ca14f217ab56d7af2e405744c657eeaa55db42e824ba5ae7fa", size = 636835, upload-time = "2026-02-20T21:46:26.194Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/75/18/a2a2dce2bdd1c546bc93bc67a8b6657e8560cc99c40f3d5d714a331a4627/firthmodels-0.7.2-py3-none-any.whl", hash = "sha256:398e11c0b5522f348dea7feec399bfd18d2a16127cd0b916123b40721b584bf0", size = 59766, upload-time = "2026-02-20T21:46:24.473Z" },
+]
+
+[[package]]
 name = "fonttools"
 version = "4.63.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3478,6 +3492,7 @@ dependencies = [
     { name = "cbio-py" },
     { name = "celltypist" },
     { name = "datalair" },
+    { name = "firthmodels" },
     { name = "gene-utils" },
     { name = "genentech-datasets" },
     { name = "gibbscellprism" },
@@ -3516,6 +3531,7 @@ requires-dist = [
     { name = "cbio-py", specifier = ">=0.1.4" },
     { name = "celltypist", specifier = ">=1.7.1" },
     { name = "datalair", git = "https://github.com/LuJoHae/datalair.git" },
+    { name = "firthmodels", specifier = ">=0.7.2" },
     { name = "gene-utils", editable = "packages/gene_utils" },
     { name = "genentech-datasets", editable = "packages/genentech_datasets" },
     { name = "gibbscellprism", git = "https://github.com/LuJoHae/GibbsCellPrism.git" },
