@@ -14,6 +14,7 @@ rule all:
 rule download_gse120575:
     output:
         tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
+        tpm_meta = f"{GSE_DIR}/gse120575_tpm_cell_metadata.parquet",
         meta = f"{GSE_DIR}/gse120575_meta.parquet"
     params:
         out_dir = GSE_DIR
