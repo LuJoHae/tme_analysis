@@ -18,16 +18,16 @@ def read_data(tpm_path: Path, meta_path: Path) -> Result[tuple[pl.DataFrame, pl.
         return Failure(f"Failed to read parquet data: {str(e)}")
 
 def calculate_summary(df_meta: pl.DataFrame) -> Result[pl.DataFrame, str]:
-    """Calculates summary statistics from metadata."""
+    """Calculates summary statistics from metadata by finding low-cardinality group columns."""
     try:
-        # Assuming df_meta has columns like 'cell_id', 'patient_id', 'response', 'cluster'
-        # Since we don't know the exact column names a priori without fetching, we do a generic summary.
-        # We will just describe it generically if we can't find expected columns.
         cols = df_meta.columns
         if len(cols) > 1:
-            # Group by the second column (usually sample/patient ID in these GEO files)
-            group_col = cols[1]
-            summary = df_meta.group_by(group_col).agg(pl.len().alias("cell_count"))
+            # Group by string columns with low cardinality (likely Patient/Response)
+            group_cols = [c for c in cols if df_meta[c].n_unique() < 50 and df_meta[c].dtype in (pl.String, pl.Categorical)]
+            if not group_cols:
+                group_cols = [cols[1]]
+                
+            summary = df_meta.group_by(group_cols).agg(pl.len().alias("cell_count")).sort("cell_count", descending=True)
             return Success(summary)
         else:
             return Success(df_meta.describe())
@@ -37,21 +37,19 @@ def calculate_summary(df_meta: pl.DataFrame) -> Result[pl.DataFrame, str]:
 def create_plots(df_meta: pl.DataFrame) -> Result[alt.Chart, str]:
     """Creates downsampled plots using Altair."""
     try:
-        # Downsample to max 5000 cells for plotting to avoid huge HTML
         n_samples = min(5000, df_meta.height)
-        # Using a fixed seed for reproducible pure-like behavior, though sample is pseudo-random.
-        # Polars sample doesn't take a seed directly in this API version unless specified.
-        # We'll just take the head for strict determinism and speed, or sample if possible.
-        # Let's just use head/tail or slice.
         df_plot = df_meta.head(n_samples)
         
         cols = df_plot.columns
         if len(cols) > 1:
-            x_col = cols[1]
+            candidate_cols = [c for c in cols if df_plot[c].n_unique() < 50 and df_plot[c].dtype in (pl.String, pl.Categorical)]
+            x_col = candidate_cols[0] if candidate_cols else cols[1]
+            color_col = candidate_cols[1] if len(candidate_cols) > 1 else x_col
+            
             chart = alt.Chart(df_plot.to_pandas()).mark_bar().encode(
-                x=alt.X(f"{x_col}:N", title=x_col),
+                x=alt.X(f"{x_col}:N", title=x_col, sort='-y'),
                 y=alt.Y("count():Q", title="Number of Cells"),
-                color=alt.Color(f"{x_col}:N", legend=None)
+                color=alt.Color(f"{color_col}:N", title=color_col)
             ).properties(
                 title=f"Cell Counts by {x_col} (Sampled)"
             )
@@ -61,7 +59,7 @@ def create_plots(df_meta: pl.DataFrame) -> Result[alt.Chart, str]:
     except Exception as e:
         return Failure(f"Failed to create plots: {str(e)}")
 
-def save_outputs(summary: pl.DataFrame, chart: alt.Chart, out_csv: Path, out_html: Path) -> Result[bool, str]:
+def save_outputs(summary: pl.DataFrame, chart: alt.Chart, out_csv: Path, out_html: Path, out_svg: Path) -> Result[bool, str]:
     try:
         out_csv.parent.mkdir(parents=True, exist_ok=True)
         summary.write_csv(out_csv)
@@ -69,15 +67,18 @@ def save_outputs(summary: pl.DataFrame, chart: alt.Chart, out_csv: Path, out_htm
         out_html.parent.mkdir(parents=True, exist_ok=True)
         chart.save(str(out_html))
         
+        out_svg.parent.mkdir(parents=True, exist_ok=True)
+        chart.save(str(out_svg))
+        
         return Success(True)
     except Exception as e:
         return Failure(f"Failed to save outputs: {str(e)}")
 
-def run_pipeline(tpm_path: Path, meta_path: Path, out_csv: Path, out_html: Path) -> Result[bool, str]:
+def run_pipeline(tpm_path: Path, meta_path: Path, out_csv: Path, out_html: Path, out_svg: Path) -> Result[bool, str]:
     return read_data(tpm_path, meta_path).bind(
         lambda dfs: calculate_summary(dfs[1]).bind(
             lambda summary: create_plots(dfs[1]).bind(
-                lambda chart: save_outputs(summary, chart, out_csv, out_html)
+                lambda chart: save_outputs(summary, chart, out_csv, out_html, out_svg)
             )
         )
     )
@@ -88,13 +89,15 @@ def main():
     parser.add_argument("--meta", required=True, help="Path to Meta parquet")
     parser.add_argument("--out-csv", required=True, help="Output summary CSV")
     parser.add_argument("--out-html", required=True, help="Output plot HTML")
+    parser.add_argument("--out-svg", required=True, help="Output plot SVG")
     args = parser.parse_args()
 
     result = run_pipeline(
         Path(args.tpm),
         Path(args.meta),
         Path(args.out_csv),
-        Path(args.out_html)
+        Path(args.out_html),
+        Path(args.out_svg)
     )
 
     match result:

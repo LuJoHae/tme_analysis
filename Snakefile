@@ -9,7 +9,8 @@ GSE_DIR = f"{DATA_DIR}/GSE120575"
 rule all:
     input:
         f"{RESULTS_DIR}/gse120575_summary.csv",
-        f"{RESULTS_DIR}/gse120575_plots.html"
+        f"{RESULTS_DIR}/gse120575_plots.html",
+        f"{RESULTS_DIR}/gse120575_plots.svg"
 
 rule download_gse120575:
     output:
@@ -28,12 +29,14 @@ rule analyze_gse120575:
         meta = f"{GSE_DIR}/gse120575_meta.parquet"
     output:
         summary = f"{RESULTS_DIR}/gse120575_summary.csv",
-        plots = f"{RESULTS_DIR}/gse120575_plots.html"
+        plots = f"{RESULTS_DIR}/gse120575_plots.html",
+        plots_svg = f"{RESULTS_DIR}/gse120575_plots.svg"
     shell:
         """
         python scripts/analyze_gse120575.py \
             --tpm {input.tpm} \
             --meta {input.meta} \
             --out-csv {output.summary} \
-            --out-html {output.plots}
+            --out-html {output.plots} \
+            --out-svg {output.plots_svg}
         """
