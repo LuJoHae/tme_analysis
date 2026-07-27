@@ -1,7 +1,11 @@
 [project]
 name = "single_cell_immuno_datasets"
 version = "0.1.0"
-dependencies = []
+dependencies = [
+    "returns",
+    "polars",
+    "altair",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import polars as pl
 from returns.result import Result, Success, Failure
-from returns.decorators import do
+
 
 BASE_URL = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE120nnn/GSE120575/suppl"
 FILES = [
@@ -20,17 +20,17 @@ def _download_file(url: str, dest: Path) -> Result[Path, str]:
     except Exception as e:
         return Failure(f"Failed to download {url}: {str(e)}")
 
-@do(Result[tuple[Path, Path], str])
-def download_gse120575(dest_dir: str) -> tuple[Path, Path]:
+def download_gse120575(dest_dir: str) -> Result[tuple[Path, Path], str]:
     dest_path = Path(dest_dir)
     
     tpm_url = f"{BASE_URL}/{FILES[0]}"
     meta_url = f"{BASE_URL}/{FILES[1]}"
     
-    tpm_file = yield _download_file(tpm_url, dest_path / FILES[0])
-    meta_file = yield _download_file(meta_url, dest_path / FILES[1])
-    
-    return tpm_file, meta_file
+    return _download_file(tpm_url, dest_path / FILES[0]).bind(
+        lambda tpm_file: _download_file(meta_url, dest_path / FILES[1]).map(
+            lambda meta_file: (tpm_file, meta_file)
+        )
+    )
 
 def _load_and_join_data(tpm_path: Path, meta_path: Path) -> Result[pl.DataFrame, str]:
     try:
@@ -56,8 +56,7 @@ def _save_parquet(df: pl.DataFrame, out_path: Path) -> Result[Path, str]:
     except Exception as e:
         return Failure(f"Failed to save parquet to {out_path}: {str(e)}")
 
-@do(Result[tuple[Path, Path], str])
-def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> tuple[Path, Path]:
+def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[tuple[Path, Path], str]:
     out_dir_path = Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
     
@@ -67,21 +66,20 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> tuple[P
     # We use scan_csv for TPM because it's large, but write_parquet requires collecting or sinking.
     # Let's sink it if possible, but polars sink_parquet is available.
     try:
-        pl.scan_csv(tpm_path, separator='\t').sink_parquet(tpm_out)
-        pl.scan_csv(meta_path, separator='\t', skip_rows=18).sink_parquet(meta_out) # skip_rows is a guess, let's just use read_csv for meta as it's small.
+        pl.scan_csv(tpm_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").sink_parquet(tpm_out)
+        pl.scan_csv(meta_path, separator='\t', skip_rows=18, truncate_ragged_lines=True, encoding="utf8-lossy").sink_parquet(meta_out)
     except Exception as e:
         # fallback to read_csv
         try:
-            pl.read_csv(tpm_path, separator='\t').write_parquet(tpm_out)
+            pl.read_csv(tpm_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").write_parquet(tpm_out)
             # GEO GSE120575_patient_ID_single_cells.txt is just a 3-column metadata.
-            pl.read_csv(meta_path, separator='\t').write_parquet(meta_out)
+            pl.read_csv(meta_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").write_parquet(meta_out)
         except Exception as e2:
             return Failure(f"Failed to convert to parquet: {str(e2)}")
             
-    return tpm_out, meta_out
+    return Success((tpm_out, meta_out))
 
-@do(Result[tuple[Path, Path], str])
-def fetch_and_format_gse120575(dest_dir: str) -> tuple[Path, Path]:
-    tpm_path, meta_path = yield download_gse120575(dest_dir)
-    parquet_paths = yield process_to_parquet(tpm_path, meta_path, dest_dir)
-    return parquet_paths
+def fetch_and_format_gse120575(dest_dir: str) -> Result[tuple[Path, Path], str]:
+    return download_gse120575(dest_dir).bind(
+        lambda paths: process_to_parquet(paths[0], paths[1], dest_dir)
+    )
