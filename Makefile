@@ -1,36 +1,24 @@
 REMOTE_HOST = olm
 REMOTE_DIR = ~/python-venv/tme_analysis
-SCRIPT = scripts/iAtlas-TMB.py
+# TODO: Ensure this matches the DATA_DIR in your Snakefile
+REMOTE_DATA_DIR = /TODO/UPDATE/THIS/PATH/TO/DATA
 REMOTE_UV = /home/halu/.local/bin/uv
 
-SCRIPTS := $(wildcard scripts/*.py) $(wildcard scripts/tcga_background/*.py)
-SENTINELS := $(patsubst scripts/%.py,.make-sentinels/%.done,$(SCRIPTS))
+.PHONY: sync run-remote pull-results run-all
 
-.PHONY: sync run-remote run-all-remote
+run-all: sync run-remote pull-results
 
 sync:
+	@echo "Syncing code to remote server..."
 	ssh $(REMOTE_HOST) "mkdir -p $(REMOTE_DIR)"
-	rsync -qavz --delete packages scripts pyproject.toml uv.lock $(REMOTE_HOST):$(REMOTE_DIR)/
-	ssh $(REMOTE_HOST) "mkdir -p $(REMOTE_DIR)/output"	
+	rsync -qavz --delete packages scripts pyproject.toml uv.lock Snakefile $(REMOTE_HOST):$(REMOTE_DIR)/
 	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) sync"
-	rsync -qavz $(REMOTE_HOST):$(REMOTE_DIR)/output/ output/
 
-run-remote: sync
-	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run python $(SCRIPT)"
-	mkdir -p output
-	rsync -qavz $(REMOTE_HOST):$(REMOTE_DIR)/output/ output/
+run-remote:
+	@echo "Running Snakemake on remote server..."
+	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run snakemake --cores all"
 
-run-all-remote: sync $(SENTINELS)
-	@echo "All changed scripts completed."
-	mkdir -p output
-	rsync -qavz $(REMOTE_HOST):$(REMOTE_DIR)/output/ output/
-
-.make-sentinels/%.done: scripts/%.py
-	@mkdir -p $(dir $@)
-	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run python scripts/$*.py"
-	@touch $@
-
-.make-sentinels/tcga_background/02_dim_reduction.done: .make-sentinels/tcga_background/01_harmonize.done
-.make-sentinels/tcga_background/03_clustering.done: .make-sentinels/tcga_background/01_harmonize.done
-.make-sentinels/tcga_background/04_distance_analysis.done: .make-sentinels/tcga_background/01_harmonize.done
-
+pull-results:
+	@echo "Pulling results back to local machine..."
+	mkdir -p output/results
+	rsync -qavz $(REMOTE_HOST):$(REMOTE_DATA_DIR)/results/ output/results/
