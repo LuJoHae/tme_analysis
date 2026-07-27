@@ -120,18 +120,18 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
             .sink_parquet(tpm_out)
         )
         
-        # scan patient metadata, skipping 19 rows, take 7 cols, ignore footer
+        # read patient metadata, skipping 19 rows, take 7 cols, ignore footer
+        df_meta = pl.read_csv(
+            meta_path, 
+            separator='\t', 
+            skip_rows=19,
+            truncate_ragged_lines=True,
+            encoding="utf8-lossy"
+        )
         (
-            pl.scan_csv(
-                meta_path, 
-                separator='\t', 
-                skip_rows=19,
-                truncate_ragged_lines=True,
-                encoding="utf8-lossy"
-            )
-            .select(pl.col("*").head(7)) # Only take the first 7 columns if there are trailing empty ones
+            df_meta.select(df_meta.columns[:7])
             .filter(pl.col("Sample name").is_not_null() & pl.col("Sample name").str.starts_with("Sample"))
-            .sink_parquet(meta_out)
+            .write_parquet(meta_out)
         )
         
         # Assert no nulls in the TPM data
@@ -159,15 +159,15 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                 .write_parquet(tpm_out)
             )
             
+            df_meta = pl.read_csv(
+                meta_path, 
+                separator='\t', 
+                skip_rows=19,
+                truncate_ragged_lines=True, 
+                encoding="utf8-lossy"
+            )
             (
-                pl.read_csv(
-                    meta_path, 
-                    separator='\t', 
-                    skip_rows=19,
-                    truncate_ragged_lines=True, 
-                    encoding="utf8-lossy"
-                )
-                .select(pl.col("*").head(7))
+                df_meta.select(df_meta.columns[:7])
                 .filter(pl.col("Sample name").is_not_null() & pl.col("Sample name").str.starts_with("Sample"))
                 .write_parquet(meta_out)
             )
