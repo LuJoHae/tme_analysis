@@ -22,6 +22,7 @@ dependencies = [
     "gene_utils",
     "single_cell_datasets",
     "ici_datasets",
+    "single_cell_immuno_datasets",
     "references",
     "ml_pipelines",
     "tables>=3.11.1",
@@ -61,3 +62,4 @@ gene_utils = { workspace = true }
 ici_datasets = { workspace = true }
 ml_pipelines = { workspace = true }
 selective-inference = { workspace = true }
+single_cell_immuno_datasets = { workspace = true }
