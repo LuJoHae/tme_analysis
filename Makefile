@@ -1,7 +1,7 @@
 REMOTE_HOST = olm
 REMOTE_DIR = ~/python-venv/tme_analysis
 # TODO: Ensure this matches the DATA_DIR in your Snakefile
-REMOTE_DATA_DIR = /TODO/UPDATE/THIS/PATH/TO/DATA
+REMOTE_DATA_DIR = /storage/halu/data
 REMOTE_UV = /home/halu/.local/bin/uv
 
 .PHONY: sync run-remote pull-results run-all

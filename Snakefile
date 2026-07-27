@@ -19,7 +19,7 @@ rule download_gse120575:
         out_dir = GSE_DIR
     shell:
         """
-        uv run python scripts/download_gse120575.py --out-dir {params.out_dir}
+        python scripts/download_gse120575.py --out-dir {params.out_dir}
         """
 
 rule analyze_gse120575:
@@ -31,7 +31,7 @@ rule analyze_gse120575:
         plots = f"{RESULTS_DIR}/gse120575_plots.html"
     shell:
         """
-        uv run python scripts/analyze_gse120575.py \
+        python scripts/analyze_gse120575.py \
             --tpm {input.tpm} \
             --meta {input.meta} \
             --out-csv {output.summary} \
