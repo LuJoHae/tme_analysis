@@ -3,7 +3,7 @@ from pathlib import Path
 import polars as pl
 import altair as alt
 from returns.result import Result, Success, Failure
-from returns.decorators import do
+
 import argparse
 
 # Enable Altair to handle somewhat larger datasets, though we will downsample
@@ -73,13 +73,14 @@ def save_outputs(summary: pl.DataFrame, chart: alt.Chart, out_csv: Path, out_htm
     except Exception as e:
         return Failure(f"Failed to save outputs: {str(e)}")
 
-@do(Result[bool, str])
-def run_pipeline(tpm_path: Path, meta_path: Path, out_csv: Path, out_html: Path) -> bool:
-    df_tpm, df_meta = yield read_data(tpm_path, meta_path)
-    summary = yield calculate_summary(df_meta)
-    chart = yield create_plots(df_meta)
-    yield save_outputs(summary, chart, out_csv, out_html)
-    return True
+def run_pipeline(tpm_path: Path, meta_path: Path, out_csv: Path, out_html: Path) -> Result[bool, str]:
+    return read_data(tpm_path, meta_path).bind(
+        lambda dfs: calculate_summary(dfs[1]).bind(
+            lambda summary: create_plots(dfs[1]).bind(
+                lambda chart: save_outputs(summary, chart, out_csv, out_html)
+            )
+        )
+    )
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze GSE120575 data")
