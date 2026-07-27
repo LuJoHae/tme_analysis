@@ -12,6 +12,7 @@ members = [
     "references",
     "selective-inference",
     "single-cell-datasets",
+    "single-cell-immuno-datasets",
     "tme-analysis",
 ]
 
@@ -3352,6 +3353,11 @@ version = "0.1.0"
 source = { editable = "packages/single_cell_datasets" }
 
 [[package]]
+name = "single-cell-immuno-datasets"
+version = "0.1.0"
+source = { editable = "packages/single_cell_immuno_datasets" }
+
+[[package]]
 name = "singlecellrnasignature"
 version = "0.2.0"
 source = { git = "https://github.com/LuJoHae/SingleCellRNASignature.git#e923368d837240c8058bf615737b69fca307b831" }
@@ -3813,6 +3819,7 @@ dependencies = [
     { name = "selective-inference" },
     { name = "setuptools" },
     { name = "single-cell-datasets" },
+    { name = "single-cell-immuno-datasets" },
     { name = "singlecellrnasignature" },
     { name = "snakemake" },
     { name = "tables" },
@@ -3853,6 +3860,7 @@ requires-dist = [
     { name = "selective-inference", editable = "packages/selective_inference" },
     { name = "setuptools", specifier = "<70" },
     { name = "single-cell-datasets", editable = "packages/single_cell_datasets" },
+    { name = "single-cell-immuno-datasets", editable = "packages/single_cell_immuno_datasets" },
     { name = "singlecellrnasignature", git = "https://github.com/LuJoHae/SingleCellRNASignature.git" },
     { name = "snakemake", specifier = ">=9.23.1" },
     { name = "tables", specifier = ">=3.11.1" },

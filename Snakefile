@@ -1,26 +1,39 @@
 # Snakefile
 # Orchestrates data processing on the remote server
 
-# TODO: Update this path to the absolute path of your data directory on 'olm'
-DATA_DIR = "/TODO/UPDATE/THIS/PATH/TO/DATA"
+DATA_DIR = "/storage/halu/data"
 RESULTS_DIR = f"{DATA_DIR}/results"
+GSE_DIR = f"{DATA_DIR}/GSE120575"
 
 # The 'all' rule defines what files should ultimately be generated.
-# Snakemake will figure out the dependencies to build these.
 rule all:
     input:
-        f"{RESULTS_DIR}/example_output.csv"
+        f"{RESULTS_DIR}/gse120575_summary.csv",
+        f"{RESULTS_DIR}/gse120575_plots.html"
 
-# Example rule: This rule will be triggered to build 'example_output.csv'
-# Replace this with your actual scripts and data files.
-rule run_example_script:
-    input:
-        # Example input data file (you don't strictly need to define one if it's generated dynamically, but it's good practice)
-        # raw_data = f"{DATA_DIR}/raw_data.csv"
+rule download_gse120575:
     output:
-        # The script must generate this file
-        summary = f"{RESULTS_DIR}/example_output.csv"
-    script:
-        # Snakemake will execute this script and inject the `snakemake` object
-        # so the script can access `snakemake.output.summary`
-        "scripts/example_script.py"
+        tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
+        meta = f"{GSE_DIR}/gse120575_meta.parquet"
+    params:
+        out_dir = GSE_DIR
+    shell:
+        """
+        uv run python scripts/download_gse120575.py --out-dir {params.out_dir}
+        """
+
+rule analyze_gse120575:
+    input:
+        tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
+        meta = f"{GSE_DIR}/gse120575_meta.parquet"
+    output:
+        summary = f"{RESULTS_DIR}/gse120575_summary.csv",
+        plots = f"{RESULTS_DIR}/gse120575_plots.html"
+    shell:
+        """
+        uv run python scripts/analyze_gse120575.py \
+            --tpm {input.tpm} \
+            --meta {input.meta} \
+            --out-csv {output.summary} \
+            --out-html {output.plots}
+        """
