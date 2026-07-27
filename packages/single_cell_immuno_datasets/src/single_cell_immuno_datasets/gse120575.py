@@ -82,10 +82,19 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
     
     meta_row = line2.split('\t')
     
+    # Handle potential trailing tab (empty column name) in TPM file
+    if len(cols) > 1 and not cols[-1]:
+        cols[-1] = "__drop_me__"
+        meta_row[-1] = ""
+
     # 2. Save the TPM metadata (Cell_ID -> Patient_ID)
     try:
         cell_ids = cols[1:]
         patient_ids = meta_row[1:]
+        if cols[-1] == "__drop_me__":
+            cell_ids = cell_ids[:-1]
+            patient_ids = patient_ids[:-1]
+            
         df_tpm_meta = pl.DataFrame({"Cell_ID": cell_ids, "Patient_ID": patient_ids})
         df_tpm_meta.write_parquet(tpm_meta_out)
     except Exception as e:
@@ -102,27 +111,34 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                 skip_rows=2, 
                 new_columns=cols,
                 truncate_ragged_lines=True,
-                encoding="utf8-lossy"
+                encoding="utf-8"
             )
             .select([
                 pl.col("gene").cast(pl.String),
-                pl.all().exclude("gene").cast(pl.Float32, strict=True)
+                pl.all().exclude(["gene", "__drop_me__"]).cast(pl.Float32, strict=True)
             ])
             .sink_parquet(tpm_out)
         )
         
-        # scan patient metadata, skipping 19 rows and taking 7 columns
+        # scan patient metadata, skipping 19 rows, take 7 cols, ignore footer
         (
             pl.scan_csv(
                 meta_path, 
                 separator='\t', 
                 skip_rows=19,
                 truncate_ragged_lines=True,
-                encoding="utf8-lossy"
+                encoding="utf-8"
             )
             .select(pl.col("*").head(7)) # Only take the first 7 columns if there are trailing empty ones
+            .filter(pl.col("Sample name").is_not_null() & pl.col("Sample name").str.starts_with("Sample"))
             .sink_parquet(meta_out)
         )
+        
+        # Assert no nulls in the TPM data
+        null_counts = pl.scan_parquet(tpm_out).select(pl.all().is_null().sum()).collect()
+        if null_counts.sum_horizontal().item(0) > 0:
+            return Failure("Assertion failed: Null values found in TPM dataset!")
+            
     except Exception as e:
         try:
             # Fallback to read_csv
@@ -134,11 +150,11 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                     skip_rows=2,
                     new_columns=cols,
                     truncate_ragged_lines=True, 
-                    encoding="utf8-lossy"
+                    encoding="utf-8"
                 )
                 .select([
                     pl.col("gene").cast(pl.String),
-                    pl.all().exclude("gene").cast(pl.Float32, strict=True)
+                    pl.all().exclude(["gene", "__drop_me__"]).cast(pl.Float32, strict=True)
                 ])
                 .write_parquet(tpm_out)
             )
@@ -149,11 +165,18 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                     separator='\t', 
                     skip_rows=19,
                     truncate_ragged_lines=True, 
-                    encoding="utf8-lossy"
+                    encoding="utf-8"
                 )
                 .select(pl.col("*").head(7))
+                .filter(pl.col("Sample name").is_not_null() & pl.col("Sample name").str.starts_with("Sample"))
                 .write_parquet(meta_out)
             )
+            
+            # Assert no nulls
+            null_counts = pl.scan_parquet(tpm_out).select(pl.all().is_null().sum()).collect()
+            if null_counts.sum_horizontal().item(0) > 0:
+                return Failure("Assertion failed: Null values found in TPM dataset!")
+                
         except Exception as e2:
             return Failure(f"Failed to convert to parquet: {str(e2)}")
             
