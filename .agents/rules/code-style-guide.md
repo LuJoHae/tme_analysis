@@ -33,6 +33,7 @@ This document outlines the strict coding standards for functional programming in
 ## 5. Declarative Data Processing & Visualization
 - **Dataframes**: Use **Polars** for all dataframe operations instead of `pandas`. Polars provides a declarative, lazy-evaluation API that prevents inplace mutations.
 - **Plotting Library**: Use **Altair** (based on Vega/Vega-Lite) for all plotting. Do not use Matplotlib or Seaborn.
+- **Plot Export**: Plots should **not** be saved as HTML. Instead, export them as **SVG** (Scalable Vector Graphics). SVG is the recommended format because it preserves high-quality, resolution-independent vector graphics that are ideal for publications and detailed analysis. (Note: exporting static images from Altair requires `vl-convert-python`).
 
 ## 6. Testing & Quality Assurance
 - **Property-Based Testing**: Use `hypothesis` to write property-based tests. Define invariants and let the framework generate randomized inputs to aggressively stress-test your pure functions.
