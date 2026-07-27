@@ -67,7 +67,7 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
     # 1. Read the first two lines of the TPM file to separate column names from the metadata row
     try:
         try:
-            with gzip.open(tpm_path, 'rt', encoding='utf8-lossy') as f:
+            with gzip.open(tpm_path, 'rt', encoding='utf-8', errors='replace') as f:
                 line1 = f.readline().strip('\n')
                 line2 = f.readline().strip('\n')
         except (gzip.BadGzipFile, UnicodeDecodeError):
