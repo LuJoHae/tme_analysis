@@ -68,12 +68,12 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
     try:
         try:
             with gzip.open(tpm_path, 'rt', encoding='utf-8', errors='replace') as f:
-                line1 = f.readline().strip('\n')
-                line2 = f.readline().strip('\n')
+                line1 = f.readline().strip('\r\n')
+                line2 = f.readline().strip('\r\n')
         except (gzip.BadGzipFile, UnicodeDecodeError):
             with open(tpm_path, 'rt', encoding='utf-8', errors='replace') as f:
-                line1 = f.readline().strip('\n')
-                line2 = f.readline().strip('\n')
+                line1 = f.readline().strip('\r\n')
+                line2 = f.readline().strip('\r\n')
     except Exception as e:
         return Failure(f"Failed to read TPM header: {str(e)}")
 
@@ -83,7 +83,7 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
     meta_row = line2.split('\t')
     
     # Handle potential trailing tab (empty column name) in TPM file
-    if len(cols) > 1 and not cols[-1]:
+    if len(cols) > 1 and not cols[-1].strip():
         cols[-1] = "__drop_me__"
         meta_row[-1] = ""
 
