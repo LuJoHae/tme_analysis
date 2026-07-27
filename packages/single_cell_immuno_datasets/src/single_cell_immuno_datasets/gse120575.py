@@ -115,7 +115,7 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
             )
             .select([
                 pl.col("gene").cast(pl.String),
-                pl.all().exclude(["gene", "__drop_me__"]).cast(pl.Float32, strict=True)
+                pl.col(cols[1:]).cast(pl.Float32, strict=True)
             ])
             .sink_parquet(tpm_out)
         )
@@ -154,7 +154,7 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                 )
                 .select([
                     pl.col("gene").cast(pl.String),
-                    pl.all().exclude(["gene", "__drop_me__"]).cast(pl.Float32, strict=True)
+                    pl.col(cols[1:]).cast(pl.Float32, strict=True)
                 ])
                 .write_parquet(tpm_out)
             )
