@@ -66,14 +66,14 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
     # We use scan_csv for TPM because it's large, but write_parquet requires collecting or sinking.
     # Let's sink it if possible, but polars sink_parquet is available.
     try:
-        pl.scan_csv(tpm_path, separator='\t', truncate_ragged_lines=True).sink_parquet(tpm_out)
-        pl.scan_csv(meta_path, separator='\t', skip_rows=18, truncate_ragged_lines=True).sink_parquet(meta_out) # skip_rows is a guess, let's just use read_csv for meta as it's small.
+        pl.scan_csv(tpm_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").sink_parquet(tpm_out)
+        pl.scan_csv(meta_path, separator='\t', skip_rows=18, truncate_ragged_lines=True, encoding="utf8-lossy").sink_parquet(meta_out)
     except Exception as e:
         # fallback to read_csv
         try:
-            pl.read_csv(tpm_path, separator='\t', truncate_ragged_lines=True).write_parquet(tpm_out)
+            pl.read_csv(tpm_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").write_parquet(tpm_out)
             # GEO GSE120575_patient_ID_single_cells.txt is just a 3-column metadata.
-            pl.read_csv(meta_path, separator='\t', truncate_ragged_lines=True).write_parquet(meta_out)
+            pl.read_csv(meta_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").write_parquet(meta_out)
         except Exception as e2:
             return Failure(f"Failed to convert to parquet: {str(e2)}")
             
