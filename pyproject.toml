@@ -39,6 +39,7 @@ dependencies = [
     "notebook>=7.5.7",
     "vl-convert-python>=1.9.0.post1",
     "firthmodels>=0.7.2",
+    "snakemake>=9.23.1",
 ]
 
 [tool.uv.workspace]
