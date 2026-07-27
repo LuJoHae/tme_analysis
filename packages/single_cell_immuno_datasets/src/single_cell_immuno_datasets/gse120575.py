@@ -111,7 +111,7 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                 skip_rows=2, 
                 new_columns=cols,
                 truncate_ragged_lines=True,
-                encoding="utf-8"
+                encoding="utf8-lossy"
             )
             .select([
                 pl.col("gene").cast(pl.String),
@@ -127,7 +127,7 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                 separator='\t', 
                 skip_rows=19,
                 truncate_ragged_lines=True,
-                encoding="utf-8"
+                encoding="utf8-lossy"
             )
             .select(pl.col("*").head(7)) # Only take the first 7 columns if there are trailing empty ones
             .filter(pl.col("Sample name").is_not_null() & pl.col("Sample name").str.starts_with("Sample"))
@@ -150,7 +150,7 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                     skip_rows=2,
                     new_columns=cols,
                     truncate_ragged_lines=True, 
-                    encoding="utf-8"
+                    encoding="utf8-lossy"
                 )
                 .select([
                     pl.col("gene").cast(pl.String),
@@ -165,7 +165,7 @@ def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[
                     separator='\t', 
                     skip_rows=19,
                     truncate_ragged_lines=True, 
-                    encoding="utf-8"
+                    encoding="utf8-lossy"
                 )
                 .select(pl.col("*").head(7))
                 .filter(pl.col("Sample name").is_not_null() & pl.col("Sample name").str.starts_with("Sample"))
