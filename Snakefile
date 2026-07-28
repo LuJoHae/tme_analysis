@@ -15,7 +15,7 @@ rule all:
 
 rule download_gse120575:
     input:
-        script="scripts/download_gse120575.py"
+        script="scripts/gse120575/download_gse120575.py"
     output:
         tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
         tpm_meta = f"{GSE_DIR}/gse120575_tpm_cell_metadata.parquet",
@@ -24,12 +24,12 @@ rule download_gse120575:
         out_dir = GSE_DIR
     shell:
         """
-        python scripts/download_gse120575.py --out-dir {params.out_dir}
+        python scripts/gse120575/download_gse120575.py --out-dir {params.out_dir}
         """
 
 rule analyze_gse120575:
     input:
-        script="scripts/analyze_gse120575.py",
+        script="scripts/gse120575/analyze_gse120575.py",
         tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
         meta = f"{GSE_DIR}/gse120575_meta.parquet"
     output:
@@ -38,7 +38,7 @@ rule analyze_gse120575:
         plots_svg = f"{RESULTS_DIR}/gse120575_plots.svg"
     shell:
         """
-        python scripts/analyze_gse120575.py \
+        python scripts/gse120575/analyze_gse120575.py \
             --tpm {input.tpm} \
             --meta {input.meta} \
             --out-csv {output.summary} \
@@ -48,7 +48,7 @@ rule analyze_gse120575:
 
 rule extract_metadata_gse120575:
     input:
-        script="scripts/extract_cell_metadata.py",
+        script="scripts/gse120575/extract_cell_metadata.py",
         meta=f"{GSE_DIR}/gse120575_meta.parquet"
     output:
         parsed_meta=f"{GSE_DIR}/gse120575_parsed_cell_ids.parquet"
