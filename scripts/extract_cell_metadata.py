@@ -9,6 +9,18 @@ from returns.result import Result, Success, Failure
 REGEX = r"^(?P<row>[A-Za-z])(?P<col>[1-9]|1[0-9]|2[0-4])_P(?P<plate>\d{1,2})_(?P<patient>[Mm]\d{1,2}|MMD\d+(?:-\d+[A-Z])?|M\d{2}-\d{1,2}-\d{1,2}-\d{2})(?:-B(?P<biopsy>\d+))?(?:_L(?P<lane>\d{3}))?(?:_(?P<enrichment>T|myeloid)_enriched)?$"
 PATTERN = re.compile(REGEX)
 
+SCHEMA = {
+    "cell_id": pl.String,
+    "plate-row": pl.String,
+    "plate-col": pl.String,
+    "plate": pl.String,
+    "patient": pl.String,
+    "patient_id_category": pl.String,
+    "biopsy": pl.String,
+    "sequencing_lane": pl.String,
+    "enrichment": pl.String,
+}
+
 def determine_patient_category(patient: str) -> str:
     if patient.startswith("MMD"):
         return "MMD"
@@ -67,7 +79,7 @@ def process_metadata(meta_path: Path) -> Result[pl.DataFrame, str]:
                 case Failure(err):
                     return Failure(err)
                     
-        parsed_df = pl.DataFrame(parsed_records)
+        parsed_df = pl.DataFrame(parsed_records, schema=SCHEMA)
         return Success(parsed_df)
     except Exception as e:
         return Failure(f"Failed to process metadata: {str(e)}")
