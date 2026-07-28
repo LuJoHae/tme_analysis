@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 from returns.result import Result, Success, Failure
 
-# Regex definition with named capture groups (patient renamed to sample)
-REGEX = r"^(?P<row>[A-Za-z])(?P<col>[1-9]|1[0-9]|2[0-4])_P(?P<plate>\d{1,2})_(?P<sample>[Mm]\d{1,2}|MMD\d+(?:-\d+[A-Z])?|M\d{2}-\d{1,2}-\d{1,2}-\d{2})(?:-B(?P<biopsy>\d+))?(?:_L(?P<lane>\d{3}))?(?:_(?P<enrichment>T|myeloid)_enriched)?$"
+# Regex definition with named capture groups (patient renamed to melanoma_sample)
+REGEX = r"^(?P<row>[A-Za-z])(?P<col>[1-9]|1[0-9]|2[0-4])_P(?P<plate>\d{1,2})_(?P<melanoma_sample>[Mm]\d{1,2}|MMD\d+(?:-\d+[A-Z])?|M\d{2}-\d{1,2}-\d{1,2}-\d{2})(?:-B(?P<biopsy>\d+))?(?:_L(?P<lane>\d{3}))?(?:_(?P<enrichment>T|myeloid)_enriched)?$"
 PATTERN = re.compile(REGEX)
 
 SCHEMA = {
@@ -14,7 +14,7 @@ SCHEMA = {
     "plate-row": pl.String,
     "plate-col": pl.String,
     "plate": pl.String,
-    "sample": pl.String,
+    "melanoma-sample": pl.String,
     "sample_id_category": pl.String,
     "biopsy": pl.String,
     "sequencing_lane": pl.String,
@@ -39,7 +39,7 @@ def parse_cell_id(cell_id: str) -> Result[dict[str, str | None], str]:
     row = d["row"].upper()
     col = str(int(d["col"])).zfill(2)
     plate = str(int(d["plate"])).zfill(2)
-    sample = d["sample"]
+    sample = d["melanoma_sample"]
     sample_category = determine_sample_category(sample)
     
     biopsy = d["biopsy"]
@@ -57,7 +57,7 @@ def parse_cell_id(cell_id: str) -> Result[dict[str, str | None], str]:
         "plate-row": row,
         "plate-col": col,
         "plate": plate,
-        "sample": sample,
+        "melanoma-sample": sample,
         "sample_id_category": sample_category,
         "biopsy": biopsy,
         "sequencing_lane": lane,
@@ -89,9 +89,38 @@ def process_metadata(meta_path: Path) -> Result[pl.DataFrame, str]:
         final_df = joined_df.with_columns(
             pl.col(pat_col).str.split_exact("_", 1).struct.rename_fields(["treatment_status", "patient_id"]).alias("split_pat")
         ).unnest("split_pat").select([
-            "cell_id", "plate-row", "plate-col", "plate", "sample", "sample_id_category",
+            "cell_id", "plate-row", "plate-col", "plate", "melanoma-sample", "sample_id_category",
             "treatment_status", "patient_id", "biopsy", "sequencing_lane", "enrichment"
         ])
+        
+        initial_count = final_df.height
+        
+        # 1. Exclude the cell with a small 'm' in melanoma-sample
+        final_df = final_df.filter(~pl.col("melanoma-sample").str.starts_with("m"))
+        
+        # 2. Exclude cells where the sample ID maps to a minority patient ID (typos)
+        # Find the dominant patient_id for each melanoma-sample
+        dominant_mapping = (
+            final_df
+            .group_by(["melanoma-sample", "patient_id"])
+            .len()
+            .sort("len", descending=True)
+            .group_by("melanoma-sample")
+            .first()
+            .select(["melanoma-sample", "patient_id"])
+        )
+        
+        # Keep only the rows that match the dominant mapping
+        final_df = final_df.join(dominant_mapping, on=["melanoma-sample", "patient_id"], how="inner")
+        
+        final_count = final_df.height
+        dropped_count = initial_count - final_count
+        
+        # Assert that these rules only excluded a very small number of cells (e.g., < 10)
+        if dropped_count > 10:
+            return Failure(f"Assertion failed: Too many cells excluded ({dropped_count} cells). Expected < 10.")
+            
+        print(f"Data cleaning successful. Excluded {dropped_count} mislabeled/typo cells.")
         
         return Success(final_df)
     except Exception as e:
