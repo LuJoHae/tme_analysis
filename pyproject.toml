@@ -41,6 +41,7 @@ dependencies = [
     "vl-convert-python>=1.9.0.post1",
     "firthmodels>=0.7.2",
     "snakemake>=9.23.1",
+    "igraph>=1.0.0",
 ]
 
 [tool.uv.workspace]
