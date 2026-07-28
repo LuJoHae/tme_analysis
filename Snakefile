@@ -26,19 +26,32 @@ rule download_gse120575:
         python scripts/gse120575/download_gse120575.py --out-dir {params.out_dir}
         """
 
-rule analyze_gse120575:
+rule preprocess_gse120575:
     input:
-        script="scripts/gse120575/analyze_gse120575.py",
+        script="scripts/gse120575/preprocess_gse120575.py",
         tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
         meta = f"{GSE_DIR}/gse120575_parsed_cell_ids.parquet"
+    output:
+        adata = f"{GSE_DIR}/gse120575_processed.h5ad"
+    shell:
+        """
+        python {input.script} \
+            --tpm {input.tpm} \
+            --meta {input.meta} \
+            --out-h5ad {output.adata}
+        """
+
+rule plot_gse120575:
+    input:
+        script="scripts/gse120575/plot_gse120575.py",
+        adata = f"{GSE_DIR}/gse120575_processed.h5ad"
     output:
         plots_svg = f"{RESULTS_DIR}/gse120575_umap_plots.svg",
         plots_png = f"{RESULTS_DIR}/gse120575_umap_plots.png"
     shell:
         """
         python {input.script} \
-            --tpm {input.tpm} \
-            --meta {input.meta} \
+            --adata {input.adata} \
             --out-svg {output.plots_svg} \
             --out-png {output.plots_png}
         """

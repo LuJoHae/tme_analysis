@@ -4,14 +4,9 @@ from pathlib import Path
 import polars as pl
 import anndata as ad
 import scanpy as sc
-import altair as alt
 import scipy.sparse as sp
 import numpy as np
-import math
 from returns.result import Result, Success, Failure
-
-# Allow large datasets in Altair
-alt.data_transformers.disable_max_rows()
 
 def load_data(tpm_path: Path, meta_path: Path) -> Result[tuple[pl.DataFrame, pl.DataFrame], str]:
     try:
@@ -79,89 +74,33 @@ def process_scanpy(adata: ad.AnnData) -> Result[ad.AnnData, str]:
     except Exception as e:
         return Failure(f"Failed in scanpy processing: {e}")
 
-def create_umap_plots(adata: ad.AnnData) -> Result[alt.Chart, str]:
+def save_anndata(adata: ad.AnnData, out_path: Path) -> Result[bool, str]:
     try:
-        umap_coords = adata.obsm['X_umap']
-        
-        plot_df = pl.DataFrame({
-            "cell_id": adata.obs_names,
-            "UMAP1": umap_coords[:, 0],
-            "UMAP2": umap_coords[:, 1],
-        })
-        
-        obs_df = pl.from_pandas(adata.obs.reset_index())
-        if "index" in obs_df.columns:
-            obs_df = obs_df.rename({"index": "cell_id"})
-            
-        plot_df = plot_df.join(obs_df, on="cell_id")
-        
-        exclude_cols = {"cell_id", "plate-row", "plate-col", "n_genes", "n_counts"}
-        
-        charts = []
-        for col in adata.obs.columns:
-            if col in exclude_cols or plot_df[col].null_count() == plot_df.height:
-                continue
-                
-            # Skip columns that have only a single unique value across all cells (e.g. organism=Homo sapiens)
-            if plot_df[col].n_unique() <= 1:
-                continue
-                
-            chart = alt.Chart(plot_df).mark_circle(size=5, opacity=0.8).encode(
-                x=alt.X("UMAP1:Q", title="UMAP 1"),
-                y=alt.Y("UMAP2:Q", title="UMAP 2"),
-                color=alt.Color(field=col, type="nominal", title=col),
-                tooltip=["cell_id", alt.Tooltip(field=col, type="nominal")]
-            ).properties(
-                title=f"UMAP colored by {col}",
-                width=350,
-                height=350
-            )
-            charts.append(chart)
-            
-        if not charts:
-            return Failure("No valid metadata columns found to plot.")
-            
-        # Layout in a grid (2 columns wide) using alt.concat.
-        # resolve_scale ensures each subplot gets its own legend instead of sharing one large legend area.
-        final_chart = alt.concat(*charts, columns=2).resolve_scale(color='independent')
-        
-        return Success(final_chart)
-    except Exception as e:
-        return Failure(f"Failed to create plots: {e}")
-
-def save_plots(chart: alt.Chart, out_svg: Path, out_png: Path) -> Result[bool, str]:
-    try:
-        out_svg.parent.mkdir(parents=True, exist_ok=True)
-        chart.save(str(out_svg))
-        
-        out_png.parent.mkdir(parents=True, exist_ok=True)
-        chart.save(str(out_png), ppi=300)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        adata.write_h5ad(out_path)
         return Success(True)
     except Exception as e:
-        return Failure(f"Failed to save plots: {e}")
+        return Failure(f"Failed to save AnnData: {e}")
 
-def run_pipeline(tpm_path: Path, meta_path: Path, out_svg: Path, out_png: Path) -> Result[bool, str]:
+def run_pipeline(tpm_path: Path, meta_path: Path, out_path: Path) -> Result[bool, str]:
     return load_data(tpm_path, meta_path).bind(
         lambda dfs: create_anndata(dfs[0], dfs[1]).bind(
             lambda adata: process_scanpy(adata).bind(
-                lambda processed_adata: create_umap_plots(processed_adata).bind(
-                    lambda chart: save_plots(chart, out_svg, out_png)
-                )
+                lambda processed_adata: save_anndata(processed_adata, out_path)
             )
         )
     )
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze GSE120575 data using Scanpy")
+    parser = argparse.ArgumentParser(description="Preprocess GSE120575 data using Scanpy")
     parser.add_argument("--tpm", required=True, help="Path to TPM parquet")
     parser.add_argument("--meta", required=True, help="Path to parsed metadata parquet")
-    parser.add_argument("--out-svg", required=True, help="Output plot SVG")
-    parser.add_argument("--out-png", required=True, help="Output plot PNG")
+    parser.add_argument("--out-h5ad", required=True, help="Output processed AnnData h5ad")
     args = parser.parse_args()
 
-    match run_pipeline(Path(args.tpm), Path(args.meta), Path(args.out_svg), Path(args.out_png)):
+    match run_pipeline(Path(args.tpm), Path(args.meta), Path(args.out_h5ad)):
         case Success(_):
-            print("Successfully completed single-cell analysis and saved UMAP plots.")
+            print("Successfully completed preprocessing and saved AnnData.")
             sys.exit(0)
         case Failure(err):
             print(f"Error processing data: {err}")
