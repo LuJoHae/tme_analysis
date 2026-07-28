@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import polars as pl
 from returns.result import Result, Success, Failure
-
+import gzip
 
 BASE_URL = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE120nnn/GSE120575/suppl"
 FILES = [
@@ -56,30 +56,133 @@ def _save_parquet(df: pl.DataFrame, out_path: Path) -> Result[Path, str]:
     except Exception as e:
         return Failure(f"Failed to save parquet to {out_path}: {str(e)}")
 
-def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[tuple[Path, Path], str]:
+def process_to_parquet(tpm_path: Path, meta_path: Path, out_dir: str) -> Result[tuple[Path, Path, Path], str]:
     out_dir_path = Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
     
     tpm_out = out_dir_path / "gse120575_tpm.parquet"
+    tpm_meta_out = out_dir_path / "gse120575_tpm_cell_metadata.parquet"
     meta_out = out_dir_path / "gse120575_meta.parquet"
     
-    # We use scan_csv for TPM because it's large, but write_parquet requires collecting or sinking.
-    # Let's sink it if possible, but polars sink_parquet is available.
+    # 1. Read the first two lines of the TPM file to separate column names from the metadata row
     try:
-        pl.scan_csv(tpm_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").sink_parquet(tpm_out)
-        pl.scan_csv(meta_path, separator='\t', skip_rows=18, truncate_ragged_lines=True, encoding="utf8-lossy").sink_parquet(meta_out)
-    except Exception as e:
-        # fallback to read_csv
         try:
-            pl.read_csv(tpm_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").write_parquet(tpm_out)
-            # GEO GSE120575_patient_ID_single_cells.txt is just a 3-column metadata.
-            pl.read_csv(meta_path, separator='\t', truncate_ragged_lines=True, encoding="utf8-lossy").write_parquet(meta_out)
+            with gzip.open(tpm_path, 'rt', encoding='utf-8', errors='replace') as f:
+                line1 = f.readline().strip('\r\n')
+                line2 = f.readline().strip('\r\n')
+        except (gzip.BadGzipFile, UnicodeDecodeError):
+            with open(tpm_path, 'rt', encoding='utf-8', errors='replace') as f:
+                line1 = f.readline().strip('\r\n')
+                line2 = f.readline().strip('\r\n')
+    except Exception as e:
+        return Failure(f"Failed to read TPM header: {str(e)}")
+
+    cols = line1.split('\t')
+    cols[0] = "gene" # Replace the empty first column with 'gene'
+    
+    meta_row = line2.split('\t')
+    
+    # Handle potential trailing tab (empty column name) in TPM file
+    if len(cols) > 1 and not cols[-1].strip():
+        cols[-1] = "__drop_me__"
+        meta_row[-1] = ""
+
+    # 2. Save the TPM metadata (Cell_ID -> Patient_ID)
+    try:
+        cell_ids = cols[1:]
+        patient_ids = meta_row[1:]
+        if cols[-1] == "__drop_me__":
+            cell_ids = cell_ids[:-1]
+            patient_ids = patient_ids[:-1]
+            
+        df_tpm_meta = pl.DataFrame({"Cell_ID": cell_ids, "Patient_ID": patient_ids})
+        df_tpm_meta.write_parquet(tpm_meta_out)
+    except Exception as e:
+        return Failure(f"Failed to save TPM metadata: {str(e)}")
+
+    # 3. Process the rest of the TPM matrix and patient metadata
+    try:
+        # scan TPM data, skipping the 2 header rows
+        (
+            pl.scan_csv(
+                tpm_path, 
+                separator='\t', 
+                has_header=False,
+                skip_rows=2, 
+                new_columns=cols,
+                truncate_ragged_lines=True,
+                encoding="utf8-lossy"
+            )
+            .select([
+                pl.col("gene").cast(pl.String),
+                pl.col(cols[1:]).cast(pl.Float32, strict=True)
+            ])
+            .sink_parquet(tpm_out)
+        )
+        
+        # read patient metadata, skipping 19 rows, take 7 cols, ignore footer
+        df_meta = pl.read_csv(
+            meta_path, 
+            separator='\t', 
+            skip_rows=19,
+            truncate_ragged_lines=True,
+            encoding="utf8-lossy"
+        )
+        (
+            df_meta.select(df_meta.columns[:7])
+            .filter(pl.col("Sample name").is_not_null() & pl.col("Sample name").str.starts_with("Sample"))
+            .write_parquet(meta_out)
+        )
+        
+        # Assert no nulls in the TPM data
+        null_counts = pl.scan_parquet(tpm_out).select(pl.all().is_null().sum()).collect()
+        if null_counts.sum_horizontal().item(0) > 0:
+            return Failure("Assertion failed: Null values found in TPM dataset!")
+            
+    except Exception as e:
+        try:
+            # Fallback to read_csv
+            (
+                pl.read_csv(
+                    tpm_path, 
+                    separator='\t', 
+                    has_header=False,
+                    skip_rows=2,
+                    new_columns=cols,
+                    truncate_ragged_lines=True, 
+                    encoding="utf8-lossy"
+                )
+                .select([
+                    pl.col("gene").cast(pl.String),
+                    pl.col(cols[1:]).cast(pl.Float32, strict=True)
+                ])
+                .write_parquet(tpm_out)
+            )
+            
+            df_meta = pl.read_csv(
+                meta_path, 
+                separator='\t', 
+                skip_rows=19,
+                truncate_ragged_lines=True, 
+                encoding="utf8-lossy"
+            )
+            (
+                df_meta.select(df_meta.columns[:7])
+                .filter(pl.col("Sample name").is_not_null() & pl.col("Sample name").str.starts_with("Sample"))
+                .write_parquet(meta_out)
+            )
+            
+            # Assert no nulls
+            null_counts = pl.scan_parquet(tpm_out).select(pl.all().is_null().sum()).collect()
+            if null_counts.sum_horizontal().item(0) > 0:
+                return Failure("Assertion failed: Null values found in TPM dataset!")
+                
         except Exception as e2:
             return Failure(f"Failed to convert to parquet: {str(e2)}")
             
-    return Success((tpm_out, meta_out))
+    return Success((tpm_out, tpm_meta_out, meta_out))
 
-def fetch_and_format_gse120575(dest_dir: str) -> Result[tuple[Path, Path], str]:
+def fetch_and_format_gse120575(dest_dir: str) -> Result[tuple[Path, Path, Path], str]:
     return download_gse120575(dest_dir).bind(
         lambda paths: process_to_parquet(paths[0], paths[1], dest_dir)
     )

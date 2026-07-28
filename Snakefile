@@ -13,8 +13,11 @@ rule all:
         f"{RESULTS_DIR}/gse120575_plots.svg"
 
 rule download_gse120575:
+    input:
+        script="scripts/download_gse120575.py"
     output:
         tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
+        tpm_meta = f"{GSE_DIR}/gse120575_tpm_cell_metadata.parquet",
         meta = f"{GSE_DIR}/gse120575_meta.parquet"
     params:
         out_dir = GSE_DIR
@@ -25,6 +28,7 @@ rule download_gse120575:
 
 rule analyze_gse120575:
     input:
+        script="scripts/analyze_gse120575.py",
         tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
         meta = f"{GSE_DIR}/gse120575_meta.parquet"
     output:
