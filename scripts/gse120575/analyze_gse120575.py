@@ -102,7 +102,7 @@ def create_umap_plots(adata: ad.AnnData) -> Result[alt.Chart, str]:
             if col in exclude_cols or plot_df[col].null_count() == plot_df.height:
                 continue
                 
-            chart = alt.Chart(plot_df).mark_circle(size=15, opacity=0.8).encode(
+            chart = alt.Chart(plot_df).mark_circle(size=5, opacity=0.8).encode(
                 x=alt.X("UMAP1:Q", title="UMAP 1"),
                 y=alt.Y("UMAP2:Q", title="UMAP 2"),
                 color=alt.Color(f"{col}:N", title=col),
@@ -117,9 +117,9 @@ def create_umap_plots(adata: ad.AnnData) -> Result[alt.Chart, str]:
         if not charts:
             return Failure("No valid metadata columns found to plot.")
             
-        # Layout in a grid (2 columns wide) using alt.concat instead of nested hconcat/vconcat
-        # This prevents legends from grouping weirdly by row.
-        final_chart = alt.concat(*charts, columns=2)
+        # Layout in a grid (2 columns wide) using alt.concat.
+        # resolve_scale ensures each subplot gets its own legend instead of sharing one large legend area.
+        final_chart = alt.concat(*charts, columns=2).resolve_scale(color='independent')
         
         return Success(final_chart)
     except Exception as e:
@@ -131,7 +131,7 @@ def save_plots(chart: alt.Chart, out_svg: Path, out_png: Path) -> Result[bool, s
         chart.save(str(out_svg))
         
         out_png.parent.mkdir(parents=True, exist_ok=True)
-        chart.save(str(out_png))
+        chart.save(str(out_png), ppi=300)
         return Success(True)
     except Exception as e:
         return Failure(f"Failed to save plots: {e}")
