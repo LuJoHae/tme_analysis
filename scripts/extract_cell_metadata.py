@@ -4,7 +4,6 @@ import re
 import sys
 from pathlib import Path
 from returns.result import Result, Success, Failure
-from returns.decorators import do
 
 # Regex definition with named capture groups
 REGEX = r"^(?P<row>[A-Za-z])(?P<col>[1-9]|1[0-9]|2[0-4])_P(?P<plate>\d{1,2})_(?P<patient>[Mm]\d{1,2}|MMD\d+(?:-\d+[A-Z])?|M\d{2}-\d{1,2}-\d{1,2}-\d{2})(?:-B(?P<biopsy>\d+))?(?:_L(?P<lane>\d{3}))?(?:_(?P<enrichment>T|myeloid)_enriched)?$"
@@ -81,11 +80,10 @@ def save_dataframe(df: pl.DataFrame, out_path: Path) -> Result[Path, str]:
     except Exception as e:
         return Failure(f"Failed to save parquet: {str(e)}")
 
-@do(Result[Path, str])
-def run_extraction(meta_path: Path, out_path: Path) -> Path:
-    df = yield process_metadata(meta_path)
-    saved_path = yield save_dataframe(df, out_path)
-    return saved_path
+def run_extraction(meta_path: Path, out_path: Path) -> Result[Path, str]:
+    return process_metadata(meta_path).bind(
+        lambda df: save_dataframe(df, out_path)
+    )
 
 def main() -> None:
     meta_path = Path("/storage/halu/data/GSE120575/gse120575_meta.parquet")
