@@ -2,6 +2,7 @@ from typing import Literal, assert_never
 import polars as pl
 import re
 import sys
+import argparse
 from pathlib import Path
 from returns.result import Result, Success, Failure
 
@@ -98,8 +99,13 @@ def run_extraction(meta_path: Path, out_path: Path) -> Result[Path, str]:
     )
 
 def main() -> None:
-    meta_path = Path("/storage/halu/data/GSE120575/gse120575_meta.parquet")
-    out_path = Path("/storage/halu/data/GSE120575/gse120575_parsed_cell_ids.parquet")
+    parser = argparse.ArgumentParser(description="Extract metadata from GSE120575 cell IDs")
+    parser.add_argument("--meta", required=True, help="Input metadata parquet file")
+    parser.add_argument("--out", required=True, help="Output parsed cell IDs parquet file")
+    args = parser.parse_args()
+
+    meta_path = Path(args.meta)
+    out_path = Path(args.out)
     
     print(f"Extracting cell ID metadata from {meta_path}...")
     match run_extraction(meta_path, out_path):

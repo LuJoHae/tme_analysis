@@ -10,7 +10,8 @@ rule all:
     input:
         f"{RESULTS_DIR}/gse120575_summary.csv",
         f"{RESULTS_DIR}/gse120575_plots.html",
-        f"{RESULTS_DIR}/gse120575_plots.svg"
+        f"{RESULTS_DIR}/gse120575_plots.svg",
+        f"{RESULTS_DIR}/gse120575_parsed_cell_ids.parquet"
 
 rule download_gse120575:
     input:
@@ -43,4 +44,15 @@ rule analyze_gse120575:
             --out-csv {output.summary} \
             --out-html {output.plots} \
             --out-svg {output.plots_svg}
+        """
+
+rule extract_metadata_gse120575:
+    input:
+        script="scripts/extract_cell_metadata.py",
+        meta=f"{GSE_DIR}/gse120575_meta.parquet"
+    output:
+        parsed_meta=f"{RESULTS_DIR}/gse120575_parsed_cell_ids.parquet"
+    shell:
+        """
+        python {input.script} --meta {input.meta} --out {output.parsed_meta}
         """
