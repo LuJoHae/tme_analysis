@@ -109,8 +109,8 @@ def create_umap_plots(adata: ad.AnnData) -> Result[alt.Chart, str]:
             chart = alt.Chart(plot_df).mark_circle(size=5, opacity=0.8).encode(
                 x=alt.X("UMAP1:Q", title="UMAP 1"),
                 y=alt.Y("UMAP2:Q", title="UMAP 2"),
-                color=alt.Color(f"{col}:N", title=col),
-                tooltip=["cell_id", col]
+                color=alt.Color(field=col, type="nominal", title=col),
+                tooltip=["cell_id", alt.Tooltip(field=col, type="nominal")]
             ).properties(
                 title=f"UMAP colored by {col}",
                 width=350,
