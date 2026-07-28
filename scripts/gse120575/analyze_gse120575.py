@@ -62,6 +62,10 @@ def process_scanpy(adata: ad.AnnData) -> Result[ad.AnnData, str]:
         # Log1p transformation (TPM is already size-factor normalized, just log it)
         sc.pp.log1p(adata)
         
+        # Calculate highly variable genes
+        sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
+        adata = adata[:, adata.var.highly_variable].copy()
+        
         # PCA
         sc.tl.pca(adata, svd_solver='arpack')
         
@@ -91,7 +95,7 @@ def create_umap_plots(adata: ad.AnnData) -> Result[alt.Chart, str]:
             
         plot_df = plot_df.join(obs_df, on="cell_id")
         
-        exclude_cols = {"cell_id", "plate-row", "plate-col"}
+        exclude_cols = {"cell_id", "plate-row", "plate-col", "n_genes", "n_counts"}
         
         charts = []
         for col in adata.obs.columns:
@@ -113,33 +117,31 @@ def create_umap_plots(adata: ad.AnnData) -> Result[alt.Chart, str]:
         if not charts:
             return Failure("No valid metadata columns found to plot.")
             
-        # Layout in a grid (2 columns wide)
-        cols = 2
-        h_charts = []
-        for i in range(0, len(charts), cols):
-            row_charts = charts[i:i+cols]
-            h_charts.append(alt.hconcat(*row_charts))
-            
-        final_chart = alt.vconcat(*h_charts).resolve_scale(color='independent')
+        # Layout in a grid (2 columns wide) using alt.concat instead of nested hconcat/vconcat
+        # This prevents legends from grouping weirdly by row.
+        final_chart = alt.concat(*charts, columns=2)
         
         return Success(final_chart)
     except Exception as e:
         return Failure(f"Failed to create plots: {e}")
 
-def save_plots(chart: alt.Chart, out_svg: Path) -> Result[bool, str]:
+def save_plots(chart: alt.Chart, out_svg: Path, out_png: Path) -> Result[bool, str]:
     try:
         out_svg.parent.mkdir(parents=True, exist_ok=True)
         chart.save(str(out_svg))
+        
+        out_png.parent.mkdir(parents=True, exist_ok=True)
+        chart.save(str(out_png))
         return Success(True)
     except Exception as e:
         return Failure(f"Failed to save plots: {e}")
 
-def run_pipeline(tpm_path: Path, meta_path: Path, out_svg: Path) -> Result[bool, str]:
+def run_pipeline(tpm_path: Path, meta_path: Path, out_svg: Path, out_png: Path) -> Result[bool, str]:
     return load_data(tpm_path, meta_path).bind(
         lambda dfs: create_anndata(dfs[0], dfs[1]).bind(
             lambda adata: process_scanpy(adata).bind(
                 lambda processed_adata: create_umap_plots(processed_adata).bind(
-                    lambda chart: save_plots(chart, out_svg)
+                    lambda chart: save_plots(chart, out_svg, out_png)
                 )
             )
         )
@@ -150,9 +152,10 @@ def main():
     parser.add_argument("--tpm", required=True, help="Path to TPM parquet")
     parser.add_argument("--meta", required=True, help="Path to parsed metadata parquet")
     parser.add_argument("--out-svg", required=True, help="Output plot SVG")
+    parser.add_argument("--out-png", required=True, help="Output plot PNG")
     args = parser.parse_args()
 
-    match run_pipeline(Path(args.tpm), Path(args.meta), Path(args.out_svg)):
+    match run_pipeline(Path(args.tpm), Path(args.meta), Path(args.out_svg), Path(args.out_png)):
         case Success(_):
             print("Successfully completed single-cell analysis and saved UMAP plots.")
             sys.exit(0)

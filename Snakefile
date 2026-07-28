@@ -9,7 +9,8 @@ GSE_DIR = f"{DATA_DIR}/GSE120575"
 rule all:
     input:
         f"{GSE_DIR}/gse120575_parsed_cell_ids.parquet",
-        f"{RESULTS_DIR}/gse120575_umap_plots.svg"
+        f"{RESULTS_DIR}/gse120575_umap_plots.svg",
+        f"{RESULTS_DIR}/gse120575_umap_plots.png"
 
 rule download_gse120575:
     input:
@@ -31,13 +32,15 @@ rule analyze_gse120575:
         tpm = f"{GSE_DIR}/gse120575_tpm.parquet",
         meta = f"{GSE_DIR}/gse120575_parsed_cell_ids.parquet"
     output:
-        plots_svg = f"{RESULTS_DIR}/gse120575_umap_plots.svg"
+        plots_svg = f"{RESULTS_DIR}/gse120575_umap_plots.svg",
+        plots_png = f"{RESULTS_DIR}/gse120575_umap_plots.png"
     shell:
         """
         python {input.script} \
             --tpm {input.tpm} \
             --meta {input.meta} \
-            --out-svg {output.plots_svg}
+            --out-svg {output.plots_svg} \
+            --out-png {output.plots_png}
         """
 
 rule extract_metadata_gse120575:
