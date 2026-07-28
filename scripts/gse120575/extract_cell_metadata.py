@@ -88,10 +88,7 @@ def process_metadata(meta_path: Path) -> Result[pl.DataFrame, str]:
         # Extract and split patient info
         final_df = joined_df.with_columns(
             pl.col(pat_col).str.split_exact("_", 1).struct.rename_fields(["treatment_status", "patient_id"]).alias("split_pat")
-        ).unnest("split_pat").select([
-            "cell_id", "plate-row", "plate-col", "plate", "melanoma-sample", "sample_id_category",
-            "treatment_status", "patient_id", "biopsy", "sequencing_lane", "enrichment"
-        ])
+        ).unnest("split_pat").drop(["title", pat_col])
         
         initial_count = final_df.height
         

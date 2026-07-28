@@ -102,6 +102,10 @@ def create_umap_plots(adata: ad.AnnData) -> Result[alt.Chart, str]:
             if col in exclude_cols or plot_df[col].null_count() == plot_df.height:
                 continue
                 
+            # Skip columns that have only a single unique value across all cells (e.g. organism=Homo sapiens)
+            if plot_df[col].n_unique() <= 1:
+                continue
+                
             chart = alt.Chart(plot_df).mark_circle(size=5, opacity=0.8).encode(
                 x=alt.X("UMAP1:Q", title="UMAP 1"),
                 y=alt.Y("UMAP2:Q", title="UMAP 2"),
