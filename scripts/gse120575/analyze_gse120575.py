@@ -9,7 +9,6 @@ import scipy.sparse as sp
 import numpy as np
 import math
 from returns.result import Result, Success, Failure
-from returns.methods import bind
 
 # Allow large datasets in Altair
 alt.data_transformers.disable_max_rows()
