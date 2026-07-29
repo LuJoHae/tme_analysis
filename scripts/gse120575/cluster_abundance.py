@@ -52,13 +52,23 @@ def run_sccoda_for_condition(adata: ad.AnnData, condition_name: str, out_dir: Pa
         with open(out_dir / f"sccoda_summary_{condition_name}.txt", "w") as f:
             f.write(str(sccoda.summary(mdata)))
         
-        # Plot stacked barplot
-        pt.pl.coda.stacked_barplot(
-            mdata,
-            feature_name="response",
-            figsize=(8, 6)
+        # Plot stacked barplot manually
+        df = adata.obs[["melanoma-sample", "response", "leiden"]].copy()
+        counts = df.groupby(["melanoma-sample", "response", "leiden"], observed=False).size().unstack(fill_value=0)
+        props = counts.div(counts.sum(axis=1), axis=0)
+        
+        props = props.reset_index()
+        props = props.sort_values(["response", "melanoma-sample"])
+        
+        ax = props.set_index("melanoma-sample").drop(columns=["response"]).plot(
+            kind="bar", stacked=True, figsize=(12, 6), cmap="tab20"
         )
-        plt.title(f"Cluster Abundance by Response ({condition_name})")
+        labels = [f"{row['melanoma-sample']} ({row['response']})" for _, row in props.iterrows()]
+        ax.set_xticklabels(labels, rotation=90)
+        
+        plt.title(f"Cluster Proportions ({condition_name})")
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Cluster")
+        plt.ylabel("Proportion")
         plt.tight_layout()
         plt.savefig(out_dir / f"sccoda_abundance_{condition_name}.png", dpi=300)
         plt.close()
