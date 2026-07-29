@@ -8,10 +8,10 @@ GSE_DIR = f"{DATA_DIR}/GSE120575"
 # The 'all' rule defines what files should ultimately be generated.
 rule all:
     input:
-        f"{GSE_DIR}/gse120575_parsed_cell_ids.parquet",
-        f"{RESULTS_DIR}/gse120575_umap_plots.svg",
-        f"{RESULTS_DIR}/gse120575_umap_plots.png",
-        f"{RESULTS_DIR}/sccoda_results_Combined.csv"
+        DATA_DIR + "/GSE120575/gse120575_parsed_cell_ids.parquet",
+        DATA_DIR + "/results/gse120575_umap_plots.svg",
+        DATA_DIR + "/results/gse120575_umap_plots.png",
+        DATA_DIR + "/results/plot_abundance_completed.txt"
 
 rule download_gse120575:
     input:
@@ -60,19 +60,29 @@ rule plot_gse120575:
 rule cluster_abundance:
     input:
         script="scripts/gse120575/cluster_abundance.py",
-        adata = f"{GSE_DIR}/gse120575_processed.h5ad"
+        adata=f"{GSE_DIR}/gse120575_processed.h5ad"
     output:
-        csv_pre = f"{RESULTS_DIR}/sccoda_results_Pre.csv",
-        png_pre = f"{RESULTS_DIR}/sccoda_abundance_Pre.png",
-        csv_post = f"{RESULTS_DIR}/sccoda_results_Post.csv",
-        png_post = f"{RESULTS_DIR}/sccoda_abundance_Post.png",
-        csv_comb = f"{RESULTS_DIR}/sccoda_results_Combined.csv",
-        png_comb = f"{RESULTS_DIR}/sccoda_abundance_Combined.png"
+        marker=f"{RESULTS_DIR}/sccoda_completed.txt"
     shell:
         """
         python {input.script} \
             --adata {input.adata} \
             --out-dir {RESULTS_DIR}
+        touch {output.marker}
+        """
+
+rule plot_abundance:
+    input:
+        script="scripts/gse120575/plot_cluster_abundance.py",
+        marker=f"{RESULTS_DIR}/sccoda_completed.txt"
+    output:
+        marker=f"{RESULTS_DIR}/plot_abundance_completed.txt"
+    shell:
+        """
+        python {input.script} \
+            --data-dir {RESULTS_DIR} \
+            --out-dir {RESULTS_DIR}
+        touch {output.marker}
         """
 
 rule extract_metadata_gse120575:
