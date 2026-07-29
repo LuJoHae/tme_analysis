@@ -6,7 +6,6 @@ import altair as alt  # type: ignore
 from returns.result import Result, Success, Failure  # type: ignore
 from returns.pipeline import flow
 from returns.pointfree import bind
-from returns.decorators import do  # type: ignore
 
 # Ensure altair can handle large datasets if necessary
 alt.data_transformers.disable_max_rows()
@@ -57,15 +56,15 @@ def plot_proportions(df: pd.DataFrame, cluster_key: str, condition_name: str, ou
     except Exception as e:
         return Failure(f"Plotting failed: {e}")
 
-@do(Result[bool, str])
-def process_file(csv_path: Path, out_dir: Path) -> bool:
+def process_file(csv_path: Path, out_dir: Path) -> Result[bool, str]:
     name_parts = csv_path.stem.replace("sccoda_proportions_", "").split("_")
     condition_name = name_parts[0]
     cluster_key = "_".join(name_parts[1:])
     
-    df = yield load_proportions(csv_path)
-    yield plot_proportions(df, cluster_key, condition_name, out_dir)
-    return True
+    return flow(
+        load_proportions(csv_path),
+        bind(lambda df: plot_proportions(df, cluster_key, condition_name, out_dir))
+    )
 
 def run_plotting(data_dir: Path, out_dir: Path) -> Result[bool, str]:
     try:
