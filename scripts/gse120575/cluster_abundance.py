@@ -5,6 +5,8 @@ import anndata as ad  # type: ignore
 import pertpy as pt  # type: ignore
 import pandas as pd  # type: ignore
 import scanpy as sc  # type: ignore
+import celltypist # type: ignore
+import itertools
 from sklearn.cluster import KMeans  # type: ignore
 from returns.result import Result, Success, Failure  # type: ignore
 from returns.pipeline import flow
@@ -32,9 +34,26 @@ def compute_clusters(adata: ad.AnnData) -> Result[tuple[ad.AnnData, list[str]], 
             adata.obs[f"kmeans_{k}"] = adata.obs[f"kmeans_{k}"].astype(str).astype("category")
             cluster_keys.append(f"kmeans_{k}")
         
+        # CellTypist
+        print("Running CellTypist...")
+        model = celltypist.models.Model.load(model='Immune_All_Low.pkl')
+        predictions = celltypist.annotate(adata, model=model, majority_voting=True)
+        adata.obs["celltypist"] = predictions.majority_voting.astype(str).astype("category")
+        cluster_keys.append("celltypist")
+        
         return Success((adata, cluster_keys))
     except Exception as e:
         return Failure(f"Failed to compute clusters: {e}")
+
+def export_overlaps(adata_and_keys: tuple[ad.AnnData, list[str]], out_dir: Path) -> Result[tuple[ad.AnnData, list[str]], str]:
+    try:
+        adata, cluster_keys = adata_and_keys
+        for k1, k2 in itertools.combinations(cluster_keys, 2):
+            ct = pd.crosstab(adata.obs[k1], adata.obs[k2])
+            ct.to_csv(out_dir / f"cluster_overlap_{k1}_vs_{k2}.csv")
+        return Success(adata_and_keys)
+    except Exception as e:
+        return Failure(f"Failed to export overlaps: {e}")
 
 def export_proportions(adata: ad.AnnData, cluster_key: str, condition_name: str, out_dir: Path) -> None:
     df = adata.obs[["melanoma-sample", "response", cluster_key]].copy()
@@ -120,6 +139,7 @@ def run_pipeline(adata_path: Path, out_dir: Path) -> Result[bool, str]:
         return flow(
             load_anndata(adata_path),
             bind(compute_clusters),
+            bind(lambda ak: export_overlaps(ak, out_dir)),
             bind(lambda ak: run_all_conditions(ak, out_dir))
         )
     except Exception as e:
