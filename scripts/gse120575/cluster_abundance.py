@@ -20,16 +20,17 @@ def compute_clusters(adata: ad.AnnData) -> Result[tuple[ad.AnnData, list[str]], 
     try:
         cluster_keys = []
         # Leiden resolutions
-        for res in [0.5, 1.0, 1.5, 2.0, 3.0]:
+        for res in [0.5, 1.0, 1.5, 2.0]:
             key = f"leiden_{res}"
             sc.tl.leiden(adata, resolution=res, key_added=key)
             cluster_keys.append(key)
         
-        # KMeans k=10
-        kmeans = KMeans(n_clusters=10, random_state=42)
-        adata.obs["kmeans_10"] = kmeans.fit_predict(adata.obsm["X_pca"])
-        adata.obs["kmeans_10"] = adata.obs["kmeans_10"].astype(str).astype("category")
-        cluster_keys.append("kmeans_10")
+        # KMeans
+        for k in [8, 10, 15]:
+            kmeans = KMeans(n_clusters=k, random_state=42)
+            adata.obs[f"kmeans_{k}"] = kmeans.fit_predict(adata.obsm["X_pca"])
+            adata.obs[f"kmeans_{k}"] = adata.obs[f"kmeans_{k}"].astype(str).astype("category")
+            cluster_keys.append(f"kmeans_{k}")
         
         return Success((adata, cluster_keys))
     except Exception as e:
@@ -67,6 +68,9 @@ def run_sccoda_for_condition(adata: ad.AnnData, cluster_key: str, condition_name
             automatic_reference_absence_threshold=0.5
         )
         sccoda.run_nuts(mdata, num_warmup=200, num_samples=1000, rng_key=42)
+        
+        # Lower threshold on inclusion probability by increasing FDR
+        sccoda.set_fdr(mdata, est_fdr=0.2)
         
         varm_keys = mdata["coda"].varm.keys()
         effect_keys = [k for k in varm_keys if k.startswith("effect_df_")]
