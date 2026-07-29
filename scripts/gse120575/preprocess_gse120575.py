@@ -1,12 +1,14 @@
 import sys
 import argparse
 from pathlib import Path
-import polars as pl
-import anndata as ad
-import scanpy as sc
-import scipy.sparse as sp
-import numpy as np
-from returns.result import Result, Success, Failure
+import polars as pl  # type: ignore
+import anndata as ad  # type: ignore
+import scanpy as sc  # type: ignore
+import scipy.sparse as sp  # type: ignore
+import numpy as np  # type: ignore
+from typing import Generator, Any
+from returns.result import Result, Success, Failure  # type: ignore
+from returns.decorators import do  # type: ignore
 
 def load_data(tpm_path: Path, meta_path: Path) -> Result[tuple[pl.DataFrame, pl.DataFrame], str]:
     try:
@@ -55,6 +57,7 @@ def process_scanpy(adata: ad.AnnData) -> Result[ad.AnnData, str]:
         sc.pp.filter_genes(adata, min_cells=3)
         
         # Log1p transformation (TPM is already size-factor normalized, just log it)
+        sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
         
         # Calculate highly variable genes
@@ -82,16 +85,15 @@ def save_anndata(adata: ad.AnnData, out_path: Path) -> Result[bool, str]:
     except Exception as e:
         return Failure(f"Failed to save AnnData: {e}")
 
-def run_pipeline(tpm_path: Path, meta_path: Path, out_path: Path) -> Result[bool, str]:
-    return load_data(tpm_path, meta_path).bind(
-        lambda dfs: create_anndata(dfs[0], dfs[1]).bind(
-            lambda adata: process_scanpy(adata).bind(
-                lambda processed_adata: save_anndata(processed_adata, out_path)
-            )
-        )
-    )
+@do(Result[bool, str])  # type: ignore
+def run_pipeline(tpm_path: Path, meta_path: Path, out_path: Path) -> Generator[Any, Any, bool]:
+    dfs = yield load_data(tpm_path, meta_path)
+    adata = yield create_anndata(dfs[0], dfs[1])
+    processed_adata = yield process_scanpy(adata)
+    success = yield save_anndata(processed_adata, out_path)
+    return bool(success)
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Preprocess GSE120575 data using Scanpy")
     parser.add_argument("--tpm", required=True, help="Path to TPM parquet")
     parser.add_argument("--meta", required=True, help="Path to parsed metadata parquet")
