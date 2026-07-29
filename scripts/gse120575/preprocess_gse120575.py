@@ -6,9 +6,9 @@ import anndata as ad  # type: ignore
 import scanpy as sc  # type: ignore
 import scipy.sparse as sp  # type: ignore
 import numpy as np  # type: ignore
-from typing import Generator, Any
 from returns.result import Result, Success, Failure  # type: ignore
-from returns.decorators import do  # type: ignore
+from returns.pipeline import flow
+from returns.pointfree import bind
 
 def load_data(tpm_path: Path, meta_path: Path) -> Result[tuple[pl.DataFrame, pl.DataFrame], str]:
     try:
@@ -85,13 +85,13 @@ def save_anndata(adata: ad.AnnData, out_path: Path) -> Result[bool, str]:
     except Exception as e:
         return Failure(f"Failed to save AnnData: {e}")
 
-@do(Result[bool, str])  # type: ignore
-def run_pipeline(tpm_path: Path, meta_path: Path, out_path: Path) -> Generator[Any, Any, bool]:
-    dfs = yield load_data(tpm_path, meta_path)
-    adata = yield create_anndata(dfs[0], dfs[1])
-    processed_adata = yield process_scanpy(adata)
-    success = yield save_anndata(processed_adata, out_path)
-    return bool(success)
+def run_pipeline(tpm_path: Path, meta_path: Path, out_path: Path) -> Result[bool, str]:
+    return flow(
+        load_data(tpm_path, meta_path),
+        bind(lambda dfs: create_anndata(dfs[0], dfs[1])),
+        bind(process_scanpy),
+        bind(lambda adata: save_anndata(adata, out_path))
+    )
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Preprocess GSE120575 data using Scanpy")
