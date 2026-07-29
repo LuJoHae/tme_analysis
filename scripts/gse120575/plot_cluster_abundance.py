@@ -25,6 +25,9 @@ def plot_proportions(df: pd.DataFrame, cluster_key: str, condition_name: str, ou
         
         long_df = df.melt(id_vars=id_vars, value_vars=value_vars, var_name="Cluster", value_name="Proportion")
         
+        # Drop NaNs that appear because of observed=False in pandas groupby
+        long_df = long_df.dropna(subset=["Proportion"])
+        
         # Filter out samples that have 0 sum across all clusters (dropped samples)
         sample_sums = long_df.groupby("melanoma-sample")["Proportion"].sum().reset_index()
         valid_samples = sample_sums[sample_sums["Proportion"] > 0]["melanoma-sample"].tolist()
@@ -56,15 +59,50 @@ def plot_proportions(df: pd.DataFrame, cluster_key: str, condition_name: str, ou
     except Exception as e:
         return Failure(f"Plotting failed: {e}")
 
+def plot_effects(csv_path: Path, cluster_key: str, condition_name: str, out_dir: Path) -> Result[bool, str]:
+    try:
+        df = pd.read_csv(csv_path)
+        cluster_col = df.columns[0]
+        df = df.rename(columns={cluster_col: "Cluster"})
+        df["Cluster"] = df["Cluster"].astype(str)
+        
+        df["Significant"] = df["Final Parameter"] != 0.0
+        
+        chart = alt.Chart(df).mark_bar().encode(
+            y=alt.Y("Cluster:N", sort="-x", title="Cluster"),
+            x=alt.X("log2-fold change:Q", title="Log2 Fold Change"),
+            color=alt.Color("Significant:N", title="Significant (Final Param != 0)", scale=alt.Scale(domain=[True, False], range=['#d62728', '#aec7e8'])),
+            tooltip=["Cluster", "Final Parameter", "log2-fold change", "Inclusion probability"]
+        ).properties(
+            title=f"scCODA Effects - {condition_name} ({cluster_key})",
+            width=400,
+            height=300
+        )
+        
+        plot_path = out_dir / f"sccoda_effects_{condition_name}_{cluster_key}.svg"
+        chart.save(str(plot_path))
+        
+        return Success(True)
+    except Exception as e:
+        return Failure(f"Plotting effects failed: {e}")
+
 def process_file(csv_path: Path, out_dir: Path) -> Result[bool, str]:
     name_parts = csv_path.stem.replace("sccoda_proportions_", "").split("_")
     condition_name = name_parts[0]
     cluster_key = "_".join(name_parts[1:])
     
-    return flow(
+    res1 = flow(
         load_proportions(csv_path),
         bind(lambda df: plot_proportions(df, cluster_key, condition_name, out_dir))
     )
+    if not isinstance(res1, Success): return res1
+    
+    effects_csv = csv_path.parent / f"sccoda_results_{condition_name}_{cluster_key}.csv"
+    if effects_csv.exists():
+        res2 = plot_effects(effects_csv, cluster_key, condition_name, out_dir)
+        if not isinstance(res2, Success): return res2
+        
+    return Success(True)
 
 def run_plotting(data_dir: Path, out_dir: Path) -> Result[bool, str]:
     try:

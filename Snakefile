@@ -11,7 +11,7 @@ rule all:
         DATA_DIR + "/GSE120575/gse120575_parsed_cell_ids.parquet",
         DATA_DIR + "/results/gse120575_umap_plots.svg",
         DATA_DIR + "/results/gse120575_umap_plots.png",
-        DATA_DIR + "/results/plot_abundance_completed.txt"
+        DATA_DIR + "/output/plot_abundance_completed.txt"
 
 rule download_gse120575:
     input:
@@ -62,26 +62,26 @@ rule cluster_abundance:
         script="scripts/gse120575/cluster_abundance.py",
         adata=f"{GSE_DIR}/gse120575_processed.h5ad"
     output:
-        marker=f"{RESULTS_DIR}/sccoda_completed.txt"
+        marker=f"{DATA_DIR}/output/sccoda_completed.txt"
     shell:
         """
         python {input.script} \
             --adata {input.adata} \
-            --out-dir {RESULTS_DIR}
+            --out-dir {DATA_DIR}/output
         touch {output.marker}
         """
 
 rule plot_abundance:
     input:
         script="scripts/gse120575/plot_cluster_abundance.py",
-        marker=f"{RESULTS_DIR}/sccoda_completed.txt"
+        marker=f"{DATA_DIR}/output/sccoda_completed.txt"
     output:
-        marker=f"{RESULTS_DIR}/plot_abundance_completed.txt"
+        marker=f"{DATA_DIR}/output/plot_abundance_completed.txt"
     shell:
         """
         python {input.script} \
-            --data-dir {RESULTS_DIR} \
-            --out-dir {RESULTS_DIR}
+            --data-dir {DATA_DIR}/output \
+            --out-dir {DATA_DIR}/output
         touch {output.marker}
         """
 
