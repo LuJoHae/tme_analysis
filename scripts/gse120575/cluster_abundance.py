@@ -39,8 +39,13 @@ def run_sccoda_for_condition(adata: ad.AnnData, condition_name: str, out_dir: Pa
         
         # Extract effect DataFrame
         # Patsy creates variables based on categories, e.g. 'response[T.Responder]'
-        # pertpy stores this in varm as 'effect_df_response'
-        effect_df = mdata["coda"].varm["effect_df_response"]
+        # pertpy stores this in varm as 'effect_df_...'
+        varm_keys = mdata["coda"].varm.keys()
+        effect_keys = [k for k in varm_keys if k.startswith("effect_df_")]
+        if not effect_keys:
+            raise ValueError(f"No effect_df found in varm. Keys: {list(varm_keys)}")
+        
+        effect_df = mdata["coda"].varm[effect_keys[0]]
         effect_df.to_csv(out_dir / f"sccoda_results_{condition_name}.csv")
         
         # Save a textual summary as well (optional, but helpful for human reading)
