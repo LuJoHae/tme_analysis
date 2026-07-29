@@ -32,10 +32,10 @@ def run_sccoda_for_condition(adata: ad.AnnData, condition_name: str, out_dir: Pa
         mdata = sccoda.prepare(
             mdata,
             formula="response",
-            reference_cell_type="automatic",
+            reference_cell_type="0",
             automatic_reference_absence_threshold=0.5
         )
-        sccoda.run_nuts(mdata, num_warmup=1000, num_samples=5000, rng_key=42)
+        sccoda.run_nuts(mdata, num_warmup=200, num_samples=1000, rng_key=42)
         
         # Extract effect DataFrame
         # Patsy creates variables based on categories, e.g. 'response[T.Responder]'
