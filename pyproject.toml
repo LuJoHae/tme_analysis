@@ -42,6 +42,7 @@ dependencies = [
     "firthmodels>=0.7.2",
     "snakemake>=9.23.1",
     "igraph>=1.0.0",
+    "pertpy>=1.1.1",
 ]
 
 [tool.uv.workspace]

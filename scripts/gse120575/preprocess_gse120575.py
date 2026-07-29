@@ -70,6 +70,9 @@ def process_scanpy(adata: ad.AnnData) -> Result[ad.AnnData, str]:
         # Neighborhood graph
         sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
         
+        # Clustering
+        sc.tl.leiden(adata, resolution=1.0)
+        
         # UMAP
         sc.tl.umap(adata)
         

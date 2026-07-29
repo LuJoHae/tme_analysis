@@ -10,7 +10,8 @@ rule all:
     input:
         f"{GSE_DIR}/gse120575_parsed_cell_ids.parquet",
         f"{RESULTS_DIR}/gse120575_umap_plots.svg",
-        f"{RESULTS_DIR}/gse120575_umap_plots.png"
+        f"{RESULTS_DIR}/gse120575_umap_plots.png",
+        f"{RESULTS_DIR}/sccoda_results_Combined.csv"
 
 rule download_gse120575:
     input:
@@ -54,6 +55,24 @@ rule plot_gse120575:
             --adata {input.adata} \
             --out-svg {output.plots_svg} \
             --out-png {output.plots_png}
+        """
+
+rule cluster_abundance:
+    input:
+        script="scripts/gse120575/cluster_abundance.py",
+        adata = f"{GSE_DIR}/gse120575_processed.h5ad"
+    output:
+        csv_pre = f"{RESULTS_DIR}/sccoda_results_Pre.csv",
+        png_pre = f"{RESULTS_DIR}/sccoda_abundance_Pre.png",
+        csv_post = f"{RESULTS_DIR}/sccoda_results_Post.csv",
+        png_post = f"{RESULTS_DIR}/sccoda_abundance_Post.png",
+        csv_comb = f"{RESULTS_DIR}/sccoda_results_Combined.csv",
+        png_comb = f"{RESULTS_DIR}/sccoda_abundance_Combined.png"
+    shell:
+        """
+        python {input.script} \
+            --adata {input.adata} \
+            --out-dir {RESULTS_DIR}
         """
 
 rule extract_metadata_gse120575:
