@@ -11,16 +11,20 @@ def plot_single_jaccard(k1: str, k2: str, df: pd.DataFrame, out_dir: Path) -> Re
         if df.empty:
             return Failure(f"Empty dataframe for {k1} vs {k2}")
             
-        long_df = df.reset_index().melt(id_vars=[df.index.name], var_name=df.columns.name, value_name="Jaccard Similarity")
+        df = df.copy()
+        df.index.name = k1
+        df.columns.name = k2
+            
+        long_df = df.reset_index().melt(id_vars=[k1], var_name=k2, value_name="Jaccard Similarity")
         
-        long_df[df.index.name] = long_df[df.index.name].astype(str)
-        long_df[df.columns.name] = long_df[df.columns.name].astype(str)
+        long_df[k1] = long_df[k1].astype(str)
+        long_df[k2] = long_df[k2].astype(str)
         
         chart = alt.Chart(long_df).mark_rect().encode(
-            x=alt.X(f"{df.columns.name}:N", title=df.columns.name),
-            y=alt.Y(f"{df.index.name}:N", title=df.index.name),
+            x=alt.X(f"{k2}:N", title=k2),
+            y=alt.Y(f"{k1}:N", title=k1),
             color=alt.Color("Jaccard Similarity:Q", scale=alt.Scale(scheme="viridis")),
-            tooltip=[df.index.name, df.columns.name, "Jaccard Similarity"]
+            tooltip=[k1, k2, "Jaccard Similarity"]
         ).properties(
             title=f"Jaccard Similarity: {k1} vs {k2}",
             width=500,
