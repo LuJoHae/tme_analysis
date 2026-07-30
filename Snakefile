@@ -12,7 +12,9 @@ rule all:
         DATA_DIR + "/results/gse120575_umap_plots.svg",
         DATA_DIR + "/results/gse120575_umap_plots.png",
         DATA_DIR + "/results/plot_abundance_completed.txt",
-        DATA_DIR + "/results/plot_overlaps_completed.txt"
+        DATA_DIR + "/results/plot_overlaps_completed.txt",
+        DATA_DIR + "/output/milopy_completed.txt",
+        DATA_DIR + "/results/plot_milopy_completed.txt"
 
 rule download_gse120575:
     input:
@@ -89,14 +91,28 @@ rule plot_abundance:
 rule plot_overlaps:
     input:
         script="scripts/gse120575/plot_cluster_overlaps.py",
-        marker=f"{DATA_DIR}/output/sccoda_completed.txt"
+        adata=f"{GSE_DIR}/gse120575_processed.h5ad"
     output:
         marker=f"{RESULTS_DIR}/plot_overlaps_completed.txt"
     shell:
         """
         python {input.script} \
-            --data-dir {DATA_DIR}/output \
+            --adata {input.adata} \
             --out-dir {RESULTS_DIR}
+        touch {output.marker}
+        """
+
+rule milopy_abundance:
+    input:
+        script="scripts/gse120575/run_milopy.py",
+        adata=f"{GSE_DIR}/gse120575_processed.h5ad"
+    output:
+        marker=f"{DATA_DIR}/output/milopy_completed.txt"
+    shell:
+        """
+        python {input.script} \
+            --adata {input.adata} \
+            --out-dir {DATA_DIR}/output
         touch {output.marker}
         """
 
@@ -109,4 +125,18 @@ rule extract_metadata_gse120575:
     shell:
         """
         python {input.script} --meta {input.meta} --out {output.parsed_meta}
+        """
+
+rule plot_milopy:
+    input:
+        script="scripts/gse120575/plot_milopy.py",
+        marker=f"{DATA_DIR}/output/milopy_completed.txt"
+    output:
+        marker=f"{RESULTS_DIR}/plot_milopy_completed.txt"
+    shell:
+        """
+        python {input.script} \
+            --data-dir {DATA_DIR}/output \
+            --out-dir {RESULTS_DIR}
+        touch {output.marker}
         """

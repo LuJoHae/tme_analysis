@@ -6,6 +6,9 @@ import anndata as ad  # type: ignore
 import scanpy as sc  # type: ignore
 import scipy.sparse as sp  # type: ignore
 import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
+import celltypist  # type: ignore
+import itertools
 from returns.result import Result, Success, Failure  # type: ignore
 from returns.pipeline import flow
 from returns.pointfree import bind
@@ -70,8 +73,42 @@ def process_scanpy(adata: ad.AnnData) -> Result[ad.AnnData, str]:
         # Neighborhood graph
         sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
         
-        # Clustering
-        sc.tl.leiden(adata, resolution=1.0)
+        # Clustering and CellTyping
+        print("Running Clustering and CellTypist...")
+        resolutions = [0.5, 1.0, 1.5, 2.0]
+        model = celltypist.models.Model.load(model='Immune_All_Low.pkl')
+        cluster_keys = []
+        
+        for res in resolutions:
+            k = f"leiden_{res}"
+            sc.tl.leiden(adata, resolution=res, key_added=k)
+            cluster_keys.append(k)
+            
+            # CellTypist per clustering
+            predictions = celltypist.annotate(adata, model=model, majority_voting=True, over_clustering=k)
+            new_key = f"celltypist_leiden_{res}"
+            adata.obs[new_key] = predictions.predicted_labels["majority_voting"].astype(str).astype("category")
+            cluster_keys.append(new_key)
+            
+        # Jaccard Similarity Calculation
+        print("Calculating Jaccard Similarities...")
+        for k1, k2 in itertools.combinations(cluster_keys, 2):
+            c1_levels = adata.obs[k1].cat.categories
+            c2_levels = adata.obs[k2].cat.categories
+            jaccard_mat = np.zeros((len(c1_levels), len(c2_levels)))
+            
+            for i, c1 in enumerate(c1_levels):
+                set1 = set(adata.obs.index[adata.obs[k1] == c1])
+                for j, c2 in enumerate(c2_levels):
+                    set2 = set(adata.obs.index[adata.obs[k2] == c2])
+                    intersection = len(set1.intersection(set2))
+                    union = len(set1.union(set2))
+                    jaccard_mat[i, j] = intersection / union if union > 0 else 0.0
+                    
+            df_jaccard = pd.DataFrame(jaccard_mat, index=c1_levels, columns=c2_levels)
+            df_jaccard.index.name = k1
+            df_jaccard.columns.name = k2
+            adata.uns[f"jaccard_{k1}_vs_{k2}"] = df_jaccard
         
         # UMAP
         sc.tl.umap(adata)

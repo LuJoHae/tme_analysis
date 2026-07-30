@@ -12,48 +12,23 @@ from returns.result import Result, Success, Failure  # type: ignore
 from returns.pipeline import flow
 from returns.pointfree import bind
 
-def load_anndata(adata_path: Path) -> Result[ad.AnnData, str]:
+def load_anndata(path: Path) -> Result[ad.AnnData, str]:
     try:
-        return Success(ad.read_h5ad(adata_path))
+        adata = ad.read_h5ad(path)
+        return Success(adata)
     except Exception as e:
         return Failure(f"Failed to load AnnData: {e}")
 
-def compute_clusters(adata: ad.AnnData) -> Result[tuple[ad.AnnData, list[str]], str]:
+def discover_cluster_keys(adata: ad.AnnData) -> Result[tuple[ad.AnnData, list[str]], str]:
     try:
-        cluster_keys = []
-        # Leiden resolutions
-        for res in [0.5, 1.0, 1.5, 2.0]:
-            key = f"leiden_{res}"
-            sc.tl.leiden(adata, resolution=res, key_added=key)
-            cluster_keys.append(key)
-        
-        # KMeans
-        for k in [8, 10, 15]:
-            kmeans = KMeans(n_clusters=k, random_state=42)
-            adata.obs[f"kmeans_{k}"] = kmeans.fit_predict(adata.obsm["X_pca"])
-            adata.obs[f"kmeans_{k}"] = adata.obs[f"kmeans_{k}"].astype(str).astype("category")
-            cluster_keys.append(f"kmeans_{k}")
-        
-        # CellTypist
-        print("Running CellTypist...")
-        model = celltypist.models.Model.load(model='Immune_All_Low.pkl')
-        predictions = celltypist.annotate(adata, model=model, majority_voting=True)
-        adata.obs["celltypist"] = predictions.majority_voting.astype(str).astype("category")
-        cluster_keys.append("celltypist")
-        
+        # Find all keys starting with leiden_ or celltypist_
+        cluster_keys = [col for col in adata.obs.columns if col.startswith("leiden_") or col.startswith("celltypist_")]
+        if not cluster_keys:
+            return Failure("No cluster keys found in AnnData object.")
+        print(f"Discovered cluster keys: {cluster_keys}")
         return Success((adata, cluster_keys))
     except Exception as e:
-        return Failure(f"Failed to compute clusters: {e}")
-
-def export_overlaps(adata_and_keys: tuple[ad.AnnData, list[str]], out_dir: Path) -> Result[tuple[ad.AnnData, list[str]], str]:
-    try:
-        adata, cluster_keys = adata_and_keys
-        for k1, k2 in itertools.combinations(cluster_keys, 2):
-            ct = pd.crosstab(adata.obs[k1], adata.obs[k2])
-            ct.to_csv(out_dir / f"cluster_overlap_{k1}_vs_{k2}.csv")
-        return Success(adata_and_keys)
-    except Exception as e:
-        return Failure(f"Failed to export overlaps: {e}")
+        return Failure(f"Failed to discover cluster keys: {e}")
 
 def export_proportions(adata: ad.AnnData, cluster_key: str, condition_name: str, out_dir: Path) -> None:
     df = adata.obs[["melanoma-sample", "response", cluster_key]].copy()
@@ -138,8 +113,7 @@ def run_pipeline(adata_path: Path, out_dir: Path) -> Result[bool, str]:
         out_dir.mkdir(parents=True, exist_ok=True)
         return flow(
             load_anndata(adata_path),
-            bind(compute_clusters),
-            bind(lambda ak: export_overlaps(ak, out_dir)),
+            bind(discover_cluster_keys),
             bind(lambda ak: run_all_conditions(ak, out_dir))
         )
     except Exception as e:
