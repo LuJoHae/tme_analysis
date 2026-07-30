@@ -75,19 +75,29 @@ def process_scanpy(adata: ad.AnnData) -> Result[ad.AnnData, str]:
         
         # Clustering and CellTyping
         print("Running Clustering and CellTypist...")
-        resolutions = [0.5, 1.0, 1.5, 2.0]
         model = celltypist.models.Model.load(model='Immune_All_Low.pkl')
-        cluster_keys = []
-        
+        # Run Leiden clustering at multiple resolutions and perform CellTypist majority voting
+        resolutions = [0.5, 1.0, 1.5, 2.0]
+        cluster_keys: list[str] = []
         for res in resolutions:
             k = f"leiden_{res}"
             sc.tl.leiden(adata, resolution=res, key_added=k)
-            cluster_keys.append(k)
             
-            # CellTypist per clustering
+            # Predict with CellTypist using majority voting over the generated Leiden clusters
             predictions = celltypist.annotate(adata, model=model, majority_voting=True, over_clustering=k)
             new_key = f"celltypist_leiden_{res}"
-            adata.obs[new_key] = predictions.predicted_labels["majority_voting"].astype(str).astype("category")
+            
+            cluster_ids = adata.obs[k].astype(str)
+            max_digits = max(2, len(str(len(cluster_ids.unique()) - 1)))
+            padded_ids = cluster_ids.str.zfill(max_digits)
+            
+            adata.obs[k] = padded_ids.astype("category")
+            
+            maj_labels = predictions.predicted_labels["majority_voting"].astype(str)
+            combined_labels = padded_ids + "_" + maj_labels
+            adata.obs[new_key] = combined_labels.astype("category")
+            
+            cluster_keys.append(k)
             cluster_keys.append(new_key)
             
         # Jaccard Similarity Calculation
