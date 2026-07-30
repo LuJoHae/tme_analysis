@@ -14,16 +14,11 @@ When the user asks you to "run the pipeline", "execute the code", or explicitly 
 4. If either path is still a placeholder, **STOP** and ask the user to provide the correct absolute path on the remote server for the data directory before proceeding. Do NOT attempt to run the pipeline.
 
 ## Step 2: Synchronize and Execute
-Execute the pipeline using the `Makefile`. You can either run the steps individually or all at once.
+Execute the pipeline using the `Makefile`. You must **never** run the entire pipeline at once using `make run-all`. Always execute a specific rule.
 
-**Run All (Recommended)**:
-Execute the command: `make run-all`
-This will automatically sync the codebase, run the remote snakemake command, and pull the results back.
-
-**Step-by-step**:
-If the user only wants to perform specific actions:
+**Running a Specific Rule**:
 1. Run `make sync` to push local changes to the remote server.
-2. Run `make run-remote` to trigger Snakemake on the remote server.
+2. Run `make run-rule RULE=<rule_name>` to trigger Snakemake for the exact rule you are working on.
 3. Run `make pull-results` to download the generated files back to the local `output/results/` directory.
 
 ## Step 3: Verify and Report
