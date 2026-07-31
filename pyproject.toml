@@ -43,6 +43,8 @@ dependencies = [
     "snakemake>=9.23.1",
     "igraph>=1.0.0",
     "pertpy>=1.1.1",
+    "milopy",
+    "jax[cuda12]; sys_platform == 'linux'",
 ]
 
 [tool.uv.workspace]
@@ -65,3 +67,4 @@ ici_datasets = { workspace = true }
 ml_pipelines = { workspace = true }
 selective-inference = { workspace = true }
 single_cell_immuno_datasets = { workspace = true }
+milopy = { workspace = true }
