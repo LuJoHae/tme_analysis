@@ -14,7 +14,8 @@ rule all:
         DATA_DIR + "/results/plot_abundance_completed.txt",
         DATA_DIR + "/results/plot_overlaps_completed.txt",
         DATA_DIR + "/output/milopy_completed.txt",
-        DATA_DIR + "/results/plot_milopy_completed.txt"
+        DATA_DIR + "/results/plot_milopy_completed.txt",
+        DATA_DIR + "/results/plot_nhood_composition_completed.txt"
 
 rule download_gse120575:
     input:
@@ -136,6 +137,22 @@ rule plot_milopy:
     shell:
         """
         python {input.script} \
+            --data-dir {DATA_DIR}/output \
+            --out-dir {RESULTS_DIR}
+        touch {output.marker}
+        """
+
+rule plot_nhood_composition:
+    input:
+        script="scripts/gse120575/plot_nhood_composition.py",
+        adata=f"{GSE_DIR}/gse120575_processed.h5ad",
+        marker=f"{DATA_DIR}/output/milopy_completed.txt"
+    output:
+        marker=f"{RESULTS_DIR}/plot_nhood_composition_completed.txt"
+    shell:
+        """
+        python {input.script} \
+            --adata {input.adata} \
             --data-dir {DATA_DIR}/output \
             --out-dir {RESULTS_DIR}
         touch {output.marker}
