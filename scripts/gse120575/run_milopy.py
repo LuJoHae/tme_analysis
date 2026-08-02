@@ -17,15 +17,27 @@ def run_milopy_for_condition(adata: ad.AnnData, condition_name: str, out_dir: Pa
     try:
         subset = adata.copy()
         
-        milopy.core.make_nhoods(subset, prop=0.1, k=50, d=40)
+        n_obs = subset.n_obs
+        k_val = min(50, max(5, n_obs // 10))
+        milopy.core.make_nhoods(subset, prop=0.2, k=k_val, d=40)
         milopy.core.count_cells(subset, sample_col="melanoma-sample")
         design_df = subset.obs[["melanoma-sample", "response"]].drop_duplicates().set_index("melanoma-sample")
+        
+        if len(design_df["response"].unique()) < 2:
+            return Failure(f"Not enough response classes to perform DA testing in {condition_name}")
+            
         milopy.core.test_nhoods(subset, design="~response", design_df=design_df)
         
         if "nhood_test_results" not in subset.uns:
             return Failure("nhood_test_results not found in subset.uns")
             
         res_df = subset.uns["nhood_test_results"]
+        
+        # Group significant neighborhoods into modules
+        try:
+            res_df = milopy.group_nhoods(subset, res_df, max_fdr=0.1)
+        except Exception as e:
+            print(f"Warning: Failed to group nhoods for {condition_name}: {e}")
         
         # Save results CSV
         res_df.to_csv(out_dir / f"milopy_results_{condition_name}.csv")

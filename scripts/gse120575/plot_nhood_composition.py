@@ -7,6 +7,9 @@ import numpy as np  # type: ignore
 import scipy.sparse as sp  # type: ignore
 import anndata as ad  # type: ignore
 import altair as alt  # type: ignore
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import scanpy as sc
 from returns.result import Result, Success, Failure  # type: ignore
 
 alt.data_transformers.disable_max_rows()
@@ -23,41 +26,74 @@ def load_results(csv_path: Path) -> Result[pl.DataFrame, str]:
         return Failure(f"Failed to load {csv_path}: {e}")
 
 def get_significant_nhoods(df: pl.DataFrame, fdr_thresh: float = 0.1) -> pl.DataFrame:
-    # Returns DataFrame with Nhood and logFC
-    return df.filter(pl.col("FDR") < fdr_thresh).select(["Nhood", "logFC"])
+    # Returns DataFrame with Nhood, logFC, and NhoodGroup
+    if "NhoodGroup" not in df.columns:
+        df = df.with_columns(pl.lit(None).alias("NhoodGroup"))
+    return df.filter(pl.col("FDR") < fdr_thresh).filter(pl.col("NhoodGroup").is_not_null()).select(["Nhood", "logFC", "NhoodGroup"])
 
-def plot_composition(long_df: pd.DataFrame, condition: str, col: str, out_dir: Path) -> None:
-    # Top chart: logFC (effect size and direction)
-    effect_chart = alt.Chart(long_df).mark_bar().encode(
-        x=alt.X("Nhood:O", title=None, axis=alt.Axis(labels=False, ticks=False), sort=alt.EncodingSortField(field="logFC", order="descending")),
+def plot_composition(long_df: pd.DataFrame, condition: str, col: str, out_dir: Path, x_col: str, prefix: str, title_suffix: str) -> None:
+    long_df = long_df.copy()
+    if x_col == "NhoodGroup":
+        long_df[x_col] = long_df[x_col].astype(int).astype(str)
+    else:
+        long_df[x_col] = long_df[x_col].astype(str)
+        
+    effect_df = long_df[[x_col, "logFC"]].drop_duplicates()
+    if "stats_text" in long_df.columns:
+        effect_df = effect_df.merge(long_df[[x_col, "stats_text"]].drop_duplicates(), on=x_col)
+        
+    # Extract the exact desired order from pandas to guarantee bulletproof sorting
+    sort_order = effect_df.sort_values("logFC", ascending=False)[x_col].tolist()
+        
+    effect_chart = alt.Chart(effect_df).mark_bar().encode(
+        x=alt.X(f"{x_col}:N", title=None, axis=alt.Axis(labels=False, ticks=False), sort=sort_order),
         y=alt.Y("logFC:Q", title="log2(FC)"),
         color=alt.condition(
             alt.datum.logFC > 0,
-            alt.value("#d62728"),  # Red for positive logFC (Enriched)
-            alt.value("#1f77b4")   # Blue for negative logFC (Depleted)
+            alt.value("#d62728"),
+            alt.value("#1f77b4")
         ),
-        tooltip=["Nhood", "logFC"]
+        tooltip=[x_col, "logFC"]
     ).properties(
         width=800,
         height=100
     )
 
-    # Bottom chart: Composition
     comp_chart = alt.Chart(long_df).mark_bar().encode(
-        x=alt.X("Nhood:O", title="Significant Neighborhood ID", sort=alt.EncodingSortField(field="logFC", order="descending")),
+        x=alt.X(f"{x_col}:N", title=title_suffix, sort=sort_order),
         y=alt.Y("Proportion:Q", title="Fraction of Cells"),
         color=alt.Color("Cluster:N", scale=alt.Scale(scheme="category20")),
-        tooltip=["Nhood", "Cluster", "Proportion", "logFC"]
+        tooltip=[x_col, "Cluster", "Proportion", "logFC"]
     ).properties(
         width=800,
         height=300
     )
 
-    chart = alt.vconcat(effect_chart, comp_chart).resolve_scale(x='shared').properties(
-        title=f"{condition} - {col} composition of significant neighborhoods"
-    )
+    if "stats_text" in effect_df.columns:
+        text_chart = alt.Chart(effect_df).mark_text(
+            align='left',
+            baseline='middle',
+            fontSize=10,
+            angle=270,
+            lineBreak='|'
+        ).encode(
+            x=alt.X(f"{x_col}:N", title=None, axis=alt.Axis(labels=False, ticks=False), sort=sort_order),
+            text="stats_text:N",
+            tooltip=[x_col, "stats_text"]
+        ).properties(
+            width=800,
+            height=60
+        )
+        
+        chart = alt.vconcat(text_chart, effect_chart, comp_chart).resolve_scale(x='shared').properties(
+            title=f"{condition} - {col} composition of {title_suffix.lower()}"
+        )
+    else:
+        chart = alt.vconcat(effect_chart, comp_chart).resolve_scale(x='shared').properties(
+            title=f"{condition} - {col} composition of {title_suffix.lower()}"
+        )
     
-    chart.save(str(out_dir / f"milopy_nhood_composition_{condition}_{col}.svg"))
+    chart.save(str(out_dir / f"milopy_nhood_composition_{condition}_{col}_{prefix}.svg"))
 
 def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.AnnData) -> Result[bool, str]:
     print(f"Processing condition {condition}...")
@@ -76,13 +112,19 @@ def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.A
         return Success(True)
         
     sig_nhoods = sig_df.get_column("Nhood").to_list()
-    sig_logfc = sig_df.get_column("logFC").to_list()
-    logfc_dict = dict(zip(sig_nhoods, sig_logfc))
+    nhood_groups = sig_df.get_column("NhoodGroup").to_list()
+    group_map = dict(zip(sig_nhoods, nhood_groups))
+    
+    # Calculate mean logFC per module
+    group_logfc = sig_df.group_by("NhoodGroup").agg(pl.col("logFC").mean()).to_dict(as_series=False)
+    mean_logfc_dict = dict(zip(group_logfc["NhoodGroup"], group_logfc["logFC"]))
     
     if condition != "Combined":
-        obs = adata.obs[adata.obs["treatment_status"] == condition].copy()
+        adata_sub = adata[adata.obs["treatment_status"] == condition].to_memory()
     else:
-        obs = adata.obs.copy()
+        adata_sub = adata.to_memory()
+        
+    obs = adata_sub.obs
         
     npz_path = data_dir / f"milopy_nhoods_{condition}.npz"
     if not npz_path.exists():
@@ -91,6 +133,31 @@ def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.A
     nhoods = sp.load_npz(npz_path)
     if nhoods.shape[0] != len(obs):
         return Failure(f"Shape mismatch: {nhoods.shape[0]} cells in npz vs {len(obs)} in metadata for {condition}")
+        
+    # --- Milo UMAP Plotting ---
+    logfc_array = np.array(sig_df.get_column("logFC").to_list())
+    sig_nhoods_idx = [int(i) for i in sig_nhoods]
+    nhoods_sig = nhoods[:, sig_nhoods_idx]
+    
+    pos_mask = logfc_array > 0
+    neg_mask = logfc_array < 0
+    
+    n_pos = nhoods_sig[:, pos_mask].sum(axis=1).A1
+    n_neg = nhoods_sig[:, neg_mask].sum(axis=1).A1
+    
+    total = n_pos + n_neg
+    f_pos = np.full(total.shape, np.nan)
+    mask = total > 0
+    f_pos[mask] = n_pos[mask] / total[mask]
+    
+    adata_sub.obs["milo_gradient"] = f_pos
+    cmap = mcolors.LinearSegmentedColormap.from_list("milo_cmap", ["blue", "purple", "red"])
+    
+    sc.settings.set_figure_params(dpi=150, frameon=False, figsize=(6, 6))
+    sc.pl.umap(adata_sub, color="milo_gradient", cmap=cmap, na_color="lightgray", title=f"Milo Neighborhoods - {condition}", show=False, s=15, alpha=0.8)
+    plt.savefig(out_dir / f"milopy_umap_gradient_{condition}.png", dpi=300, bbox_inches="tight")
+    plt.close()
+    # ---------------------------
         
     clustering_cols = ["celltypist_leiden_0.5", "celltypist_leiden_1.0", "celltypist_leiden_1.5", "celltypist_leiden_2.0"]
     
@@ -112,12 +179,38 @@ def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.A
         
         plot_df = pd.DataFrame(props, columns=cluster_names, index=sig_nhoods)
         plot_df.index.name = "Nhood"
-        long_df = plot_df.reset_index().melt(id_vars="Nhood", var_name="Cluster", value_name="Proportion")
         
-        long_df = long_df[long_df["Proportion"] > 0].copy()
-        long_df["logFC"] = long_df["Nhood"].map(logfc_dict)
+        # 1. Plot individual neighborhoods
+        long_df_nhoods = plot_df.reset_index().melt(id_vars="Nhood", var_name="Cluster", value_name="Proportion")
+        long_df_nhoods = long_df_nhoods[long_df_nhoods["Proportion"] > 0].copy()
         
-        plot_composition(long_df, condition, col, out_dir)
+        # We need a logfc mapping for nhoods
+        nhood_logfc_dict = dict(zip(sig_nhoods, sig_df.get_column("logFC").to_list()))
+        long_df_nhoods["logFC"] = long_df_nhoods["Nhood"].map(nhood_logfc_dict)
+        
+        plot_composition(long_df_nhoods, condition, col, out_dir, x_col="Nhood", prefix="nhoods", title_suffix="Significant Neighborhoods")
+        
+        # 2. Plot aggregated modules
+        plot_df["NhoodGroup"] = plot_df.index.map(group_map)
+        
+        group_df = plot_df.groupby("NhoodGroup").mean().reset_index()
+        long_df_modules = group_df.melt(id_vars="NhoodGroup", var_name="Cluster", value_name="Proportion")
+        
+        long_df_modules = long_df_modules[long_df_modules["Proportion"] > 0].copy()
+        long_df_modules["logFC"] = long_df_modules["NhoodGroup"].map(mean_logfc_dict)
+        
+        # Calculate stats text
+        group_stats = []
+        for g in group_df["NhoodGroup"]:
+            g_nhoods = [n for n, grp in group_map.items() if grp == g]
+            n_nhoods = len(g_nhoods)
+            g_cells = np.array(nhoods[:, g_nhoods].sum(axis=1) > 0).sum()
+            group_stats.append({"NhoodGroup": g, "stats_text": f"{g_cells} cells|{n_nhoods} nhoods"})
+            
+        stats_df = pd.DataFrame(group_stats)
+        long_df_modules = long_df_modules.merge(stats_df, on="NhoodGroup")
+        
+        plot_composition(long_df_modules, condition, col, out_dir, x_col="NhoodGroup", prefix="modules", title_suffix="Milo Modules")
         
     return Success(True)
 

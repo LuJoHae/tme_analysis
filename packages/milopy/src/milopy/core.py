@@ -188,3 +188,87 @@ def test_nhoods(adata, design, design_df, model_contrasts=None):
     adata.uns['nhood_test_results'] = res_df
     return adata
 
+
+def group_nhoods(adata, da_res, max_fdr=0.1, overlap_threshold=0.0, resolution=0.05):
+    """
+    Groups significant neighborhoods into broader cell continuia (Milo Modules).
+    Mimics miloR::groupNhoods.
+    
+    Parameters:
+    adata: AnnData object containing neighborhood data.
+    da_res: pd.DataFrame of differential abundance results (must have 'FDR' and 'logFC' columns).
+    max_fdr: float, maximum FDR threshold to consider a neighborhood significant.
+    overlap_threshold: float, minimum overlap fraction to draw an edge.
+    resolution: float, resolution parameter for Leiden clustering.
+    
+    Returns:
+    pd.DataFrame: da_res with an added 'NhoodGroup' column.
+    """
+    if 'nhoods' not in adata.obsm:
+        raise ValueError("Neighborhoods not found. Run make_nhoods(adata)")
+        
+    nhoods_mat = adata.obsm['nhoods']
+    
+    # Ensure da_res is aligned with nhoods
+    if len(da_res) != nhoods_mat.shape[1]:
+        raise ValueError("Length of da_res does not match number of neighborhoods.")
+        
+    # Find significant neighborhoods
+    sig_idx = np.where(da_res['FDR'].fillna(1.0) < max_fdr)[0]
+    
+    if len(sig_idx) == 0:
+        print("No significant neighborhoods found.")
+        da_res['NhoodGroup'] = np.nan
+        return da_res
+        
+    # Calculate overlap matrix: nhoods x nhoods
+    sig_nhoods_mat = nhoods_mat[:, sig_idx]
+    overlap_mat = sig_nhoods_mat.T.dot(sig_nhoods_mat)
+    
+    # Calculate neighborhood sizes
+    nhood_sizes = np.array(sig_nhoods_mat.sum(axis=0)).flatten()
+    
+    # Calculate overlap fraction (intersection / smaller size)
+    overlap_mat_dense = overlap_mat.toarray()
+    min_size_mat = np.minimum(nhood_sizes[:, None], nhood_sizes[None, :])
+    
+    # Avoid division by zero
+    min_size_mat[min_size_mat == 0] = 1
+    overlap_frac = overlap_mat_dense / min_size_mat
+    
+    # Filter edges between discordant logFC signs
+    logfc = da_res['logFC'].values[sig_idx]
+    signs = np.sign(logfc)
+    sign_matrix = np.outer(signs, signs)
+    valid_edges = sign_matrix > 0
+    
+    # Apply mask to the overlap fraction matrix
+    overlap_frac[~valid_edges] = 0
+    overlap_frac[overlap_frac < overlap_threshold] = 0
+    
+    # Zero out diagonal to prevent self-loops from affecting clustering modularity
+    np.fill_diagonal(overlap_frac, 0)
+    
+    # Convert back to sparse
+    sig_overlap = sp.csr_matrix(overlap_frac)
+    
+    # Create dummy AnnData for clustering
+    import anndata as ad
+    import scanpy as sc
+    
+    sub_adata = ad.AnnData(X=np.zeros((len(sig_idx), 1)))
+    sub_adata.obsp['connectivities'] = sig_overlap
+    
+    # Run leiden
+    sc.tl.leiden(sub_adata, resolution=resolution, adjacency=sig_overlap, flavor='igraph', n_iterations=2, directed=False)
+    
+    # Map back to da_res
+    group_col = np.full(len(da_res), np.nan, dtype=object)
+    group_col[sig_idx] = sub_adata.obs['leiden'].values
+    
+    # Ensure categoricals
+    da_res_out = da_res.copy()
+    da_res_out['NhoodGroup'] = pd.Categorical(group_col)
+    
+    return da_res_out
+

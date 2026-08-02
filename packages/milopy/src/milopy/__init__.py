@@ -4,6 +4,7 @@ from .core import (
     count_cells,
     calc_nhood_distance,
     test_nhoods,
+    group_nhoods,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "count_cells",
     "calc_nhood_distance",
     "test_nhoods",
+    "group_nhoods",
 ]
