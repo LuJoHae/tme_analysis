@@ -1,0 +1,26 @@
+[project]
+name = "bayesprism"
+version = "0.1.0"
+description = "Pure Functional Python implementation of BayesPrism for Bayesian cell type and gene expression deconvolution using PyTorch"
+authors = [
+    { name = "LuJoHae" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0.0",
+    "polars>=0.20.0",
+    "scipy>=1.10.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.5.0",
+    "returns>=0.22.0",
+    "altair>=5.0.0",
+    "vl-convert-python>=1.0.0",
+    "scikit-learn>=1.3.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

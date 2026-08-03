@@ -4,9 +4,13 @@ REMOTE_DIR = ~/python-venv/tme_analysis
 REMOTE_DATA_DIR = /storage/halu/data
 REMOTE_UV = /home/halu/.local/bin/uv
 
-.PHONY: sync run-remote run-rule pull-results run-all
+.PHONY: sync run-remote run-rule run-unified pull-results run-all
 
 run-all: sync run-remote pull-results
+
+run-unified: sync
+	@echo "Running Snakemake target 'plot_unified_embeddings' on remote server..."
+	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run snakemake plot_unified_embeddings --cores all"
 
 sync:
 	@echo "Syncing code to remote server..."

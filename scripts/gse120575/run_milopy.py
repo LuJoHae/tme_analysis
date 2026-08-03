@@ -13,7 +13,7 @@ def load_anndata(adata_path: Path) -> Result[ad.AnnData, str]:
     except Exception as e:
         return Failure(f"Failed to load AnnData: {e}")
 
-def run_milopy_for_condition(adata: ad.AnnData, condition_name: str, out_dir: Path) -> Result[bool, str]:
+def run_milopy_for_condition(adata: ad.AnnData, condition_name: str, out_dir: Path, fdr: float) -> Result[bool, str]:
     try:
         subset = adata.copy()
         
@@ -35,7 +35,7 @@ def run_milopy_for_condition(adata: ad.AnnData, condition_name: str, out_dir: Pa
         
         # Group significant neighborhoods into modules
         try:
-            res_df = milopy.group_nhoods(subset, res_df, max_fdr=0.1)
+            res_df = milopy.group_nhoods(subset, res_df, max_fdr=fdr)
         except Exception as e:
             print(f"Warning: Failed to group nhoods for {condition_name}: {e}")
         
@@ -51,7 +51,7 @@ def run_milopy_for_condition(adata: ad.AnnData, condition_name: str, out_dir: Pa
     except Exception as e:
         return Failure(f"Failed milopy on {condition_name}: {e}")
 
-def process_condition(adata: ad.AnnData, timepoint: str, condition_name: str, out_dir: Path) -> Result[bool, str]:
+def process_condition(adata: ad.AnnData, timepoint: str, condition_name: str, out_dir: Path, fdr: float) -> Result[bool, str]:
     try:
         if timepoint == "All":
             subset = adata.copy()
@@ -61,11 +61,11 @@ def process_condition(adata: ad.AnnData, timepoint: str, condition_name: str, ou
         if subset.n_obs == 0:
             return Failure(f"No cells found for {condition_name}")
             
-        return run_milopy_for_condition(subset, condition_name, out_dir)
+        return run_milopy_for_condition(subset, condition_name, out_dir, fdr)
     except Exception as e:
         return Failure(f"Failed to subset for {condition_name}: {e}")
 
-def run_all_conditions(adata: ad.AnnData, out_dir: Path) -> Result[bool, str]:
+def run_all_conditions(adata: ad.AnnData, out_dir: Path, fdr: float) -> Result[bool, str]:
     try:
         adata.obs["response"] = adata.obs["characteristics: response"]
     except Exception as e:
@@ -73,7 +73,7 @@ def run_all_conditions(adata: ad.AnnData, out_dir: Path) -> Result[bool, str]:
 
     for tp, cname in [("Pre", "Pre"), ("Post", "Post"), ("All", "Combined")]:
         print(f"Running milopy for {cname}...")
-        res = process_condition(adata, tp, cname, out_dir)
+        res = process_condition(adata, tp, cname, out_dir, fdr)
         match res:
             case Failure(err):
                 print(f"Warning: {err}")
@@ -82,12 +82,12 @@ def run_all_conditions(adata: ad.AnnData, out_dir: Path) -> Result[bool, str]:
                 
     return Success(True)
 
-def run_pipeline(adata_path: Path, out_dir: Path) -> Result[bool, str]:
+def run_pipeline(adata_path: Path, out_dir: Path, fdr: float) -> Result[bool, str]:
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         return flow(
             load_anndata(adata_path),
-            bind(lambda adata: run_all_conditions(adata, out_dir))
+            bind(lambda adata: run_all_conditions(adata, out_dir, fdr))
         )
     except Exception as e:
         return Failure(str(e))
@@ -96,9 +96,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run milopy DA analysis")
     parser.add_argument("--adata", required=True, help="Input h5ad path")
     parser.add_argument("--out-dir", required=True, help="Output directory for CSVs")
+    parser.add_argument("--fdr", type=float, default=0.1, help="FDR threshold")
     args = parser.parse_args()
     
-    match run_pipeline(Path(args.adata), Path(args.out_dir)):
+    match run_pipeline(Path(args.adata), Path(args.out_dir), args.fdr):
         case Success(_):
             print("Successfully completed milopy analysis.")
             sys.exit(0)

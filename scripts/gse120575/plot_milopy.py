@@ -23,20 +23,20 @@ def load_results(csv_path: Path) -> Result[pl.DataFrame, str]:
     except Exception as e:
         return Failure(f"Failed to load {csv_path}: {e}")
 
-def determine_significance(df: pl.DataFrame) -> pl.DataFrame:
-    # Add a column indicating if FDR < 0.1
+def determine_significance(df: pl.DataFrame, fdr: float) -> pl.DataFrame:
+    # Add a column indicating if FDR < fdr
     return df.with_columns(
-        (pl.col("FDR") < 0.1).alias("Significant"),
+        (pl.col("FDR") < fdr).alias("Significant"),
         (-pl.col("FDR").log10()).alias("log10_FDR_inv")
     )
 
-def plot_volcano(df: pl.DataFrame, condition_name: str, out_dir: Path) -> Result[bool, str]:
+def plot_volcano(df: pl.DataFrame, condition_name: str, out_dir: Path, fdr: float) -> Result[bool, str]:
     try:
         chart = alt.Chart(df).mark_point(filled=True, opacity=0.7).encode(
             x=alt.X("logFC:Q", title="Log2 Fold Change"),
             y=alt.Y("log10_FDR_inv:Q", title="-log10(FDR)"),
             color=alt.Color("Significant:N", 
-                            title="FDR < 0.1", 
+                            title=f"FDR < {fdr}", 
                             scale=alt.Scale(domain=[True, False], range=['#d62728', '#aec7e8'])),
             tooltip=["Nhood", "logFC", "FDR", "PValue"]
         ).properties(
@@ -68,13 +68,13 @@ def plot_pval_hist(df: pl.DataFrame, condition_name: str, out_dir: Path) -> Resu
     except Exception as e:
         return Failure(f"P-Value histogram plotting failed: {e}")
 
-def process_file(csv_path: Path, out_dir: Path) -> Result[bool, str]:
+def process_file(csv_path: Path, out_dir: Path, fdr: float) -> Result[bool, str]:
     # Extract condition from milopy_results_Combined.csv
     condition_name = csv_path.stem.replace("milopy_results_", "")
     
     def run_plots(df: pl.DataFrame) -> Result[bool, str]:
-        df_sig = determine_significance(df)
-        res1 = plot_volcano(df_sig, condition_name, out_dir)
+        df_sig = determine_significance(df, fdr)
+        res1 = plot_volcano(df_sig, condition_name, out_dir, fdr)
         if not isinstance(res1, Success): return res1
         
         res2 = plot_pval_hist(df_sig, condition_name, out_dir)
@@ -88,7 +88,7 @@ def process_file(csv_path: Path, out_dir: Path) -> Result[bool, str]:
     )
     return res
 
-def run_plotting(data_dir: Path, out_dir: Path) -> Result[bool, str]:
+def run_plotting(data_dir: Path, out_dir: Path, fdr: float) -> Result[bool, str]:
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         files = list(data_dir.glob("milopy_results_*.csv"))
@@ -98,7 +98,7 @@ def run_plotting(data_dir: Path, out_dir: Path) -> Result[bool, str]:
             
         for f in files:
             print(f"Plotting {f.name}...")
-            res = process_file(f, out_dir)
+            res = process_file(f, out_dir, fdr)
             if not isinstance(res, Success):
                 print(f"Warning: {res.failure()}")
         return Success(True)
@@ -109,9 +109,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", required=True, help="Directory with milopy result CSVs")
     parser.add_argument("--out-dir", required=True, help="Directory to save plots")
+    parser.add_argument("--fdr", type=float, default=0.1, help="FDR threshold")
     args = parser.parse_args()
     
-    match run_plotting(Path(args.data_dir), Path(args.out_dir)):
+    match run_plotting(Path(args.data_dir), Path(args.out_dir), args.fdr):
         case Success(_):
             print("Successfully completed plotting.")
             sys.exit(0)

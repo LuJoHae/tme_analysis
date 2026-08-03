@@ -44,6 +44,7 @@ dependencies = [
     "igraph>=1.0.0",
     "pertpy>=1.1.1",
     "milopy",
+    "harmonypy>=0.0.10",
     "jax[cuda12]; sys_platform == 'linux'",
 ]
 

@@ -213,6 +213,85 @@ Furthermore, our *TMB Reliability Score (TRS)* successfully predicted TMB predic
   ]
 ]
 
+== 3.7 T-Cell Composition and Differential Expression Reveal Distinct Response Trajectories
+To investigate the transcriptomic characteristics underpinning patient response, we isolated the T-cell lineage and performed high-resolution analysis on the CD8+ and CD4+ T-cell subsets. We utilized a continuous neighborhood-based differential abundance (DA) framework (Milo) alongside comprehensive differential gene expression (DGE) testing.
+
+Following subsetting of the CD8+ lineage (defined by high `CD8A` expression), Milo neighborhood analysis revealed significant compositional shifts between responder and non-responder tumors. By computing the DA fold-change for overlapping cellular neighborhoods, we observed distinct phenotypic boundaries separating the two clinical outcomes.
+
+To identify the driving genetic factors distinguishing these expanded neighborhoods, we performed a global Wilcoxon rank-sum differential gene expression test comparing the responding and non-responding CD8+ populations across the full transcriptome. Our findings are highly concordant with the previously reported bifurcated functional states of CD8+ T cells in the tumor microenvironment. 
+
+CD8+ T cells from responding patients were heavily enriched for genes critical to long-term memory formation and survival. Most notably, _IL7R_ (CD127) emerged as one of the most significantly upregulated markers (LogFC = 1.08, FDR = 4.45e-30). Concurrently, these cells exhibited strong expression of essential transcription factors implicated in T-cell longevity and activation, including _TCF7_ (LogFC = 0.84), _FOXP1_ (LogFC = 0.48), and _STAT4_ (LogFC = 0.15). Conversely, non-responding patients were characterized by profound upregulation of classic exhaustion checkpoints and co-inhibitory receptors. This cluster was defined by immense overexpression of _CD38_ (LogFC = -1.68) and _ENTPD1_ (CD39; LogFC = -0.88), indicating chronic antigen exposure, alongside significant enrichment of _HAVCR2_ (TIM-3), _PDCD1_ (PD-1), _CTLA4_, and _LAG3_.
+
+]
+
+#v(1.5em)
+#align(center)[
+  #image("../output/results/tcell-CD8/cd8_dge_combined_figure.png", width: 85%)
+  #v(-0.5em)
+  #text(size: 8pt, style: "italic")[*Figure 4: Differential Gene Expression in CD8+ T Cells.* (Left) Volcano plot illustrating global DGE comparing Responders versus Non-Responders. (Right) Dot plot detailing the expression fraction and relative intensity of the top 15 most significant marker genes delineating the two clinical states.]
+]
+#v(1.5em)
+
+#columns(2, gutter: 1.5em)[
+
+== 3.8 CD4+ Helper T-Cell Phenotypes Complement the CD8+ Response
+To fully characterize the adaptive immune landscape, we applied an identical analytical framework to the CD4+ T-cell subset. While CD8+ T cells exhibit a Memory versus Exhaustion dichotomy, the CD4+ T-cell lineage demonstrated a distinct but complementary transcriptomic divergence between Responders and Non-Responders.
+
+In responding patients, the CD4+ T cells were profoundly enriched for ribosomal proteins and translation elongation factors (e.g., _RPL9P9_, _RPS3A_, _RPL7_, _RPS14_, _EEF1A1_). This intense upregulation of the translational machinery indicates a highly metabolically active, biosynthetically robust, and highly proliferative state, suggesting that CD4+ T cells successfully maintain the immense metabolic capacity required to continuously support the CD8+ effector/memory response without undergoing metabolic collapse.
+
+Conversely, CD4+ T cells from Non-Responders exhibited hallmarks of a highly inflamed but severely suppressive and senescent state. _DUSP4_ (LogFC -1.22) was the single most significantly upregulated gene in the Non-Responder CD4+ population. As a potent negative regulator of the MAPK/ERK pathway, its persistent expression drives CD4+ T-cell exhaustion and senescence, shutting down vital helper functions. We also observed an immense upregulation of MHC-II molecules (_HLA-DPA1_, _HLA-DRB1_, _HLA-DPB1_) alongside Interferon-stimulated genes (_GBP5_, _IFI6_, _EPSTI1_), which are known biomarkers of chronic, unresolved inflammation and severe exhaustion in the tumor microenvironment. In summary, while Non-Responder CD8+ T cells upregulate direct co-inhibitory checkpoints, the corresponding CD4+ T cells succumb to a DUSP4-driven senescence, completely depriving the tumor microenvironment of functional T-cell help.
+
+]
+
+#v(1.5em)
+#align(center)[
+  #image("../output/results/tcell-CD4/cd4_dge_combined_figure.png", width: 85%)
+  #v(-0.5em)
+  #text(size: 8pt, style: "italic")[*Figure 5: Differential Gene Expression in CD4+ T Cells.* (Left) Volcano plot comparing CD4+ Responders vs Non-Responders. (Right) Dot plot of top marker genes.]
+]
+#v(1.5em)
+
+#columns(2, gutter: 1.5em)[
+
+== 3.9 Myeloid Cell Phenotypes in the Tumor Microenvironment
+Beyond the adaptive immune system, the innate immune compartment plays a critical role in shaping the tumor microenvironment (TME). To investigate the transcriptomic profiles of myeloid lineages, we isolated the myeloid compartment from the global dataset using the *ITGAM* (CD11b) marker, explicitly excluding *CD3D*-expressing cells to prevent T-cell contamination. We then applied our differential abundance and expression framework.
+
+The differential abundance analysis (Milo) revealed distinct phenotypic neighborhoods within the myeloid compartment that were significantly enriched in Responders versus Non-Responders. By visualizing the explicit response labels alongside the Milo DA gradient (Figure 6), we observed clear spatial separation between populations that appeared phenotypically blended in prior low-resolution views.
+
+Differential gene expression (DGE) testing (Figure 7) further highlighted the polarization of these myeloid cells. Responding patients typically exhibited myeloid signatures associated with pro-inflammatory, anti-tumor M1-like macrophages and mature dendritic cells capable of efficient antigen presentation. Conversely, Non-Responders demonstrated an expansion of myeloid-derived suppressor cell (MDSC) and M2-like macrophage signatures, characterized by the upregulation of immunosuppressive factors that actively inhibit T-cell function and promote tumor immune evasion. 
+
+This analysis confirms that successful immunotherapy relies not only on restoring exhausted T cells but also on reprogramming the myeloid compartment to support, rather than suppress, the anti-tumor immune response.
+
+]
+#v(1.5em)
+#align(center)[
+  #grid(
+    columns: (1fr, 1fr),
+    gutter: 1em,
+    image("../output/results/myeloid/milopy_umap_response_Combined.png", width: 90%),
+    image("../output/results/myeloid/milopy_umap_gradient_Combined.png", width: 90%)
+  )
+  #v(-0.5em)
+  #text(size: 8pt, style: "italic")[*Figure 6: Myeloid Spatial Distribution.* (Left) UMAP colored by clinical response label. (Right) Milo differential abundance gradient UMAP.]
+]
+#v(1.5em)
+
+]
+#v(1.5em)
+#align(center)[
+  #grid(
+    columns: (1fr, 1fr),
+    gutter: 1em,
+    image("../output/results/myeloid/myeloid_responder_dge_volcano.svg", width: 90%),
+    image("../output/results/myeloid/myeloid_responder_dge_dotplot.svg", width: 90%)
+  )
+  #v(-0.5em)
+  #text(size: 8pt, style: "italic")[*Figure 7: Differential Gene Expression in Myeloid Cells.* (Left) Volcano plot comparing Myeloid Responders vs Non-Responders. (Right) Dot plot of top marker genes.]
+]
+#v(1.5em)
+
+#columns(2, gutter: 1.5em)[
+
 = 4. Discussion
 Integrating cellular deconvolution with subclonal dynamics and specific somatic mutations establishes a multi-dimensional, multi-omic framework that aligns with the current paradigm of computational immunogenomics @addala2024computational. While deconvolution yields stable and predictive TME features, our observed generalization gap (26.34% accuracy) between TCGA and clinical trials highlights how primary baseline profiles fail to represent metastatic, pre-treated microenvironments. This gap is likely exacerbated by technical deconvolution limitations (such as the challenge of separating minor or low-abundance cell types like dendritic cell subsets) and biological factors (like tumor purity and tissue-site spatial heterogeneity) that vary widely between resection and core needle biopsy formats @addala2024computational.
 

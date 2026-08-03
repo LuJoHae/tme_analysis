@@ -95,7 +95,7 @@ def plot_composition(long_df: pd.DataFrame, condition: str, col: str, out_dir: P
     
     chart.save(str(out_dir / f"milopy_nhood_composition_{condition}_{col}_{prefix}.svg"))
 
-def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.AnnData) -> Result[bool, str]:
+def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.AnnData, fdr: float) -> Result[bool, str]:
     print(f"Processing condition {condition}...")
     
     csv_path = data_dir / f"milopy_results_{condition}.csv"
@@ -106,9 +106,9 @@ def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.A
     if not isinstance(df_res, Success):
         return df_res
         
-    sig_df = get_significant_nhoods(df_res.unwrap(), fdr_thresh=0.1)
+    sig_df = get_significant_nhoods(df_res.unwrap(), fdr_thresh=fdr)
     if sig_df.height == 0:
-        print(f"No significant neighborhoods found for {condition} at FDR < 0.1. Skipping.")
+        print(f"No significant neighborhoods found for {condition} at FDR < {fdr}. Skipping.")
         return Success(True)
         
     sig_nhoods = sig_df.get_column("Nhood").to_list()
@@ -157,6 +157,28 @@ def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.A
     sc.pl.umap(adata_sub, color="milo_gradient", cmap=cmap, na_color="lightgray", title=f"Milo Neighborhoods - {condition}", show=False, s=15, alpha=0.8)
     plt.savefig(out_dir / f"milopy_umap_gradient_{condition}.png", dpi=300, bbox_inches="tight")
     plt.close()
+    
+    # --- Binary UMAP Plotting ---
+    binary_label = np.full(total.shape, "Background", dtype=object)
+    binary_label[mask & (n_pos > n_neg)] = "Enriched"
+    binary_label[mask & (n_neg > n_pos)] = "Depleted"
+    binary_label[mask & (n_pos == n_neg)] = "Mixed"
+    
+    adata_sub.obs["milo_binary"] = pd.Categorical(
+        binary_label, 
+        categories=["Enriched", "Depleted", "Mixed", "Background"], 
+        ordered=True
+    )
+    
+    palette = {"Enriched": "red", "Depleted": "blue", "Mixed": "purple", "Background": "lightgray"}
+    sc.pl.umap(adata_sub, color="milo_binary", palette=palette, title=f"Milo Binary - {condition}", show=False, s=15, alpha=0.8)
+    plt.savefig(out_dir / f"milopy_umap_binary_{condition}.png", dpi=300, bbox_inches="tight")
+    plt.close()
+    
+    if "characteristics: response" in adata_sub.obs.columns:
+        sc.pl.umap(adata_sub, color="characteristics: response", title=f"Patient Response - {condition}", show=False, s=15, alpha=0.8)
+        plt.savefig(out_dir / f"milopy_umap_response_{condition}.png", dpi=300, bbox_inches="tight")
+        plt.close()
     # ---------------------------
         
     clustering_cols = ["celltypist_leiden_0.5", "celltypist_leiden_1.0", "celltypist_leiden_1.5", "celltypist_leiden_2.0"]
@@ -214,14 +236,14 @@ def process_condition(condition: str, data_dir: Path, out_dir: Path, adata: ad.A
         
     return Success(True)
 
-def run_all(adata_path: Path, data_dir: Path, out_dir: Path) -> Result[bool, str]:
+def run_all(adata_path: Path, data_dir: Path, out_dir: Path, fdr: float) -> Result[bool, str]:
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         print("Loading AnnData...")
         adata = ad.read_h5ad(adata_path, backed="r")
         
         for cond in ["Pre", "Post", "Combined"]:
-            res = process_condition(cond, data_dir, out_dir, adata)
+            res = process_condition(cond, data_dir, out_dir, adata, fdr)
             if not isinstance(res, Success):
                 print(f"Error processing {cond}: {res.failure()}")
                 
@@ -234,9 +256,10 @@ def main() -> None:
     parser.add_argument("--adata", required=True, help="Path to processed h5ad file")
     parser.add_argument("--data-dir", required=True, help="Directory with milopy results and npz files")
     parser.add_argument("--out-dir", required=True, help="Directory to save plots")
+    parser.add_argument("--fdr", type=float, default=0.1, help="FDR threshold")
     args = parser.parse_args()
     
-    match run_all(Path(args.adata), Path(args.data_dir), Path(args.out_dir)):
+    match run_all(Path(args.adata), Path(args.data_dir), Path(args.out_dir), args.fdr):
         case Success(_):
             print("Successfully completed composition plotting.")
             sys.exit(0)
