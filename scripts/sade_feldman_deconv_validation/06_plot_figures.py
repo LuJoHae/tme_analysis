@@ -14,6 +14,7 @@ from typing import Final
 
 import altair as alt  # type: ignore
 import numpy as np
+import pandas as pd
 import polars as pl
 from pydantic import BaseModel, ConfigDict
 from returns.result import Failure, Result, Success
