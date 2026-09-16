@@ -1,11 +1,25 @@
 [project]
 name = "bayesprism"
 version = "0.1.0"
-description = "Pure Functional Python implementation of BayesPrism for Bayesian cell type and gene expression deconvolution using PyTorch"
+description = "Pure Functional Python / PyTorch implementation of BayesPrism for Bayesian cell type and gene expression deconvolution"
+readme = "README.md"
+license = "MIT"
 authors = [
     { name = "LuJoHae" }
 ]
 requires-python = ">=3.10"
+keywords = ["bioinformatics", "deconvolution", "single-cell", "bayesprism", "pytorch", "rna-seq"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 dependencies = [
     "torch>=2.0.0",
     "polars>=0.20.0",
@@ -17,6 +31,11 @@ dependencies = [
     "vl-convert-python>=1.0.0",
     "scikit-learn>=1.3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/LuJoHae/bayesprism-python"
+Repository = "https://github.com/LuJoHae/bayesprism-python"
+Issues = "https://github.com/LuJoHae/bayesprism-python/issues"
 
 [build-system]
 requires = ["setuptools>=61.0"]

@@ -1,0 +1,41 @@
+name: Sync BayesPrism to Standalone Repository
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/bayesprism/**"
+      - ".github/workflows/sync-bayesprism.yml"
+  workflow_dispatch:
+
+jobs:
+  sync-bayesprism:
+    name: Subtree Sync to LuJoHae/bayesprism-python
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Monorepo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BAYESPRISM_DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          echo "GIT_SSH_COMMAND=ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" >> $GITHUB_ENV
+
+      - name: Configure Git Identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Split and Push Subtree
+        run: |
+          echo "Extracting packages/bayesprism subtree..."
+          git subtree split --prefix=packages/bayesprism -b standalone-sync
+          echo "Pushing subtree to LuJoHae/bayesprism-python:main..."
+          git push --force git@github.com:LuJoHae/bayesprism-python.git standalone-sync:main
