@@ -89,8 +89,21 @@ def load_and_subsample_atlas(lair_dir: Path, n_sample: int, seed: int) -> Result
         sub_adata = adata[selected_idx].to_memory()
         sub_adata.obs["dataset"] = sub_adata.obs.get("dataset", "PanCancer_Atlas").astype(str)
         sub_adata.obs["sequencing_tech"] = "10x_Chromium"
-        sub_adata.var_names = [str(g).upper() for g in sub_adata.var_names]
-        sub_adata.var_names_make_unique()
+        # Map Ensembl IDs to uppercase gene symbols using 'gene_name' column
+        raw_gene_names = sub_adata.var["gene_name"].astype(str).str.upper().tolist()
+        unique_symbols: list[str] = []
+        seen: set[str] = set()
+        for g in raw_gene_names:
+            if not g or g in ("NONE", "NAN", "UNKNOWN"):
+                g = "UNKNOWN"
+            if g in seen:
+                i = 1
+                while f"{g}_{i}" in seen:
+                    i += 1
+                g = f"{g}_{i}"
+            seen.add(g)
+            unique_symbols.append(g)
+        sub_adata.var_names = unique_symbols
 
         return Success(sub_adata)
     except Exception as exc:
