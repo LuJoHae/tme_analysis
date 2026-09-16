@@ -764,3 +764,120 @@ rule plot_all_dataset_embeddings:
         expand(RESULTS_DIR + "/results_embeddings/{dataset}_completed.txt", dataset=DATASETS)
 
 
+# ==============================================================================
+# Sade-Feldman Deconvolution & Milopy Validation Pipeline
+# ==============================================================================
+SADE_VALIDATION_OUT = f"{DATA_DIR}/output/sade_feldman_deconv_validation"
+SADE_VALIDATION_RES = f"{RESULTS_DIR}/sade_feldman_deconv_validation"
+
+rule build_sade_feldman_reference:
+    input:
+        script="scripts/sade_feldman_deconv_validation/01_build_reference.py",
+        adata=f"{GSE_DIR}/gse120575_processed.h5ad",
+    output:
+        phi=f"{SADE_VALIDATION_OUT}/reference_phi.parquet",
+        markers=f"{SADE_VALIDATION_OUT}/reference_marker_genes.parquet",
+    params:
+        out_dir=SADE_VALIDATION_OUT,
+    shell:
+        """
+        python {input.script} --adata {input.adata} --out-dir {params.out_dir}
+        """
+
+rule deconvolute_iatlas_sade_feldman:
+    input:
+        script="scripts/sade_feldman_deconv_validation/02_deconvolute_iatlas.py",
+        phi=f"{SADE_VALIDATION_OUT}/reference_phi.parquet",
+    output:
+        fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
+    params:
+        out_dir=SADE_VALIDATION_OUT,
+        lair_dir="/storage/halu/lair",
+    shell:
+        """
+        python {input.script} --reference {input.phi} --lair-dir {params.lair_dir} --out-dir {params.out_dir}
+        """
+
+rule logistic_regression_sade_feldman:
+    input:
+        script="scripts/sade_feldman_deconv_validation/03_logistic_regression.py",
+        fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
+    output:
+        results=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
+    params:
+        out_dir=SADE_VALIDATION_OUT,
+        lair_dir="/storage/halu/lair",
+    shell:
+        """
+        python {input.script} --fractions {input.fracs} --lair-dir {params.lair_dir} --out-dir {params.out_dir}
+        """
+
+rule analyze_milopy_sade_feldman:
+    input:
+        script="scripts/sade_feldman_deconv_validation/04_analyze_milopy.py",
+        adata=f"{GSE_DIR}/gse120575_processed.h5ad",
+    output:
+        states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da.parquet",
+        cells=f"{SADE_VALIDATION_OUT}/milopy_cell_level_scores.parquet",
+    params:
+        out_dir=SADE_VALIDATION_OUT,
+        milo_dir=f"{DATA_DIR}/output/whole_dataset",
+    shell:
+        """
+        python {input.script} --adata {input.adata} --milo-dir {params.milo_dir} --out-dir {params.out_dir}
+        """
+
+rule concordance_sade_feldman:
+    input:
+        script="scripts/sade_feldman_deconv_validation/05_compare_concordance.py",
+        logistic=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
+        milo=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da.parquet",
+    output:
+        metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics.parquet",
+        summary=f"{SADE_VALIDATION_OUT}/concordance_summary.parquet",
+    params:
+        out_dir=SADE_VALIDATION_OUT,
+    shell:
+        """
+        python {input.script} --logistic-results {input.logistic} --milo-results {input.milo} --out-dir {params.out_dir}
+        """
+
+rule plot_sade_feldman_validation:
+    input:
+        script="scripts/sade_feldman_deconv_validation/06_plot_figures.py",
+        markers=f"{SADE_VALIDATION_OUT}/reference_marker_genes.parquet",
+        fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
+        logistic=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
+        milo=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da.parquet",
+        metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics.parquet",
+        cells=f"{SADE_VALIDATION_OUT}/milopy_cell_level_scores.parquet",
+    output:
+        fig1=f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
+        fig2=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
+        fig3a=f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
+        fig3b=f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
+        fig4a=f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
+        fig4b=f"{SADE_VALIDATION_RES}/step04_milopy_cell_state_da.svg",
+        fig5=f"{SADE_VALIDATION_RES}/step05_concordance_scatter.svg",
+        fig6=f"{SADE_VALIDATION_RES}/step06_dual_umap_validation.svg",
+    params:
+        data_dir=SADE_VALIDATION_OUT,
+        results_dir=SADE_VALIDATION_RES,
+    shell:
+        """
+        python {input.script} --data-dir {params.data_dir} --results-dir {params.results_dir}
+        """
+
+rule run_sade_feldman_pipeline:
+    input:
+        f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
+        f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
+        f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
+        f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
+        f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
+        f"{SADE_VALIDATION_RES}/step04_milopy_cell_state_da.svg",
+        f"{SADE_VALIDATION_RES}/step05_concordance_scatter.svg",
+        f"{SADE_VALIDATION_RES}/step06_dual_umap_validation.svg",
+
+
+
