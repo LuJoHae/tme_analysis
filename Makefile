@@ -4,7 +4,11 @@ REMOTE_DIR = ~/python-venv/tme_analysis
 REMOTE_DATA_DIR = /storage/halu/data
 REMOTE_UV = /home/halu/.local/bin/uv
 
-.PHONY: sync run-remote run-rule run-unified pull-results run-all
+.PHONY: sync run-remote run-rule run-unified pull-results run-all unlock
+
+unlock:
+	@echo "Unlocking remote Snakemake directory..."
+	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run snakemake --unlock"
 
 run-all: sync run-remote pull-results
 
@@ -28,7 +32,7 @@ run-rule:
 		exit 1; \
 	fi
 	@echo "Running Snakemake rule '$(RULE)' on remote server..."
-	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run snakemake $(RULE) --cores all"
+	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && $(REMOTE_UV) run snakemake $(RULE) --cores all --rerun-incomplete --latency-wait 30"
 
 pull-results:
 	@echo "Pulling results back to local machine..."

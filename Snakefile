@@ -692,38 +692,75 @@ rule plot_unified_embeddings:
             --output-dir {RESULTS_DIR}/unified_integration
         """
 
-rule download_geo_all:
+DATASETS = [
+    "AziziSingleCellMapDiverse2018Adata",
+    "BeckerSinglecellAnalysesDefine2022Adata",
+    "BiermannDissectingTreatmentnaiveEcosystem2022Adata",
+    "BorcherdingMappingImmuneEnvironment2021Adata",
+    "ChengPancancerSinglecellTranscriptional2021Adata",
+    "DuranteSinglecellAnalysisReveals2020Adata",
+    "JerbyArnonCancerCellProgram2018Adata",
+    "KhaliqRefiningColorectalCancer2022Adata",
+    "KimSinglecellRNASequencing2020Adata",
+    "LeaderSinglecellAnalysisHuman2021Adata",
+    "LuSinglecellAtlasMulticellular2022Adata",
+    "PelkaSpatiallyOrganizedMulticellular2021Adata",
+    "PuSinglecellTranscriptomicAnalysis2021Adata",
+    "QianPancancerBlueprintHeterogeneous2020aAdata",
+    "SharmaOncofetalReprogrammingEndothelial2020Adata",
+    "SadeFeldmanDefiningTCell2018Adata",
+    "YostClonalReplacementTumor2019Adata",
+    "ZhengLandscapeInfiltratingTCells2017Adata",
+]
+
+rule download_dataset:
     input:
-        script="scripts/01_download_geo_data.py"
+        script="scripts/01_download_datasets.py"
     output:
-        marker=f"{DATA_DIR}/raw_geo/download_completed.txt"
+        marker=f"{DATA_DIR}/raw_geo/{{dataset}}/download_completed.txt"
     shell:
         """
-        python {input.script} --out-dir {DATA_DIR}/raw_geo
+        python {input.script} --dataset {wildcards.dataset} --out-dir {DATA_DIR}/raw_geo
         touch {output.marker}
         """
 
-rule process_raw_to_sparse_h5:
+rule convert_dataset_to_sparse_h5:
     input:
-        script="scripts/02_process_raw_to_sparse_h5.py",
-        marker=f"{DATA_DIR}/raw_geo/download_completed.txt"
+        script="scripts/02_convert_to_sparse_h5.py",
+        marker=f"{DATA_DIR}/raw_geo/{{dataset}}/download_completed.txt"
     output:
-        marker=f"{DATA_DIR}/sparse_h5/conversion_completed.txt"
+        h5ad=f"{DATA_DIR}/sparse_h5/{{dataset}}_sparse.h5ad"
     shell:
         """
-        python {input.script} --raw-dir {DATA_DIR}/raw_geo --out-dir {DATA_DIR}/sparse_h5
+        python {input.script} --dataset {wildcards.dataset} --raw-dir {DATA_DIR}/raw_geo --out-h5 {output.h5ad}
+        """
+
+rule preprocess_dataset_to_h5:
+    input:
+        script="scripts/03_preprocess_datasets.py",
+        h5ad=f"{DATA_DIR}/sparse_h5/{{dataset}}_sparse.h5ad"
+    output:
+        h5ad=f"{DATA_DIR}/processed_h5/{{dataset}}_processed.h5ad"
+    shell:
+        """
+        python {input.script} --input-h5 {input.h5ad} --out-h5 {output.h5ad}
+        """
+
+rule plot_dataset_embedding:
+    input:
+        script="scripts/04_plot_dataset_embeddings.py",
+        h5ad=f"{DATA_DIR}/processed_h5/{{dataset}}_processed.h5ad"
+    output:
+        marker=f"{RESULTS_DIR}/results_embeddings/{{dataset}}_completed.txt"
+    shell:
+        """
+        mkdir -p {RESULTS_DIR}/results_embeddings
+        python {input.script} --input-h5 {input.h5ad} --out-dir {RESULTS_DIR}/results_embeddings
         touch {output.marker}
         """
 
-rule preprocess_datasets_to_h5:
+rule plot_all_dataset_embeddings:
     input:
-        script="scripts/03_preprocess_datasets_to_h5.py",
-        marker=f"{DATA_DIR}/sparse_h5/conversion_completed.txt"
-    output:
-        marker=f"{DATA_DIR}/processed_h5/preprocessing_completed.txt"
-    shell:
-        """
-        python {input.script} --input-dir {DATA_DIR}/sparse_h5 --out-dir {DATA_DIR}/processed_h5
-        touch {output.marker}
-        """
+        expand(RESULTS_DIR + "/results_embeddings/{dataset}_completed.txt", dataset=DATASETS)
+
 
