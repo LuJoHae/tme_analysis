@@ -475,8 +475,8 @@ def plot_step5b_cohort_concordance(data_dir: Path, results_dir: Path) -> Result[
             .to_pandas()
         )
 
-        hline = alt.Chart(pd.DataFrame({"y": [0.0]})).mark_rule(strokeDash=[3, 3], color="gray").encode(y="y:Q")
-        vline = alt.Chart(pd.DataFrame({"x": [0.0]})).mark_rule(strokeDash=[3, 3], color="gray").encode(x="x:Q")
+        hline = alt.Chart(df_metrics).mark_rule(strokeDash=[3, 3], color="gray").encode(y=alt.datum(0.0))
+        vline = alt.Chart(df_metrics).mark_rule(strokeDash=[3, 3], color="gray").encode(x=alt.datum(0.0))
 
         scatters = (
             alt.Chart(df_metrics)
@@ -496,7 +496,7 @@ def plot_step5b_cohort_concordance(data_dir: Path, results_dir: Path) -> Result[
         )
 
         grid = (
-            (hline + vline + trends + scatters)
+            alt.layer(hline, vline, trends, scatters, data=df_metrics)
             .properties(width=170, height=170)
             .facet(facet=alt.Facet("cohort:N", title="iAtlas Cohort"), columns=3)
             .properties(title="Individual Cohort Scatter Grid: Bulk Deconvolution vs. Milo Differential Abundance")
