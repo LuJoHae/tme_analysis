@@ -240,13 +240,17 @@ def run_integrated_pipeline(config: IntegratedRefConfig) -> Result[Path, str]:
 
     # Harmony Batch Integration
     print("Running Harmony batch correction across datasets and sequencing technologies...")
-    import scanpy.external as sce  # type: ignore
+    import harmonypy  # type: ignore
 
-    sce.pp.harmony_integrate(
-        adata_comb,
-        key="sequencing_tech",
+    harmony_out = harmonypy.run_harmony(
+        adata_comb.obsm["X_pca"].astype(np.float64),
+        adata_comb.obs,
+        "sequencing_tech",
         max_iter_harmony=20,
+        random_state=0,
     )
+    z_corr = harmony_out.Z_corr
+    adata_comb.obsm["X_pca_harmony"] = z_corr if z_corr.shape[0] == adata_comb.n_obs else z_corr.T
     pca_harmony = adata_comb.obsm["X_pca_harmony"]
 
     # Compute neighbors and integrated Leiden clustering
