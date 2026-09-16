@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Step 6: Pure Altair Plotting Engine for Sade-Feldman Deconvolution & Validation Pipeline.
-Generates publication-quality resolution-independent vector SVGs (and PNGs) for all analytical steps.
+Generates publication-quality resolution-independent vector SVGs (and PNGs) for all analytical steps,
+including multi-cohort concordance comparisons, Pre/Post stratification, and Harmony single-cell integration.
 Outputs to results/sade_feldman_deconv_validation/.
 """
 
@@ -45,7 +46,6 @@ def plot_step1_reference_heatmap(data_dir: Path, results_dir: Path) -> Result[Pa
         df_tidy = pl.read_parquet(tidy_path)
         df_sub = df_tidy.filter(pl.col("gene").is_in(top_genes))
 
-        # Standardize gene expression across clusters for visual contrast
         df_plot = (
             df_sub.with_columns(
                 (
@@ -83,6 +83,61 @@ def plot_step1_reference_heatmap(data_dir: Path, results_dir: Path) -> Result[Pa
         return Failure(f"Failed to plot step 1 heatmap: {exc}")
 
 
+def plot_step1b_integration_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Plot Harmony batch correction UMAP comparing platform integration."""
+    meta_path = data_dir / "integrated_cell_metadata.parquet"
+    if not meta_path.exists():
+        return Failure(f"Integrated cell metadata missing: {meta_path}")
+
+    try:
+        df_meta = pl.read_parquet(meta_path)
+        # Subsample for lightweight rendering if large
+        if df_meta.height > 15000:
+            df_plot = df_meta.sample(n=15000, seed=42).to_pandas()
+        else:
+            df_plot = df_meta.to_pandas()
+
+        # Panel 1: Colored by Sequencing Technology / Dataset (Batch)
+        panel_batch = (
+            alt.Chart(df_plot)
+            .mark_circle(size=12, opacity=0.7)
+            .encode(
+                x=alt.X("umap_1:Q", title="Integrated UMAP 1", axis=alt.Axis(labels=False, ticks=False)),
+                y=alt.Y("umap_2:Q", title="Integrated UMAP 2", axis=alt.Axis(labels=False, ticks=False)),
+                color=alt.Color(
+                    "sequencing_tech:N",
+                    title="Platform",
+                    scale=alt.Scale(domain=["Smart-seq2", "10x_Chromium"], range=["#e41a1c", "#377eb8"]),
+                ),
+                tooltip=["dataset", "sequencing_tech", "integrated_cluster"],
+            )
+            .properties(title="A. Platform Integration (Harmony Corrected)", width=340, height=320)
+        )
+
+        # Panel 2: Colored by Integrated Clusters
+        panel_clusters = (
+            alt.Chart(df_plot)
+            .mark_circle(size=12, opacity=0.7)
+            .encode(
+                x=alt.X("umap_1:Q", title="Integrated UMAP 1", axis=alt.Axis(labels=False, ticks=False)),
+                y=alt.Y("umap_2:Q", title="Integrated UMAP 2", axis=alt.Axis(labels=False, ticks=False)),
+                color=alt.Color("integrated_cluster:N", title="Integrated Cluster", scale=alt.Scale(scheme="tableau20")),
+                tooltip=["integrated_cluster", "dataset"],
+            )
+            .properties(title="B. Integrated Biological Cell Clusters", width=340, height=320)
+        )
+
+        composite = alt.hconcat(panel_batch, panel_clusters).properties(
+            title="Harmony Integration: Sade-Feldman (Smart-seq2) & 10x Single-Cell Atlas"
+        )
+
+        out_file = results_dir / "step01b_integrated_umap_batch_correction.svg"
+        composite.save(str(out_file))
+        return Success(out_file)
+    except Exception as exc:
+        return Failure(f"Failed to plot step 1b integrated UMAP: {exc}")
+
+
 def plot_step2_fractions_distribution(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot cell state fraction distributions across cohorts."""
     fracs_path = data_dir / "deconv_fractions.parquet"
@@ -94,7 +149,6 @@ def plot_step2_fractions_distribution(data_dir: Path, results_dir: Path) -> Resu
         meta_cols = ["sample_id", "cohort", "cancer_type"]
         cell_states = [c for c in df_fracs.columns if c not in meta_cols]
 
-        # Melt to long format for Altair
         df_long = (
             df_fracs.unpivot(
                 index=meta_cols,
@@ -142,7 +196,6 @@ def plot_step3_logistic_regression(
         if len(df_res) == 0:
             return Failure(f"No results found for stratum '{stratum}'")
 
-        # Volcano plot: log(OR) vs -log10(p-value)
         volcano = (
             alt.Chart(df_res)
             .mark_circle(size=90, opacity=0.85)
@@ -162,7 +215,6 @@ def plot_step3_logistic_regression(
                 height=380,
             )
         )
-        # Add horizontal significance threshold line (p = 0.05)
         hline = (
             alt.Chart(pd.DataFrame({"y": [-np.log10(0.05)]}))
             .mark_rule(strokeDash=[4, 4], color="gray")
@@ -172,7 +224,6 @@ def plot_step3_logistic_regression(
         out_volcano = results_dir / "step03_logistic_regression_volcano.svg"
         volcano_final.save(str(out_volcano))
 
-        # Forest plot: Odds Ratios with 95% Confidence Intervals
         points = (
             alt.Chart(df_res)
             .mark_point(filled=True, size=60)
@@ -225,7 +276,6 @@ def plot_step4_milopy(data_dir: Path, results_dir: Path) -> Result[tuple[Path, P
             (pl.col("fdr") < 0.1).alias("significant"),
         ).to_pandas()
 
-        # Nhood volcano
         volcano = (
             alt.Chart(df_nhoods)
             .mark_circle(size=40, opacity=0.7)
@@ -248,7 +298,6 @@ def plot_step4_milopy(data_dir: Path, results_dir: Path) -> Result[tuple[Path, P
         out_volcano = results_dir / "step04_milopy_nhood_volcano.svg"
         volcano.save(str(out_volcano))
 
-        # Cell state DA bar chart with Wilcoxon significance
         df_states = pl.read_parquet(states_path).to_pandas()
         bar = (
             alt.Chart(df_states)
@@ -277,8 +326,41 @@ def plot_step4_milopy(data_dir: Path, results_dir: Path) -> Result[tuple[Path, P
         return Failure(f"Failed to plot step 4 milopy: {exc}")
 
 
+def plot_step4b_pre_vs_post_milo(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Plot comparison of Pre-treatment vs Post-treatment vs Combined Milo differential abundance."""
+    all_states_path = data_dir / "milopy_cell_state_da_all.parquet"
+    if not all_states_path.exists():
+        return Failure(f"All conditions Milo states table missing: {all_states_path}")
+
+    try:
+        df_all = pl.read_parquet(all_states_path).to_pandas()
+
+        chart = (
+            alt.Chart(df_all)
+            .mark_bar()
+            .encode(
+                x=alt.X("condition:N", title="Treatment Status", axis=alt.Axis(labels=True)),
+                y=alt.Y("milo_mean_logfc:Q", title="Mean Milo Log2FC (~Response)"),
+                color=alt.Color(
+                    "condition:N",
+                    title="Cohort",
+                    scale=alt.Scale(domain=["Pre", "Post", "Combined"], range=["#377eb8", "#e41a1c", "#4daf4a"]),
+                ),
+                column=alt.Column("cell_state:N", title="Cell State", header=alt.Header(labelAngle=-45)),
+                tooltip=["cell_state", "condition", "milo_mean_logfc", "n_cells", "milo_wilcoxon_pval"],
+            )
+            .properties(width=55, height=260)
+        )
+
+        out_file = results_dir / "step04b_milopy_pre_vs_post.svg"
+        chart.save(str(out_file))
+        return Success(out_file)
+    except Exception as exc:
+        return Failure(f"Failed to plot step 4b Pre vs Post Milo: {exc}")
+
+
 def plot_step5_concordance_scatter(data_dir: Path, results_dir: Path) -> Result[Path, str]:
-    """Plot concordance scatter plot between bulk deconv Beta and Milo logFC."""
+    """Plot primary concordance scatter plot between bulk deconv Beta and Milo logFC."""
     conc_path = data_dir / "concordance_metrics.parquet"
     summary_path = data_dir / "concordance_summary.parquet"
 
@@ -293,7 +375,6 @@ def plot_step5_concordance_scatter(data_dir: Path, results_dir: Path) -> Result[
             rho_val = float(df_sum["spearman_rho"][0])
             p_val = float(df_sum["spearman_pvalue"][0])
 
-        # Quadrant lines
         hline = alt.Chart(pd.DataFrame({"y": [0.0]})).mark_rule(strokeDash=[3, 3], color="gray").encode(y="y:Q")
         vline = alt.Chart(pd.DataFrame({"x": [0.0]})).mark_rule(strokeDash=[3, 3], color="gray").encode(x="x:Q")
 
@@ -351,6 +432,84 @@ def plot_step5_concordance_scatter(data_dir: Path, results_dir: Path) -> Result[
         return Failure(f"Failed to plot step 5 concordance scatter: {exc}")
 
 
+def plot_step5b_cohort_concordance(data_dir: Path, results_dir: Path) -> Result[tuple[Path, Path], str]:
+    """Plot multi-cohort concordance comparison forest/bar chart and individual cohort scatter matrix."""
+    summary_path = data_dir / "cohort_level_concordance_summary.parquet"
+    metrics_path = data_dir / "concordance_metrics_full.parquet"
+
+    if not summary_path.exists() or not metrics_path.exists():
+        return Failure(f"Cohort concordance tables missing in {data_dir}")
+
+    try:
+        df_sum = pl.read_parquet(summary_path).to_pandas()
+
+        # Chart 1: Cohort Concordance Summary Forest / Bar Plot
+        bar_rho = (
+            alt.Chart(df_sum)
+            .mark_bar()
+            .encode(
+                x=alt.X("spearman_rho:Q", title="Spearman Rank Correlation (rho)"),
+                y=alt.Y("cohort:N", title="iAtlas Cohort", sort=alt.EncodingSortField(field="spearman_rho", order="descending")),
+                color=alt.Color(
+                    "cancer_type:N",
+                    title="Cancer Type",
+                    scale=alt.Scale(domain=["Melanoma", "Bladder", "Pancreatic", "Breast", "Renal Cell"], scheme="category10"),
+                ),
+                tooltip=["cohort", "cancer_type", "spearman_rho", "spearman_pvalue", "concordance_percentage", "concordant_states_count"],
+            )
+        )
+        vline_0 = alt.Chart(pd.DataFrame({"x": [0.0]})).mark_rule(color="black").encode(x="x:Q")
+
+        summary_chart = (bar_rho + vline_0).properties(
+            title="Individual Cohort Concordance: Bulk Deconvolution vs. Sade-Feldman Milo DA",
+            width=550,
+            height=320,
+        )
+        out_summary = results_dir / "step05b_cohort_concordance_comparison.svg"
+        summary_chart.save(str(out_summary))
+
+        # Chart 2: Multi-panel scatter plot grid across cohorts
+        df_metrics = (
+            pl.read_parquet(metrics_path)
+            .filter(pl.col("stratum").str.starts_with("Cohort_") & (pl.col("condition") == "Combined"))
+            .to_pandas()
+        )
+
+        hline = alt.Chart(pd.DataFrame({"y": [0.0]})).mark_rule(strokeDash=[3, 3], color="gray").encode(y="y:Q")
+        vline = alt.Chart(pd.DataFrame({"x": [0.0]})).mark_rule(strokeDash=[3, 3], color="gray").encode(x="x:Q")
+
+        scatters = (
+            alt.Chart(df_metrics)
+            .mark_circle(size=70, opacity=0.85)
+            .encode(
+                x=alt.X("beta:Q", title="Bulk Deconv Beta"),
+                y=alt.Y("milo_mean_logfc:Q", title="Milo Log2FC"),
+                color=alt.Color("is_concordant:N", title="Concordant", scale=alt.Scale(domain=[True, False], range=["#e41a1c", "#377eb8"])),
+                tooltip=["cohort", "cell_state", "beta", "milo_mean_logfc", "quadrant"],
+            )
+        )
+        trends = (
+            alt.Chart(df_metrics)
+            .transform_regression("beta", "milo_mean_logfc", groupby=["cohort"])
+            .mark_line(color="black", strokeDash=[3, 3])
+            .encode(x="beta:Q", y="milo_mean_logfc:Q")
+        )
+
+        grid = (
+            (hline + vline + trends + scatters)
+            .properties(width=170, height=170)
+            .facet(facet=alt.Facet("cohort:N", title="iAtlas Cohort"), columns=3)
+            .properties(title="Individual Cohort Scatter Grid: Bulk Deconvolution vs. Milo Differential Abundance")
+        )
+
+        out_grid = results_dir / "step05b_individual_cohort_scatters.svg"
+        grid.save(str(out_grid))
+
+        return Success((out_summary, out_grid))
+    except Exception as exc:
+        return Failure(f"Failed to plot step 5b cohort concordance: {exc}")
+
+
 def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot multi-panel UMAP: Reference Cell States, Single-Cell Milo DA, and Bulk Deconvolution Beta."""
     cells_path = data_dir / "milopy_cell_level_scores.parquet"
@@ -361,17 +520,14 @@ def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]
 
     try:
         df_cells = pl.read_parquet(cells_path)
-        # Map deconvolution beta to cells
         if conc_path.exists():
             df_conc = pl.read_parquet(conc_path).select(["cell_state", "beta"])
             df_cells = df_cells.join(df_conc, on="cell_state", how="left")
         else:
             df_cells = df_cells.with_columns(pl.lit(0.0).alias("beta"))
 
-        # Convert to pandas
         df_plot = df_cells.fill_null(0.0).to_pandas()
 
-        # Panel A: Reference Cell States
         panel_a = (
             alt.Chart(df_plot)
             .mark_circle(size=12, opacity=0.8)
@@ -384,7 +540,6 @@ def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]
             .properties(title="A. Reference Cell States (Sade-Feldman)", width=320, height=320)
         )
 
-        # Panel B: Milopy Single-Cell DA (logFC)
         panel_b = (
             alt.Chart(df_plot)
             .mark_circle(size=12, opacity=0.85)
@@ -401,7 +556,6 @@ def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]
             .properties(title="B. Single-Cell Milo DA (~Response)", width=320, height=320)
         )
 
-        # Panel C: Bulk Deconvolution Logistic Regression Beta
         panel_c = (
             alt.Chart(df_plot)
             .mark_circle(size=12, opacity=0.85)
@@ -418,7 +572,6 @@ def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]
             .properties(title="C. Bulk Deconv Beta (Mapped to Manifold)", width=320, height=320)
         )
 
-        # Combine into side-by-side composite
         composite = alt.hconcat(panel_a, panel_b, panel_c).properties(
             title="Comparison of Single-Cell DA vs. Bulk Deconvolution Response Predictors on Sade-Feldman Manifold"
         )
@@ -426,7 +579,6 @@ def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]
         out_svg = results_dir / "step06_dual_umap_validation.svg"
         composite.save(str(out_svg))
 
-        # Also save PNG for immediate visual inspection
         try:
             out_png = results_dir / "step06_dual_umap_validation.png"
             composite.save(str(out_png))
@@ -438,6 +590,92 @@ def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]
         return Failure(f"Failed to plot step 6 dual UMAP: {exc}")
 
 
+def plot_step6b_stratified_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Plot 4-panel UMAP: Reference, Pre-treatment Milo, Post-treatment Milo, and Bulk Deconv."""
+    cells_path = data_dir / "milopy_cell_level_scores.parquet"
+    conc_path = data_dir / "concordance_metrics.parquet"
+
+    if not cells_path.exists():
+        return Failure(f"Cell level scores missing: {cells_path}")
+
+    try:
+        df_cells = pl.read_parquet(cells_path)
+        if conc_path.exists():
+            df_conc = pl.read_parquet(conc_path).select(["cell_state", "beta"])
+            df_cells = df_cells.join(df_conc, on="cell_state", how="left")
+        else:
+            df_cells = df_cells.with_columns(pl.lit(0.0).alias("beta"))
+
+        df_plot = df_cells.fill_null(0.0).to_pandas()
+
+        # Panel A: Reference
+        p_ref = (
+            alt.Chart(df_plot)
+            .mark_circle(size=10, opacity=0.8)
+            .encode(
+                x=alt.X("umap_1:Q", title=None, axis=alt.Axis(labels=False, ticks=False)),
+                y=alt.Y("umap_2:Q", title=None, axis=alt.Axis(labels=False, ticks=False)),
+                color=alt.Color("cell_state:N", title="Cell State", scale=alt.Scale(scheme="tableau20")),
+            )
+            .properties(title="A. Reference Cell States", width=250, height=250)
+        )
+
+        # Panel B: Pre-treatment Milo DA
+        p_pre = (
+            alt.Chart(df_plot.dropna(subset=["milo_logfc_pre"]))
+            .mark_circle(size=10, opacity=0.85)
+            .encode(
+                x=alt.X("umap_1:Q", title=None, axis=alt.Axis(labels=False, ticks=False)),
+                y=alt.Y("umap_2:Q", title=None, axis=alt.Axis(labels=False, ticks=False)),
+                color=alt.Color("milo_logfc_pre:Q", title="Pre Milo Log2FC", scale=alt.Scale(scheme="redblue", reverse=True, domain=[-2.0, 2.0])),
+            )
+            .properties(title="B. Baseline Pre-Treatment DA", width=250, height=250)
+        )
+
+        # Panel C: Post-treatment Milo DA
+        p_post = (
+            alt.Chart(df_plot.dropna(subset=["milo_logfc_post"]))
+            .mark_circle(size=10, opacity=0.85)
+            .encode(
+                x=alt.X("umap_1:Q", title=None, axis=alt.Axis(labels=False, ticks=False)),
+                y=alt.Y("umap_2:Q", title=None, axis=alt.Axis(labels=False, ticks=False)),
+                color=alt.Color("milo_logfc_post:Q", title="Post Milo Log2FC", scale=alt.Scale(scheme="redblue", reverse=True, domain=[-2.0, 2.0])),
+            )
+            .properties(title="C. On-Treatment Post DA", width=250, height=250)
+        )
+
+        # Panel D: Bulk Deconvolution Beta
+        p_deconv = (
+            alt.Chart(df_plot)
+            .mark_circle(size=10, opacity=0.85)
+            .encode(
+                x=alt.X("umap_1:Q", title=None, axis=alt.Axis(labels=False, ticks=False)),
+                y=alt.Y("umap_2:Q", title=None, axis=alt.Axis(labels=False, ticks=False)),
+                color=alt.Color("beta:Q", title="Bulk Deconv Beta", scale=alt.Scale(scheme="redblue", reverse=True, domain=[-2.0, 2.0])),
+            )
+            .properties(title="D. Bulk Deconvolution Beta", width=250, height=250)
+        )
+
+        row1 = alt.hconcat(p_ref, p_pre)
+        row2 = alt.hconcat(p_post, p_deconv)
+        composite = alt.vconcat(row1, row2).properties(
+            title="Sade-Feldman Single-Cell Manifold: Pre vs. Post DA and Bulk Deconvolution Response Predictors"
+        )
+
+        out_svg = results_dir / "step06b_stratified_umap_validation.svg"
+        composite.save(str(out_svg))
+
+        try:
+            out_png = results_dir / "step06b_stratified_umap_validation.png"
+            composite.save(str(out_png))
+        except Exception:
+            pass
+
+        return Success(out_svg)
+    except Exception as exc:
+        return Failure(f"Failed to plot step 6b stratified UMAP: {exc}")
+
+
 def run_all_plots(config: PlotConfig) -> Result[list[Path], str]:
     """Generate all figures across all steps."""
     config.results_dir.mkdir(parents=True, exist_ok=True)
@@ -445,6 +683,14 @@ def run_all_plots(config: PlotConfig) -> Result[list[Path], str]:
 
     print("Generating Step 1 Reference Marker Heatmap...")
     match plot_step1_reference_heatmap(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Step 1b Harmony Integration UMAP...")
+    match plot_step1b_integration_umap(config.data_dir, config.results_dir):
         case Success(path):
             generated.append(path)
             print(f"  Saved: {path.name}")
@@ -475,7 +721,15 @@ def run_all_plots(config: PlotConfig) -> Result[list[Path], str]:
         case Failure(err):
             print(f"  Warning: {err}")
 
-    print("Generating Step 5 Cross-Modality Concordance Scatter Plot...")
+    print("Generating Step 4b Pre vs. Post Milo Comparison Plot...")
+    match plot_step4b_pre_vs_post_milo(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Step 5 Primary Concordance Scatter Plot...")
     match plot_step5_concordance_scatter(config.data_dir, config.results_dir):
         case Success(path):
             generated.append(path)
@@ -483,8 +737,24 @@ def run_all_plots(config: PlotConfig) -> Result[list[Path], str]:
         case Failure(err):
             print(f"  Warning: {err}")
 
+    print("Generating Step 5b Multi-Cohort Concordance Plots...")
+    match plot_step5b_cohort_concordance(config.data_dir, config.results_dir):
+        case Success((s_path, g_path)):
+            generated.extend([s_path, g_path])
+            print(f"  Saved: {s_path.name}, {g_path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
     print("Generating Step 6 Multi-Panel UMAP Manifold Visualization...")
     match plot_step6_dual_umap(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Step 6b Stratified Pre vs. Post UMAP Manifold Visualization...")
+    match plot_step6b_stratified_umap(config.data_dir, config.results_dir):
         case Success(path):
             generated.append(path)
             print(f"  Saved: {path.name}")

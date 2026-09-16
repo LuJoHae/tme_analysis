@@ -818,6 +818,9 @@ rule analyze_milopy_sade_feldman:
         adata=f"{GSE_DIR}/gse120575_processed.h5ad",
     output:
         states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da.parquet",
+        all_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all.parquet",
+        pre_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_Pre.parquet",
+        post_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_Post.parquet",
         cells=f"{SADE_VALIDATION_OUT}/milopy_cell_level_scores.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
@@ -827,19 +830,39 @@ rule analyze_milopy_sade_feldman:
         python {input.script} --adata {input.adata} --milo-dir {params.milo_dir} --out-dir {params.out_dir}
         """
 
+rule build_integrated_reference:
+    input:
+        script="scripts/sade_feldman_deconv_validation/01b_build_integrated_reference.py",
+        adata=f"{GSE_DIR}/gse120575_processed.h5ad",
+    output:
+        phi=f"{SADE_VALIDATION_OUT}/integrated_reference_phi.parquet",
+        markers=f"{SADE_VALIDATION_OUT}/integrated_marker_genes.parquet",
+        meta=f"{SADE_VALIDATION_OUT}/integrated_cell_metadata.parquet",
+        metrics=f"{SADE_VALIDATION_OUT}/integration_quality_metrics.parquet",
+    params:
+        out_dir=SADE_VALIDATION_OUT,
+        lair_dir="/storage/halu/lair",
+    shell:
+        """
+        python {input.script} --adata-sf {input.adata} --lair-dir {params.lair_dir} --out-dir {params.out_dir}
+        """
+
 rule concordance_sade_feldman:
     input:
         script="scripts/sade_feldman_deconv_validation/05_compare_concordance.py",
         logistic=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
-        milo=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da.parquet",
+        milo_all=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all.parquet",
     output:
         metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics.parquet",
         summary=f"{SADE_VALIDATION_OUT}/concordance_summary.parquet",
+        cohorts=f"{SADE_VALIDATION_OUT}/cohort_level_concordance_summary.parquet",
+        timepoints=f"{SADE_VALIDATION_OUT}/timepoint_concordance_summary.parquet",
+        full_metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics_full.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
     shell:
         """
-        python {input.script} --logistic-results {input.logistic} --milo-results {input.milo} --out-dir {params.out_dir}
+        python {input.script} --logistic-results {input.logistic} --milo-dir {params.out_dir} --out-dir {params.out_dir}
         """
 
 rule plot_sade_feldman_validation:
@@ -848,18 +871,25 @@ rule plot_sade_feldman_validation:
         markers=f"{SADE_VALIDATION_OUT}/reference_marker_genes.parquet",
         fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
         logistic=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
-        milo=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da.parquet",
-        metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics.parquet",
+        milo_all=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all.parquet",
+        cohorts=f"{SADE_VALIDATION_OUT}/cohort_level_concordance_summary.parquet",
+        metrics_full=f"{SADE_VALIDATION_OUT}/concordance_metrics_full.parquet",
         cells=f"{SADE_VALIDATION_OUT}/milopy_cell_level_scores.parquet",
+        integ_meta=f"{SADE_VALIDATION_OUT}/integrated_cell_metadata.parquet",
     output:
         fig1=f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
+        fig1b=f"{SADE_VALIDATION_RES}/step01b_integrated_umap_batch_correction.svg",
         fig2=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
         fig3a=f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
         fig3b=f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
         fig4a=f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
         fig4b=f"{SADE_VALIDATION_RES}/step04_milopy_cell_state_da.svg",
+        fig4c=f"{SADE_VALIDATION_RES}/step04b_milopy_pre_vs_post.svg",
         fig5=f"{SADE_VALIDATION_RES}/step05_concordance_scatter.svg",
+        fig5b=f"{SADE_VALIDATION_RES}/step05b_cohort_concordance_comparison.svg",
+        fig5c=f"{SADE_VALIDATION_RES}/step05b_individual_cohort_scatters.svg",
         fig6=f"{SADE_VALIDATION_RES}/step06_dual_umap_validation.svg",
+        fig6b=f"{SADE_VALIDATION_RES}/step06b_stratified_umap_validation.svg",
     params:
         data_dir=SADE_VALIDATION_OUT,
         results_dir=SADE_VALIDATION_RES,
@@ -868,16 +898,26 @@ rule plot_sade_feldman_validation:
         python {input.script} --data-dir {params.data_dir} --results-dir {params.results_dir}
         """
 
-rule run_sade_feldman_pipeline:
+rule run_extended_sade_feldman_pipeline:
     input:
         f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
+        f"{SADE_VALIDATION_RES}/step01b_integrated_umap_batch_correction.svg",
         f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
         f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
         f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
         f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
         f"{SADE_VALIDATION_RES}/step04_milopy_cell_state_da.svg",
+        f"{SADE_VALIDATION_RES}/step04b_milopy_pre_vs_post.svg",
         f"{SADE_VALIDATION_RES}/step05_concordance_scatter.svg",
+        f"{SADE_VALIDATION_RES}/step05b_cohort_concordance_comparison.svg",
+        f"{SADE_VALIDATION_RES}/step05b_individual_cohort_scatters.svg",
         f"{SADE_VALIDATION_RES}/step06_dual_umap_validation.svg",
+        f"{SADE_VALIDATION_RES}/step06b_stratified_umap_validation.svg",
+
+rule run_sade_feldman_pipeline:
+    input:
+        rules.run_extended_sade_feldman_pipeline.input,
+
 
 
 

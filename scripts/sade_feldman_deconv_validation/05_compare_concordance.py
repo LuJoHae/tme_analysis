@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Step 5: Concordance Analysis between Bulk Deconvolution Logistic Regression and Single-Cell Milo DA.
-Evaluates whether cell states correlating with immunotherapy response in bulk deconvolution
-are concordant with single-cell differential abundance in Sade-Feldman dataset.
-Outputs concordance_metrics.parquet and concordance_summary.parquet.
+Step 5: Extended Concordance Analysis between Bulk Deconvolution and Single-Cell Milo DA.
+Evaluates concordance across:
+1. All 9 individual iAtlas ICI cohorts (Hugo, Riaz, Liu, Gide, Rosenberg, Padron, Anders, McDermott, Choueiri)
+   and aggregate strata (Melanoma, Pan-Cancer).
+2. Sade-Feldman treatment timepoints: Pre-treatment, Post-treatment, and Combined.
+Outputs cohort_level_concordance_summary.parquet, timepoint_concordance_summary.parquet,
+and concordance_metrics_full.parquet.
 """
 
 from __future__ import annotations
@@ -20,11 +23,25 @@ from returns.result import Failure, Result, Success
 from scipy import stats  # type: ignore
 
 
+COHORT_CANCER_MAP: Final[dict[str, str]] = {
+    "Hugo-iAtlas": "Melanoma",
+    "Riaz-iAtlas": "Melanoma",
+    "Liu-iAtlas": "Melanoma",
+    "Gide-iAtlas": "Melanoma",
+    "Rosenberg-iAtlas": "Bladder",
+    "Padron-iAtlas": "Pancreatic",
+    "Anders-iAtlas": "Breast",
+    "McDermott-iAtlas": "Renal Cell",
+    "Choueiri-iAtlas": "Renal Cell",
+    "Melanoma": "Melanoma (Combined)",
+    "Pan-Cancer": "Pan-Cancer (Combined)",
+}
+
+
 class ConcordanceConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     logistic_path: Path
-    milo_path: Path
-    stratum: str = "Melanoma"
+    milo_dir: Path
     out_dir: Path
 
 
@@ -42,118 +59,227 @@ def classify_quadrant(beta: float, milo_lfc: float) -> str:
         return "Neutral"
 
 
-def run_concordance_analysis(config: ConcordanceConfig) -> Result[Path, str]:
-    """Pure analysis joining bulk and single-cell response associations."""
-    if not config.logistic_path.exists():
-        return Failure(f"Logistic results not found: {config.logistic_path}")
-    if not config.milo_path.exists():
-        return Failure(f"Milo results not found: {config.milo_path}")
-
-    df_log = pl.read_parquet(config.logistic_path)
-    df_milo = pl.read_parquet(config.milo_path)
-
-    # Filter to target stratum
-    df_log_sub = df_log.filter(pl.col("stratum") == config.stratum)
-    if df_log_sub.height == 0:
-        available = df_log["stratum"].unique().to_list()
-        return Failure(
-            f"Stratum '{config.stratum}' not found in logistic results. Available: {available}"
-        )
+def compute_pair_concordance(
+    df_log_sub: pl.DataFrame,
+    df_milo_sub: pl.DataFrame,
+    stratum: str,
+    condition: str,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """Compute concordance statistics for a single (stratum, condition) pair."""
+    # Clean cohort name
+    clean_cohort = stratum.replace("Cohort_", "")
+    cancer_type = COHORT_CANCER_MAP.get(clean_cohort, "Other")
 
     # Join on cell_state
-    df_merged = df_log_sub.join(df_milo, on="cell_state", how="inner")
-    if df_merged.height == 0:
-        return Failure("No overlapping cell states between logistic results and Milo results.")
+    joined = df_log_sub.join(df_milo_sub, on="cell_state", how="inner")
+    n_states = joined.height
 
-    print(f"Comparing {df_merged.height} cell states for stratum '{config.stratum}'...")
+    if n_states < 3:
+        summary = {
+            "stratum": stratum,
+            "cohort": clean_cohort,
+            "cancer_type": cancer_type,
+            "condition": condition,
+            "n_cell_states": n_states,
+            "spearman_rho": np.nan,
+            "spearman_pvalue": 1.0,
+            "pearson_r": np.nan,
+            "pearson_pvalue": 1.0,
+            "concordance_percentage": 0.0,
+            "binomial_pvalue": 1.0,
+            "concordant_states_count": 0,
+            "concordant_responders": 0,
+            "concordant_non_responders": 0,
+            "discordant_count": 0,
+        }
+        return summary, []
 
-    betas = df_merged["beta"].to_numpy().astype(np.float64)
-    milo_lfcs = df_merged["milo_mean_logfc"].to_numpy().astype(np.float64)
-    milo_medians = df_merged["milo_median_logfc"].to_numpy().astype(np.float64)
+    betas = joined["beta"].to_numpy().astype(np.float64)
+    milo_lfcs = joined["milo_mean_logfc"].to_numpy().astype(np.float64)
 
-    # Correlation statistics
-    spearman_rho, spearman_p = stats.spearmanr(betas, milo_lfcs)
-    pearson_r, pearson_p = stats.pearsonr(betas, milo_lfcs)
-    spearman_rho_med, spearman_p_med = stats.spearmanr(betas, milo_medians)
+    # Correlations
+    try:
+        rho_val, rho_p = stats.spearmanr(betas, milo_lfcs)
+        if np.isnan(rho_val):
+            rho_val, rho_p = 0.0, 1.0
+    except Exception:
+        rho_val, rho_p = 0.0, 1.0
 
-    # Quadrant agreement
+    try:
+        r_val, r_p = stats.pearsonr(betas, milo_lfcs)
+        if np.isnan(r_val):
+            r_val, r_p = 0.0, 1.0
+    except Exception:
+        r_val, r_p = 0.0, 1.0
+
+    # Quadrants
     quadrants = [classify_quadrant(b, m) for b, m in zip(betas, milo_lfcs)]
     n_concordant = sum(1 for q in quadrants if q.startswith("Concordant"))
-    pct_agreement = float(n_concordant / len(quadrants)) * 100.0
+    n_conc_r = sum(1 for q in quadrants if q == "Concordant Responder")
+    n_conc_nr = sum(1 for q in quadrants if q == "Concordant Non-Responder")
+    n_disc = sum(1 for q in quadrants if q.startswith("Discordant"))
 
-    # Binomial test for direction concordance vs 50% chance
-    binom_res = stats.binomtest(k=n_concordant, n=len(quadrants), p=0.5, alternative="greater")
-    binom_p = float(binom_res.pvalue)
+    pct_agreement = float(n_concordant / n_states) * 100.0
+    try:
+        binom_p = float(stats.binomtest(k=n_concordant, n=n_states, p=0.5, alternative="greater").pvalue)
+    except Exception:
+        binom_p = 1.0
 
-    # Add quadrant labels and signed agreement to dataframe
-    df_enhanced = df_merged.with_columns(
-        pl.Series("quadrant", quadrants),
-        pl.Series(
-            "is_concordant",
-            [q.startswith("Concordant") for q in quadrants],
-        ),
-        (pl.col("beta") * pl.col("milo_mean_logfc") > 0).alias("sign_agreement"),
-    )
+    summary = {
+        "stratum": stratum,
+        "cohort": clean_cohort,
+        "cancer_type": cancer_type,
+        "condition": condition,
+        "n_cell_states": n_states,
+        "spearman_rho": float(rho_val),
+        "spearman_pvalue": float(rho_p),
+        "pearson_r": float(r_val),
+        "pearson_pvalue": float(r_p),
+        "concordance_percentage": pct_agreement,
+        "binomial_pvalue": binom_p,
+        "concordant_states_count": n_concordant,
+        "concordant_responders": n_conc_r,
+        "concordant_non_responders": n_conc_nr,
+        "discordant_count": n_disc,
+    }
+
+    metric_rows: list[dict[str, object]] = []
+    for idx in range(n_states):
+        row = joined.row(idx, named=True)
+        metric_rows.append(
+            {
+                "stratum": stratum,
+                "cohort": clean_cohort,
+                "cancer_type": cancer_type,
+                "condition": condition,
+                "cell_state": row["cell_state"],
+                "beta": float(row["beta"]),
+                "or": float(row["or"]),
+                "logistic_pvalue": float(row["p_value"]),
+                "logistic_fdr": float(row.get("fdr", 1.0)),
+                "auc": float(row.get("auc", 0.5)),
+                "milo_mean_logfc": float(row["milo_mean_logfc"]),
+                "milo_median_logfc": float(row.get("milo_median_logfc", 0.0)),
+                "milo_wilcoxon_pval": float(row.get("milo_wilcoxon_pval", 1.0)),
+                "quadrant": quadrants[idx],
+                "is_concordant": quadrants[idx].startswith("Concordant"),
+            }
+        )
+
+    return summary, metric_rows
+
+
+def run_full_concordance(config: ConcordanceConfig) -> Result[Path, str]:
+    """Orchestrates comprehensive concordance testing across cohorts and timepoints."""
+    if not config.logistic_path.exists():
+        return Failure(f"Logistic regression results missing: {config.logistic_path}")
+
+    df_log = pl.read_parquet(config.logistic_path)
+    all_strata = sorted(df_log["stratum"].unique().to_list())
+    print(f"Loaded logistic results with {len(all_strata)} strata: {all_strata}")
+
+    # Load Milo results for all available conditions
+    conditions = ["Combined", "Pre", "Post"]
+    milo_condition_dfs: dict[str, pl.DataFrame] = {}
+
+    for cname in conditions:
+        p_path = config.milo_dir / f"milopy_cell_state_da_{cname}.parquet"
+        if not p_path.exists():
+            # Fallback for Combined
+            if cname == "Combined":
+                p_path = config.milo_dir / "milopy_cell_state_da.parquet"
+
+        if p_path.exists():
+            milo_condition_dfs[cname] = pl.read_parquet(p_path)
+            print(f"Loaded Milo cell state results for condition '{cname}' ({milo_condition_dfs[cname].height} rows)")
+
+    if not milo_condition_dfs:
+        return Failure(f"No Milo cell state result parquets found in {config.milo_dir}")
+
+    summaries: list[dict[str, object]] = []
+    all_metric_rows: list[dict[str, object]] = []
+
+    for strat in all_strata:
+        df_log_sub = df_log.filter(pl.col("stratum") == strat)
+
+        for cname, df_milo_sub in milo_condition_dfs.items():
+            sum_dict, m_rows = compute_pair_concordance(
+                df_log_sub, df_milo_sub, strat, cname
+            )
+            summaries.append(sum_dict)
+            all_metric_rows.extend(m_rows)
+
+    df_summary_master = pl.DataFrame(summaries)
+    df_metrics_master = pl.DataFrame(all_metric_rows)
 
     config.out_dir.mkdir(parents=True, exist_ok=True)
-    out_table = config.out_dir / "concordance_metrics.parquet"
-    df_enhanced.write_parquet(out_table)
-    print(f"Saved concordance metrics table to: {out_table}")
 
-    # Summary table
-    df_summary = pl.DataFrame(
-        {
-            "stratum": [config.stratum],
-            "n_cell_states": [df_merged.height],
-            "spearman_rho": [float(spearman_rho)],
-            "spearman_pvalue": [float(spearman_p)],
-            "pearson_r": [float(pearson_r)],
-            "pearson_pvalue": [float(pearson_p)],
-            "spearman_rho_median": [float(spearman_rho_med)],
-            "spearman_pvalue_median": [float(spearman_p_med)],
-            "concordant_states_count": [n_concordant],
-            "concordance_percentage": [pct_agreement],
-            "binomial_pvalue": [binom_p],
-        }
+    # 1. Full metrics table (all strata x conditions x cell states)
+    out_metrics_full = config.out_dir / "concordance_metrics_full.parquet"
+    df_metrics_master.write_parquet(out_metrics_full)
+    print(f"Saved full concordance metrics ({df_metrics_master.height} rows) to: {out_metrics_full}")
+
+    # 2. Master summary table
+    out_summary_master = config.out_dir / "concordance_summary_all.parquet"
+    df_summary_master.write_parquet(out_summary_master)
+
+    # 3. Cohort-level summary table (individual cohorts vs Combined Milo DA)
+    df_cohorts = df_summary_master.filter(
+        pl.col("stratum").str.starts_with("Cohort_") & (pl.col("condition") == "Combined")
     )
-    out_summary = config.out_dir / "concordance_summary.parquet"
-    df_summary.write_parquet(out_summary)
-    print(f"Saved concordance summary table to: {out_summary}")
+    out_cohorts = config.out_dir / "cohort_level_concordance_summary.parquet"
+    df_cohorts.write_parquet(out_cohorts)
+    print(f"Saved cohort-level concordance summary ({df_cohorts.height} cohorts) to: {out_cohorts}")
 
-    print("\n=======================================================")
-    print("CONCORDANCE SUMMARY (Bulk Deconv vs. Single-Cell Milo)")
-    print("=======================================================")
-    print(f"Stratum:                  {config.stratum}")
-    print(f"Cell states evaluated:    {df_merged.height}")
-    print(f"Spearman Rank Correlation: rho = {spearman_rho:.3f} (p = {spearman_p:.4e})")
-    print(f"Pearson Correlation:       r   = {pearson_r:.3f} (p = {pearson_p:.4e})")
-    print(f"Directional Concordance:   {pct_agreement:.1f}% ({n_concordant}/{len(quadrants)} states, Binomial p = {binom_p:.4e})")
-    print("=======================================================")
+    # 4. Timepoint summary table (Pre vs Post vs Combined for Melanoma and Pan-Cancer)
+    df_timepoints = df_summary_master.filter(
+        pl.col("stratum").is_in(["Melanoma", "Pan-Cancer"])
+    )
+    out_timepoints = config.out_dir / "timepoint_concordance_summary.parquet"
+    df_timepoints.write_parquet(out_timepoints)
+    print(f"Saved timepoint concordance summary to: {out_timepoints}")
 
-    return Success(out_table)
+    # 5. Default backward-compatible tables (Melanoma x Combined)
+    df_default_metrics = df_metrics_master.filter(
+        (pl.col("stratum") == "Melanoma") & (pl.col("condition") == "Combined")
+    )
+    df_default_metrics.write_parquet(config.out_dir / "concordance_metrics.parquet")
+
+    df_default_summary = df_summary_master.filter(
+        (pl.col("stratum") == "Melanoma") & (pl.col("condition") == "Combined")
+    )
+    df_default_summary.write_parquet(config.out_dir / "concordance_summary.parquet")
+
+    # Print summary table of individual cohorts
+    print("\n=========================================================================")
+    print("INDIVIDUAL COHORT CONCORDANCE ANALYSIS (Bulk Deconv vs. Milo Combined)")
+    print("=========================================================================")
+    for row in df_cohorts.iter_rows(named=True):
+        print(
+            f"Cohort: {row['cohort']:<20} | Cancer: {row['cancer_type']:<12} | "
+            f"Spearman rho = {row['spearman_rho']:>6.3f} (p={row['spearman_pvalue']:.3e}) | "
+            f"Concordance = {row['concordance_percentage']:>5.1f}% ({row['concordant_states_count']}/{row['n_cell_states']})"
+        )
+    print("=========================================================================")
+
+    return Success(out_metrics_full)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Step 5: Concordance analysis between bulk deconvolution and Milo DA."
+        description="Step 5: Extended cross-modality concordance across cohorts and timepoints."
     )
     parser.add_argument(
         "--logistic-results",
         type=str,
         default="output/sade_feldman_deconv_validation/logistic_regression_results.parquet",
-        help="Path to logistic_regression_results.parquet from Step 3",
+        help="Path to logistic_regression_results.parquet",
     )
     parser.add_argument(
-        "--milo-results",
+        "--milo-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation/milopy_cell_state_da.parquet",
-        help="Path to milopy_cell_state_da.parquet from Step 4",
-    )
-    parser.add_argument(
-        "--stratum",
-        type=str,
-        default="Melanoma",
-        help="Stratum to evaluate (Melanoma or Pan-Cancer)",
+        default="output/sade_feldman_deconv_validation",
+        help="Directory containing milopy_cell_state_da parquets",
     )
     parser.add_argument(
         "--out-dir",
@@ -165,12 +291,11 @@ def main() -> None:
 
     config = ConcordanceConfig(
         logistic_path=Path(args.logistic_results),
-        milo_path=Path(args.milo_results),
-        stratum=args.stratum,
+        milo_dir=Path(args.milo_dir),
         out_dir=Path(args.out_dir),
     )
 
-    match run_concordance_analysis(config):
+    match run_full_concordance(config):
         case Success(out_path):
             print(f"Step 5 completed successfully: {out_path}")
             sys.exit(0)

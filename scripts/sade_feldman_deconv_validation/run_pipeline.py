@@ -120,14 +120,23 @@ def main() -> None:
     else:
         print("\n--- STEP 4: Skipping Milopy analysis (cached) ---")
 
+    # Step 1b: Integrated Multi-Cohort Reference
+    print("\n--- STEP 1b: Building Integrated Reference (Harmony Batch Correction) ---")
+    run_command([
+        python_bin,
+        str(script_dir / "01b_build_integrated_reference.py"),
+        "--adata-sf", args.adata,
+        "--lair-dir", args.lair_dir,
+        "--out-dir", args.out_dir,
+    ])
+
     # Step 5: Concordance comparison
     print("\n--- STEP 5: Concordance Analysis (Bulk Deconv vs. Single-Cell Milo) ---")
     run_command([
         python_bin,
         str(script_dir / "05_compare_concordance.py"),
         "--logistic-results", str(Path(args.out_dir) / "logistic_regression_results.parquet"),
-        "--milo-results", str(Path(args.out_dir) / "milopy_cell_state_da.parquet"),
-        "--stratum", "Melanoma",
+        "--milo-dir", args.out_dir,
         "--out-dir", args.out_dir,
     ])
 
