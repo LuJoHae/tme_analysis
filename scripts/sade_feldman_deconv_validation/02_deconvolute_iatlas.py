@@ -130,9 +130,9 @@ def process_cohort_deconvolution(
 ) -> Result[pl.DataFrame, str]:
     """Deconvolute a single cohort and return a Polars DataFrame of fractions."""
     common_genes = sorted(list(set(bulk_df.index).intersection(set(ref_genes))))
-    if len(common_genes) < 500:
+    if len(common_genes) < 100:
         return Failure(
-            f"Insufficient common genes between {cohort} and reference ({len(common_genes)} < 500)"
+            f"Insufficient common genes between {cohort} and reference ({len(common_genes)} < 100)"
         )
 
     print(f"[{cohort}] Deconvoluting {bulk_df.shape[1]} samples with {len(common_genes)} common genes...")

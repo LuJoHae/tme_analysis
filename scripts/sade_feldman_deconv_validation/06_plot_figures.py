@@ -181,6 +181,109 @@ def plot_step2_fractions_distribution(data_dir: Path, results_dir: Path) -> Resu
         return Failure(f"Failed to plot step 2 fractions: {exc}")
 
 
+def plot_step2b_cohort_fractions_grid(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Plot faceted individual cohort fraction distributions stratified by responder status."""
+    sample_fracs_path = data_dir / "sample_fractions_with_response.parquet"
+    if not sample_fracs_path.exists():
+        return Failure(f"Sample fractions with response file missing: {sample_fracs_path}")
+
+    try:
+        df_samples = pl.read_parquet(sample_fracs_path)
+        meta_cols = ["sample_id", "cohort", "cancer_type", "response"]
+        cell_states = [c for c in df_samples.columns if c not in meta_cols]
+
+        df_long = (
+            df_samples.unpivot(
+                index=meta_cols,
+                on=cell_states,
+                variable_name="cell_state",
+                value_name="fraction",
+            )
+            .with_columns(
+                pl.when(pl.col("response") == 1)
+                .then(pl.lit("Responder"))
+                .otherwise(pl.lit("Non-Responder"))
+                .alias("response_status")
+            )
+            .to_pandas()
+        )
+
+        chart = (
+            alt.Chart(df_long)
+            .mark_boxplot(extent="min-max", size=10)
+            .encode(
+                x=alt.X("cell_state:N", title="Cell State", axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("fraction:Q", title="Inferred Fraction", scale=alt.Scale(zero=True)),
+                color=alt.Color(
+                    "response_status:N",
+                    title="Response",
+                    scale=alt.Scale(domain=["Responder", "Non-Responder"], range=["#e41a1c", "#377eb8"]),
+                ),
+            )
+            .properties(width=280, height=200)
+            .facet(facet=alt.Facet("cohort:N", title="iAtlas Cohort"), columns=3)
+            .properties(
+                title="Deconvoluted Immune Cell State Fractions by Individual iAtlas Cohort and Response Status"
+            )
+        )
+
+        out_file = results_dir / "step02b_cohort_deconv_fractions_grid.svg"
+        chart.save(str(out_file))
+        return Success(out_file)
+    except Exception as exc:
+        return Failure(f"Failed to plot step 2b cohort fractions grid: {exc}")
+
+
+def plot_step2c_cohort_stacked_compositions(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Plot horizontal 100% stacked bar chart of average immune cell state composition across cohorts."""
+    fracs_path = data_dir / "deconv_fractions.parquet"
+    if not fracs_path.exists():
+        return Failure(f"Fractions file missing: {fracs_path}")
+
+    try:
+        df_fracs = pl.read_parquet(fracs_path)
+        meta_cols = ["sample_id", "cohort", "cancer_type"]
+        cell_states = [c for c in df_fracs.columns if c not in meta_cols]
+
+        df_mean = (
+            df_fracs.group_by(["cohort", "cancer_type"])
+            .agg([pl.col(c).mean() for c in cell_states])
+            .unpivot(
+                index=["cohort", "cancer_type"],
+                on=cell_states,
+                variable_name="cell_state",
+                value_name="mean_fraction",
+            )
+            .to_pandas()
+        )
+
+        chart = (
+            alt.Chart(df_mean)
+            .mark_bar()
+            .encode(
+                y=alt.Y("cohort:N", title="iAtlas Cohort", sort=alt.EncodingSortField(field="cancer_type", order="ascending")),
+                x=alt.X("mean_fraction:Q", stack="normalize", title="Relative Immune Proportion", axis=alt.Axis(format="%")),
+                color=alt.Color(
+                    "cell_state:N",
+                    title="Cell State",
+                    scale=alt.Scale(scheme="tableau20"),
+                ),
+                tooltip=["cohort", "cancer_type", "cell_state", "mean_fraction"],
+            )
+            .properties(
+                title="Average Deconvoluted Immune Cell Composition Across 9 iAtlas Cohorts",
+                width=650,
+                height=320,
+            )
+        )
+
+        out_file = results_dir / "step02c_cohort_cell_state_stacked_bars.svg"
+        chart.save(str(out_file))
+        return Success(out_file)
+    except Exception as exc:
+        return Failure(f"Failed to plot step 2c stacked compositions: {exc}")
+
+
 def plot_step3_logistic_regression(
     data_dir: Path,
     results_dir: Path,
@@ -699,6 +802,22 @@ def run_all_plots(config: PlotConfig) -> Result[list[Path], str]:
 
     print("Generating Step 2 Deconvolution Fractions Distribution...")
     match plot_step2_fractions_distribution(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Step 2b Individual Cohort Deconvolution Fractions Grid...")
+    match plot_step2b_cohort_fractions_grid(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Step 2c Cohort Stacked Cell Composition Bars...")
+    match plot_step2c_cohort_stacked_compositions(config.data_dir, config.results_dir):
         case Success(path):
             generated.append(path)
             print(f"  Saved: {path.name}")

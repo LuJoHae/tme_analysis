@@ -774,6 +774,7 @@ rule build_sade_feldman_reference:
     input:
         script="scripts/sade_feldman_deconv_validation/01_build_reference.py",
         adata=f"{GSE_DIR}/gse120575_processed.h5ad",
+        tpm=f"{GSE_DIR}/gse120575_tpm.parquet",
     output:
         phi=f"{SADE_VALIDATION_OUT}/reference_phi.parquet",
         markers=f"{SADE_VALIDATION_OUT}/reference_marker_genes.parquet",
@@ -781,7 +782,7 @@ rule build_sade_feldman_reference:
         out_dir=SADE_VALIDATION_OUT,
     shell:
         """
-        python {input.script} --adata {input.adata} --out-dir {params.out_dir}
+        python {input.script} --adata {input.adata} --tpm {input.tpm} --out-dir {params.out_dir}
         """
 
 rule deconvolute_iatlas_sade_feldman:
@@ -880,6 +881,8 @@ rule plot_sade_feldman_validation:
         fig1=f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
         fig1b=f"{SADE_VALIDATION_RES}/step01b_integrated_umap_batch_correction.svg",
         fig2=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
+        fig2b=f"{SADE_VALIDATION_RES}/step02b_cohort_deconv_fractions_grid.svg",
+        fig2c=f"{SADE_VALIDATION_RES}/step02c_cohort_cell_state_stacked_bars.svg",
         fig3a=f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
         fig3b=f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
         fig4a=f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
@@ -903,6 +906,8 @@ rule run_extended_sade_feldman_pipeline:
         f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
         f"{SADE_VALIDATION_RES}/step01b_integrated_umap_batch_correction.svg",
         f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
+        f"{SADE_VALIDATION_RES}/step02b_cohort_deconv_fractions_grid.svg",
+        f"{SADE_VALIDATION_RES}/step02c_cohort_cell_state_stacked_bars.svg",
         f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
         f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
         f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
