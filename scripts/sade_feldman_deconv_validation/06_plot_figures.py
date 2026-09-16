@@ -139,7 +139,7 @@ def plot_step1b_integration_umap(data_dir: Path, results_dir: Path) -> Result[Pa
 
 
 def plot_step2_fractions_distribution(data_dir: Path, results_dir: Path) -> Result[Path, str]:
-    """Plot cell state fraction distributions across cohorts."""
+    """Plot cell state fraction distributions across cohorts, split into subplots per cell state."""
     fracs_path = data_dir / "deconv_fractions.parquet"
     if not fracs_path.exists():
         return Failure(f"Fractions file missing: {fracs_path}")
@@ -161,16 +161,18 @@ def plot_step2_fractions_distribution(data_dir: Path, results_dir: Path) -> Resu
 
         chart = (
             alt.Chart(df_long)
-            .mark_boxplot(extent="min-max", size=15)
+            .mark_boxplot(extent="min-max", size=12)
             .encode(
-                x=alt.X("cell_state:N", title="Cell State", axis=alt.Axis(labelAngle=-45)),
-                y=alt.Y("fraction:Q", title="Inferred Cell Fraction", scale=alt.Scale(zero=True)),
-                color=alt.Color("cohort:N", title="Cohort"),
+                x=alt.X("cohort:N", title="Cohort", axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("fraction:Q", title="Inferred Fraction", scale=alt.Scale(zero=True)),
+                color=alt.Color("cancer_type:N", title="Cancer Type"),
+                tooltip=["cohort", "cancer_type", "cell_state", "fraction"],
             )
+            .properties(width=220, height=180)
+            .facet(facet=alt.Facet("cell_state:N", title="Cell State"), columns=4)
+            .resolve_scale(y="independent")
             .properties(
-                title="Deconvoluted Cell State Fractions across iAtlas Cohorts",
-                width=750,
-                height=350,
+                title="Deconvoluted Cell State Fractions Across iAtlas Cohorts (Stratified by Cell State)"
             )
         )
 
