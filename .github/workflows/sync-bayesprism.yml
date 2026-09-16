@@ -11,14 +11,14 @@ on:
 
 jobs:
   sync-bayesprism:
-    name: Subtree Sync to LuJoHae/bayesprism-python
+    name: Sync to LuJoHae/bayesprism-python
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Monorepo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Configure SSH Key
         run: |
@@ -30,12 +30,18 @@ jobs:
 
       - name: Configure Git Identity
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Split and Push Subtree
+      - name: Sync files to Standalone Repo
         run: |
-          echo "Extracting packages/bayesprism subtree..."
-          git subtree split --prefix=packages/bayesprism -b standalone-sync
-          echo "Pushing subtree to LuJoHae/bayesprism-python:main..."
-          git push --force git@github.com:LuJoHae/bayesprism-python.git standalone-sync:main
+          git clone git@github.com:LuJoHae/bayesprism-python.git /tmp/standalone
+          rsync -av --delete --exclude=".git" --exclude=".github" packages/bayesprism/ /tmp/standalone/
+          cd /tmp/standalone
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "sync(bayesprism): mirror updates from monorepo"
+            git push origin main
+          else
+            echo "No changes to sync."
+          fi
