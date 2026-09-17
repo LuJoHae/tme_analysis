@@ -882,10 +882,277 @@ def run_all_plots(config: PlotConfig) -> Result[list[Path], str]:
         case Failure(err):
             print(f"  Warning: {err}")
 
+    print("Generating Step 2 Multi-Resolution Fractions (Sade-Feldman Standalone)...")
+    match plot_multi_resolution_fractions(config.data_dir, config.results_dir, "sf"):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Step 2 Multi-Resolution Fractions (Combined Multi-Atlas)...")
+    match plot_multi_resolution_fractions(config.data_dir, config.results_dir, "comb"):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Multi-Resolution Predictive Benchmark (AUC & Collinearity)...")
+    match plot_resolution_predictive_benchmark(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Multi-Resolution Marker Specificity Heatmaps...")
+    match plot_multi_resolution_marker_heatmaps(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Combined Reference UMAP across Resolutions...")
+    match plot_combined_reference_umap_resolutions(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
     if not generated:
         return Failure("No figures could be generated.")
 
     return Success(generated)
+
+
+def plot_multi_resolution_fractions(data_dir: Path, results_dir: Path, ref_type: str) -> Result[Path, str]:
+    """Plot cell state fraction distributions across 9 iAtlas cohorts for each clustering resolution."""
+    try:
+        dfs: list[pl.DataFrame] = []
+        for res in (0.5, 1.0, 1.5, 2.0):
+            p = data_dir / f"deconv_fractions_{ref_type}_res{res}.parquet"
+            if not p.exists() and abs(res - 0.5) < 1e-4 and ref_type == "sf":
+                p = data_dir / "deconv_fractions.parquet"
+            if p.exists():
+                df = pl.read_parquet(p)
+                meta_cols = {"sample_id", "cohort", "cancer_type"}
+                states = [c for c in df.columns if c not in meta_cols]
+                df_long = df.melt(
+                    id_vars=["cohort", "cancer_type", "sample_id"],
+                    value_vars=states,
+                    variable_name="cell_state",
+                    value_name="fraction",
+                ).with_columns(pl.lit(f"res={res}").alias("resolution"))
+                dfs.append(df_long)
+
+        if not dfs:
+            return Failure(f"No deconv fractions parquets found for ref_type={ref_type}")
+
+        df_all = pl.concat(dfs, how="vertical")
+        df_sample = df_all.sample(n=min(5000, df_all.height), seed=42).to_pandas()
+
+        box = (
+            alt.Chart(df_sample)
+            .mark_boxplot(size=14, opacity=0.85)
+            .encode(
+                x=alt.X("resolution:N", title="Leiden Resolution"),
+                y=alt.Y("fraction:Q", title="Inferred State Fraction", scale=alt.Scale(zero=True)),
+                color=alt.Color("resolution:N", title="Resolution", scale=alt.Scale(scheme="viridis")),
+            )
+        )
+
+        grid = (
+            box.properties(width=160, height=140)
+            .facet(facet=alt.Facet("cohort:N", title="iAtlas Cohort"), columns=3)
+            .properties(
+                title=f"Cell State Fraction Distributions across Resolutions ({'Sade-Feldman Standalone' if ref_type == 'sf' else 'Combined Multi-Atlas'})"
+            )
+        )
+
+        out_name = f"step02_deconv_fractions_by_resolution_{ref_type}.svg"
+        out_path = results_dir / out_name
+        results_dir.mkdir(parents=True, exist_ok=True)
+        grid.save(str(out_path))
+        return Success(out_path)
+    except Exception as exc:
+        return Failure(f"Failed to plot multi-resolution fractions for {ref_type}: {exc}")
+
+
+def plot_resolution_predictive_benchmark(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Plot multi-resolution comparative benchmark: Response AUC, Condition Number (Collinearity), and Cluster Count."""
+    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    if not bench_file.exists():
+        return Failure(f"Benchmark summary file not found: {bench_file}")
+
+    try:
+        df_bench = pl.read_parquet(bench_file).to_pandas()
+        color_scale = alt.Scale(
+            domain=["Sade-Feldman", "Combined-Atlas"],
+            range=["#e41a1c", "#377eb8"],
+        )
+
+        # Panel A: Melanoma Response Multivariate AUC vs Resolution
+        panel_a = (
+            alt.Chart(df_bench)
+            .mark_line(point=alt.OverlayMarkDef(size=80, filled=True), strokeWidth=2.5)
+            .encode(
+                x=alt.X("resolution:O", title="Leiden Clustering Resolution"),
+                y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.45, 0.85])),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale),
+                tooltip=["reference_type", "resolution", "n_clusters", "melanoma_multivariate_auc", "pancancer_multivariate_auc", "condition_number"],
+            )
+            .properties(title="A. Predictive Capacity (Melanoma AUC)", width=220, height=200)
+        )
+        rule_05 = alt.Chart(pd.DataFrame({"y": [0.5]})).mark_rule(strokeDash=[3, 3], color="gray").encode(y="y:Q")
+        panel_a = panel_a + rule_05
+
+        # Panel B: Condition Number (Collinearity) vs Resolution
+        panel_b = (
+            alt.Chart(df_bench)
+            .mark_line(point=alt.OverlayMarkDef(size=80, filled=True), strokeWidth=2.5)
+            .encode(
+                x=alt.X("resolution:O", title="Leiden Clustering Resolution"),
+                y=alt.Y("condition_number:Q", title="Signature Condition Number (kappa)", scale=alt.Scale(type="log")),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale),
+                tooltip=["reference_type", "resolution", "condition_number"],
+            )
+            .properties(title="B. Signature Collinearity (Condition Number)", width=220, height=200)
+        )
+
+        # Panel C: Number of Resolved Clusters vs Resolution
+        panel_c = (
+            alt.Chart(df_bench)
+            .mark_line(point=alt.OverlayMarkDef(size=80, filled=True), strokeWidth=2.5)
+            .encode(
+                x=alt.X("resolution:O", title="Leiden Clustering Resolution"),
+                y=alt.Y("n_clusters:Q", title="Number of Resolved Clusters"),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale),
+                tooltip=["reference_type", "resolution", "n_clusters"],
+            )
+            .properties(title="C. Cellular Granularity (Clusters)", width=220, height=200)
+        )
+
+        chart = (panel_a | panel_b | panel_c).resolve_scale(y="independent").properties(
+            title="Multi-Resolution Reference Benchmarking: Predictive Power vs. Matrix Collinearity across Granularities"
+        )
+
+        out_path = results_dir / "step05c_resolution_predictive_benchmark.svg"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        chart.save(str(out_path))
+        return Success(out_path)
+    except Exception as exc:
+        return Failure(f"Failed to plot resolution predictive benchmark: {exc}")
+
+
+def plot_multi_resolution_marker_heatmaps(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Plot marker gene fold changes across multi-resolution references."""
+    try:
+        records: list[dict[str, object]] = []
+        for res in (0.5, 1.0, 1.5, 2.0):
+            p = data_dir / f"reference_marker_genes_res{res}.parquet"
+            if not p.exists() and abs(res - 0.5) < 1e-4:
+                p = data_dir / "reference_marker_genes.parquet"
+            if p.exists():
+                df_m = pl.read_parquet(p)
+                sub = df_m.filter(pl.col("rank") <= 2)
+                for r in sub.iter_rows(named=True):
+                    records.append(
+                        {
+                            "resolution": f"res={res}",
+                            "cluster": str(r["cluster"]),
+                            "gene": str(r["gene"]),
+                            "log2fc": float(r["log2fc"]),
+                            "rank": int(r["rank"]),
+                        }
+                    )
+
+        if not records:
+            return Failure(f"No multi-resolution marker gene parquets found in {data_dir}")
+
+        df_plot = pl.DataFrame(records).to_pandas()
+
+        chart = (
+            alt.Chart(df_plot)
+            .mark_circle(size=60)
+            .encode(
+                x=alt.X("gene:N", title="Canonical Marker Gene", sort=alt.EncodingSortField(field="log2fc", order="descending")),
+                y=alt.Y("cluster:N", title="Cell State Cluster"),
+                color=alt.Color("log2fc:Q", title="Log2 FC", scale=alt.Scale(scheme="redblue", domainMid=0)),
+                size=alt.Size("log2fc:Q", title="Fold Change", scale=alt.Scale(range=[20, 100])),
+                tooltip=["resolution", "cluster", "gene", "log2fc", "rank"],
+            )
+            .properties(width=500, height=160)
+            .facet(facet=alt.Facet("resolution:N", title="Clustering Resolution"), columns=1)
+            .properties(title="Multi-Resolution Marker Gene Specificity (Sade-Feldman Reference)")
+        )
+
+        out_path = results_dir / "step01c_multi_resolution_marker_heatmaps.svg"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        chart.save(str(out_path))
+        return Success(out_path)
+    except Exception as exc:
+        return Failure(f"Failed to plot multi-resolution marker heatmaps: {exc}")
+
+
+def plot_combined_reference_umap_resolutions(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Plot multi-panel UMAP of Harmony-integrated reference colored by clusters at resolutions 0.5, 1.0, 1.5, 2.0."""
+    meta_path = data_dir / "integrated_cell_metadata.parquet"
+    if not meta_path.exists():
+        return Failure(f"Integrated cell metadata missing: {meta_path}")
+
+    try:
+        df_meta = pl.read_parquet(meta_path)
+        n_sub = min(3500, df_meta.height)
+        df_sub = df_meta.sample(n=n_sub, seed=42)
+
+        long_records: list[dict[str, object]] = []
+        for res in (0.5, 1.0, 1.5, 2.0):
+            r_col = f"integrated_leiden_{res}"
+            if r_col not in df_sub.columns:
+                r_col = "integrated_cluster"
+            clusters = df_sub[r_col].astype(str).to_list()
+            u1 = df_sub["umap_1"].to_list()
+            u2 = df_sub["umap_2"].to_list()
+            tech = df_sub["sequencing_tech"].to_list()
+
+            for i in range(n_sub):
+                long_records.append(
+                    {
+                        "umap_1": float(u1[i]),
+                        "umap_2": float(u2[i]),
+                        "cluster": str(clusters[i]),
+                        "resolution": f"Resolution = {res}",
+                        "tech": str(tech[i]),
+                    }
+                )
+
+        df_long = pl.DataFrame(long_records).to_pandas()
+
+        chart = (
+            alt.Chart(df_long)
+            .mark_circle(size=10, opacity=0.75)
+            .encode(
+                x=alt.X("umap_1:Q", title="Harmony UMAP 1", axis=alt.Axis(labels=False, ticks=False)),
+                y=alt.Y("umap_2:Q", title="Harmony UMAP 2", axis=alt.Axis(labels=False, ticks=False)),
+                color=alt.Color("cluster:N", title="Integrated Cluster", legend=None, scale=alt.Scale(scheme="tableau20")),
+                tooltip=["resolution", "cluster", "tech"],
+            )
+            .properties(width=240, height=220)
+            .facet(facet=alt.Facet("resolution:N", title="Harmony-Integrated Subclustering Resolution"), columns=2)
+            .properties(
+                title="Harmony Pan-Cancer Reference Manifold across Finer Leiden Clustering Resolutions"
+            )
+        )
+
+        out_path = results_dir / "step01d_combined_reference_umap_resolutions.svg"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        chart.save(str(out_path))
+        return Success(out_path)
+    except Exception as exc:
+        return Failure(f"Failed to plot combined reference UMAP across resolutions: {exc}")
 
 
 def main() -> None:
