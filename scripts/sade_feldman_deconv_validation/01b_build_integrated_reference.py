@@ -35,7 +35,7 @@ class IntegratedRefConfig(BaseModel):
     lair_dir: Path
     out_dir: Path
     n_subsample_atlas: int = 25000
-    resolution: float = 0.5
+    resolutions: tuple[float, ...] = (0.5, 1.0, 1.5, 2.0)
     top_markers: int = 10
     random_seed: int = 42
 
@@ -253,22 +253,96 @@ def run_integrated_pipeline(config: IntegratedRefConfig) -> Result[Path, str]:
     adata_comb.obsm["X_pca_harmony"] = z_corr if z_corr.shape[0] == adata_comb.n_obs else z_corr.T
     pca_harmony = adata_comb.obsm["X_pca_harmony"]
 
-    # Compute neighbors and integrated Leiden clustering
-    print(f"Computing integrated neighborhood graph and Leiden clustering (res={config.resolution})...")
+    # Compute neighbors and UMAP embedding on Harmony latent space
+    print("Computing integrated neighborhood graph and UMAP embedding on Harmony latent space...")
     sc.pp.neighbors(adata_comb, use_rep="X_pca_harmony", n_neighbors=15)
     sc.tl.umap(adata_comb)
-    cluster_key = f"integrated_leiden_{config.resolution}"
-    sc.tl.leiden(adata_comb, resolution=config.resolution, key_added=cluster_key)
 
-    # Integration evaluation metrics
-    print("Evaluating integration quality metrics...")
+    config.out_dir.mkdir(parents=True, exist_ok=True)
+    linear_mat = adata_comb.layers["linear"]
+    resolution_records: list[dict[str, object]] = []
+    primary_out_path = config.out_dir / "integrated_reference_phi.parquet"
+
+    for res in config.resolutions:
+        cluster_key = f"integrated_leiden_{res}"
+        print(f"\n--- Running Integrated Leiden Clustering (res={res}) ---")
+        sc.tl.leiden(adata_comb, resolution=res, key_added=cluster_key)
+
+        cluster_labels = adata_comb.obs[cluster_key].astype(str).values
+        unique_clusters = tuple(sorted(list(set(cluster_labels))))
+        print(f"Discovered {len(unique_clusters)} integrated clusters at resolution {res}.")
+
+        # Compute cluster linear means
+        cluster_means_list: list[np.ndarray] = []
+        for cl in unique_clusters:
+            cl_mask = cluster_labels == cl
+            sub_lin = linear_mat[cl_mask]
+            cl_mean = (
+                np.asarray(sub_lin.mean(axis=0)).ravel()
+                if issparse(sub_lin)
+                else np.mean(sub_lin, axis=0)
+            )
+            cluster_means_list.append(np.asarray(cl_mean, dtype=np.float64))
+
+        mean_matrix = np.vstack(cluster_means_list)
+
+        # Normalize cluster profiles to sum to 1
+        row_sums = mean_matrix.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        phi_matrix = mean_matrix / row_sums
+
+        # Top marker genes per integrated cluster
+        df_markers = select_top_markers(
+            mean_matrix,
+            tuple(common_genes),
+            unique_clusters,
+            config.top_markers,
+        )
+
+        # Condition number of Phi matrix (measure of collinearity)
+        cond_num = float(np.linalg.cond(phi_matrix))
+        print(f"Combined Atlas res={res}: {len(unique_clusters)} clusters, condition number = {cond_num:.2f}")
+
+        resolution_records.append(
+            {
+                "reference_type": "Combined-Atlas",
+                "resolution": float(res),
+                "cluster_col": cluster_key,
+                "n_clusters": len(unique_clusters),
+                "n_signature_genes": len(common_genes),
+                "condition_number": cond_num,
+            }
+        )
+
+        # Wide reference Phi table for this resolution: clusters x genes
+        wide_dict: dict[str, object] = {"cluster": list(unique_clusters)}
+        for g_idx, g in enumerate(common_genes):
+            wide_dict[g] = [float(phi_matrix[c_idx, g_idx]) for c_idx in range(len(unique_clusters))]
+        df_phi_wide = pl.DataFrame(wide_dict)
+
+        out_res_phi = config.out_dir / f"integrated_reference_phi_res{res}.parquet"
+        df_phi_wide.write_parquet(out_res_phi)
+        print(f"Saved integrated Phi (res={res}) to: {out_res_phi}")
+
+        out_res_markers = config.out_dir / f"integrated_marker_genes_res{res}.parquet"
+        df_markers.write_parquet(out_res_markers)
+
+        # Backward compatibility for res == 0.5
+        if abs(res - 0.5) < 1e-4:
+            df_phi_wide.write_parquet(primary_out_path)
+            df_markers.write_parquet(config.out_dir / "integrated_marker_genes.parquet")
+            print("Saved backward-compatible primary integrated_reference_phi.parquet (res=0.5).")
+
+    # Integration evaluation metrics (using res=0.5 cluster key)
+    print("\nEvaluating integration quality metrics...")
     sub_sample_eval = min(5000, adata_comb.n_obs)
     np.random.seed(config.random_seed)
     eval_idx = np.random.choice(adata_comb.n_obs, size=sub_sample_eval, replace=False)
 
     sil_tech_uncorrected = float(silhouette_score(pca_uncorrected[eval_idx], adata_comb.obs["sequencing_tech"].iloc[eval_idx]))
     sil_tech_harmony = float(silhouette_score(pca_harmony[eval_idx], adata_comb.obs["sequencing_tech"].iloc[eval_idx]))
-    sil_cluster_harmony = float(silhouette_score(pca_harmony[eval_idx], adata_comb.obs[cluster_key].iloc[eval_idx]))
+    eval_cluster_key = "integrated_leiden_0.5" if "integrated_leiden_0.5" in adata_comb.obs else f"integrated_leiden_{config.resolutions[0]}"
+    sil_cluster_harmony = float(silhouette_score(pca_harmony[eval_idx], adata_comb.obs[eval_cluster_key].iloc[eval_idx]))
 
     print("-------------------------------------------------------")
     print("HARMONY INTEGRATION QUALITY METRICS")
@@ -277,76 +351,31 @@ def run_integrated_pipeline(config: IntegratedRefConfig) -> Result[Path, str]:
     print(f"Cell Cluster Silhouette (Harmony): {sil_cluster_harmony:.4f} (distinct biological states)")
     print("-------------------------------------------------------")
 
-    # Compute integrated cluster linear means
-    print("Computing integrated linear cluster mean profiles...")
-    cluster_labels = adata_comb.obs[cluster_key].astype(str).values
-    unique_clusters = tuple(sorted(list(set(cluster_labels))))
-
-    linear_mat = adata_comb.layers["linear"]
-    cluster_means_list: list[np.ndarray] = []
-
-    for cl in unique_clusters:
-        cl_mask = cluster_labels == cl
-        sub_lin = linear_mat[cl_mask]
-        cl_mean = (
-            np.asarray(sub_lin.mean(axis=0)).ravel()
-            if issparse(sub_lin)
-            else np.mean(sub_lin, axis=0)
-        )
-        cluster_means_list.append(np.asarray(cl_mean, dtype=np.float64))
-
-    mean_matrix = np.vstack(cluster_means_list)
-
-    # Normalize cluster profiles to sum to 1
-    row_sums = mean_matrix.sum(axis=1, keepdims=True)
-    row_sums[row_sums == 0] = 1.0
-    phi_matrix = mean_matrix / row_sums
-
-    # Top marker genes per integrated cluster
-    df_markers = select_top_markers(
-        mean_matrix,
-        tuple(common_genes),
-        unique_clusters,
-        config.top_markers,
-    )
-
-    # Save outputs
-    config.out_dir.mkdir(parents=True, exist_ok=True)
-
-    # Wide reference Phi table: clusters x genes
-    wide_dict: dict[str, object] = {"cluster": list(unique_clusters)}
-    for g_idx, g in enumerate(common_genes):
-        wide_dict[g] = [float(phi_matrix[c_idx, g_idx]) for c_idx in range(len(unique_clusters))]
-    df_phi_wide = pl.DataFrame(wide_dict)
-    out_phi = config.out_dir / "integrated_reference_phi.parquet"
-    df_phi_wide.write_parquet(out_phi)
-    print(f"Saved integrated reference Phi to: {out_phi}")
-
-    # Markers table
-    out_markers = config.out_dir / "integrated_marker_genes.parquet"
-    df_markers.write_parquet(out_markers)
-    print(f"Saved integrated marker genes to: {out_markers}")
-
-    # Metadata and coordinates for plotting
+    # Metadata and coordinates for plotting (including all resolution cluster assignments)
     umap_coords = adata_comb.obsm["X_umap"]
-    df_meta = pl.DataFrame(
-        {
-            "cell_id": list(adata_comb.obs_names),
-            "dataset": adata_comb.obs["dataset"].values.tolist(),
-            "sequencing_tech": adata_comb.obs["sequencing_tech"].values.tolist(),
-            "cell_type_original": adata_comb.obs["cell_type_original"].values.tolist(),
-            "integrated_cluster": cluster_labels.tolist(),
-            "umap_1": umap_coords[:, 0].astype(float).tolist(),
-            "umap_2": umap_coords[:, 1].astype(float).tolist(),
-            "pca_uncorrected_1": pca_uncorrected[:, 0].astype(float).tolist(),
-            "pca_uncorrected_2": pca_uncorrected[:, 1].astype(float).tolist(),
-            "pca_harmony_1": pca_harmony[:, 0].astype(float).tolist(),
-            "pca_harmony_2": pca_harmony[:, 1].astype(float).tolist(),
-        }
-    )
+    meta_dict: dict[str, object] = {
+        "cell_id": list(adata_comb.obs_names),
+        "dataset": adata_comb.obs["dataset"].values.tolist(),
+        "sequencing_tech": adata_comb.obs["sequencing_tech"].values.tolist(),
+        "cell_type_original": adata_comb.obs["cell_type_original"].values.tolist(),
+        "integrated_cluster": adata_comb.obs[eval_cluster_key].astype(str).values.tolist(),
+        "umap_1": umap_coords[:, 0].astype(float).tolist(),
+        "umap_2": umap_coords[:, 1].astype(float).tolist(),
+        "pca_uncorrected_1": pca_uncorrected[:, 0].astype(float).tolist(),
+        "pca_uncorrected_2": pca_uncorrected[:, 1].astype(float).tolist(),
+        "pca_harmony_1": pca_harmony[:, 0].astype(float).tolist(),
+        "pca_harmony_2": pca_harmony[:, 1].astype(float).tolist(),
+    }
+    # Add columns for each resolution
+    for res in config.resolutions:
+        r_key = f"integrated_leiden_{res}"
+        if r_key in adata_comb.obs:
+            meta_dict[r_key] = adata_comb.obs[r_key].astype(str).values.tolist()
+
+    df_meta = pl.DataFrame(meta_dict)
     out_meta = config.out_dir / "integrated_cell_metadata.parquet"
     df_meta.write_parquet(out_meta)
-    print(f"Saved integrated cell metadata to: {out_meta}")
+    print(f"Saved integrated cell metadata with multi-resolution clusters to: {out_meta}")
 
     # Metrics table
     df_metrics = pl.DataFrame(
@@ -355,7 +384,7 @@ def run_integrated_pipeline(config: IntegratedRefConfig) -> Result[Path, str]:
             "num_atlas_cells": [sub_atlas.n_obs],
             "total_cells": [adata_comb.n_obs],
             "num_shared_genes": [len(common_genes)],
-            "num_integrated_clusters": [len(unique_clusters)],
+            "num_integrated_clusters": [len(set(adata_comb.obs[eval_cluster_key]))],
             "platform_silhouette_uncorrected": [sil_tech_uncorrected],
             "platform_silhouette_harmony": [sil_tech_harmony],
             "cluster_silhouette_harmony": [sil_cluster_harmony],
@@ -365,12 +394,18 @@ def run_integrated_pipeline(config: IntegratedRefConfig) -> Result[Path, str]:
     df_metrics.write_parquet(out_metrics)
     print(f"Saved integration metrics to: {out_metrics}")
 
-    return Success(out_phi)
+    # Multi-resolution metrics table
+    df_res_metrics = pl.DataFrame(resolution_records)
+    out_res_metrics = config.out_dir / "reference_resolution_metrics_comb.parquet"
+    df_res_metrics.write_parquet(out_res_metrics)
+    print(f"Saved Combined Atlas multi-resolution metrics to: {out_res_metrics}")
+
+    return Success(primary_out_path)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Step 1b: Build integrated multi-cohort single-cell reference using Harmony."
+        description="Step 1b: Build multi-resolution integrated single-cell references using Harmony."
     )
     parser.add_argument(
         "--adata-sf",
@@ -397,10 +432,10 @@ def main() -> None:
         help="Number of cells to subsample from atlas",
     )
     parser.add_argument(
-        "--resolution",
-        type=float,
-        default=0.5,
-        help="Leiden resolution on Harmony latent space",
+        "--resolutions",
+        type=str,
+        default="0.5,1.0,1.5,2.0",
+        help="Comma-separated Leiden resolutions on Harmony latent space",
     )
     parser.add_argument(
         "--top-markers",
@@ -410,18 +445,20 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    res_list = tuple(float(r.strip()) for r in args.resolutions.split(",") if r.strip())
+
     config = IntegratedRefConfig(
         adata_sf_path=Path(args.adata_sf),
         lair_dir=Path(args.lair_dir),
         out_dir=Path(args.out_dir),
         n_subsample_atlas=args.n_subsample_atlas,
-        resolution=args.resolution,
+        resolutions=res_list,
         top_markers=args.top_markers,
     )
 
     match run_integrated_pipeline(config):
         case Success(out_path):
-            print(f"Step 1b completed successfully. Integrated reference saved at: {out_path}")
+            print(f"Step 1b completed successfully. Integrated references saved at: {config.out_dir}")
             sys.exit(0)
         case Failure(err):
             print(f"Step 1b failed with error: {err}", file=sys.stderr)
