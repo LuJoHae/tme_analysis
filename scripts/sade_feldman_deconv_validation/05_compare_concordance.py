@@ -250,6 +250,121 @@ def run_full_concordance(config: ConcordanceConfig) -> Result[Path, str]:
     )
     df_default_summary.write_parquet(config.out_dir / "concordance_summary.parquet")
 
+    # 6. Multi-Resolution Benchmark Compilation (Sade-Feldman vs Combined Atlas across 0.5, 1.0, 1.5, 2.0)
+    benchmark_records: list[dict[str, object]] = []
+
+    # Load condition number metrics if available
+    sf_meta_file = config.out_dir / "reference_resolution_metrics_sf.parquet"
+    comb_meta_file = config.out_dir / "reference_resolution_metrics_comb.parquet"
+    sf_metrics_map: dict[float, dict[str, object]] = {}
+    comb_metrics_map: dict[float, dict[str, object]] = {}
+
+    if sf_meta_file.exists():
+        for r in pl.read_parquet(sf_meta_file).iter_rows(named=True):
+            sf_metrics_map[float(r["resolution"])] = r
+    if comb_meta_file.exists():
+        for r in pl.read_parquet(comb_meta_file).iter_rows(named=True):
+            comb_metrics_map[float(r["resolution"])] = r
+
+    for res in (0.5, 1.0, 1.5, 2.0):
+        # A. Sade-Feldman Standalone at this resolution
+        sf_log_file = config.out_dir / f"logistic_results_sf_res{res}.parquet"
+        if not sf_log_file.exists() and abs(res - 0.5) < 1e-4:
+            sf_log_file = config.logistic_path
+
+        milo_res_file = config.milo_dir / f"milopy_cell_state_da_Combined_res{res}.parquet"
+        if not milo_res_file.exists() and abs(res - 0.5) < 1e-4:
+            milo_res_file = config.milo_dir / "milopy_cell_state_da.parquet"
+
+        if sf_log_file.exists():
+            df_sf_log = pl.read_parquet(sf_log_file)
+            sub_mel = df_sf_log.filter(pl.col("stratum") == "Melanoma")
+            sub_pan = df_sf_log.filter(pl.col("stratum") == "Pan-Cancer")
+            cohort_rows = df_sf_log.filter(pl.col("stratum").str.starts_with("Cohort_"))
+
+            mel_multi_auc = float(sub_mel["multivariate_auc"][0]) if sub_mel.height > 0 and "multivariate_auc" in sub_mel.columns else 0.5
+            pan_multi_auc = float(sub_pan["multivariate_auc"][0]) if sub_pan.height > 0 and "multivariate_auc" in sub_pan.columns else 0.5
+            mean_cohort_auc = float(cohort_rows["multivariate_auc"].mean()) if cohort_rows.height > 0 and "multivariate_auc" in cohort_rows.columns else 0.5
+            mean_univ_auc = float(sub_mel["auc"].mean()) if sub_mel.height > 0 else 0.5
+
+            rho_val = 0.0
+            pct_conc = 0.0
+            n_states = sub_mel.height
+            if milo_res_file.exists():
+                df_milo_res = pl.read_parquet(milo_res_file)
+                j_sf = sub_mel.join(df_milo_res, on="cell_state", how="inner")
+                if j_sf.height >= 3:
+                    n_states = j_sf.height
+                    try:
+                        r_val, _ = stats.spearmanr(j_sf["beta"].to_numpy(), j_sf["milo_mean_logfc"].to_numpy())
+                        rho_val = float(r_val) if not np.isnan(r_val) else 0.0
+                    except Exception:
+                        rho_val = 0.0
+                    n_conc = sum(1 for b, m in zip(j_sf["beta"], j_sf["milo_mean_logfc"]) if (b > 0 and m > 0) or (b < 0 and m < 0))
+                    pct_conc = float(n_conc / n_states) * 100.0
+
+            sf_meta = sf_metrics_map.get(res, {})
+            cond_num = float(sf_meta.get("condition_number", np.nan))
+            n_clusters = int(sf_meta.get("n_clusters", n_states))
+            n_sig_genes = int(sf_meta.get("n_signature_genes", 0))
+
+            benchmark_records.append(
+                {
+                    "reference_type": "Sade-Feldman",
+                    "resolution": float(res),
+                    "n_clusters": n_clusters,
+                    "n_signature_genes": n_sig_genes,
+                    "condition_number": cond_num,
+                    "spearman_rho": rho_val,
+                    "concordance_percentage": pct_conc,
+                    "melanoma_multivariate_auc": mel_multi_auc,
+                    "pancancer_multivariate_auc": pan_multi_auc,
+                    "mean_cohort_multivariate_auc": mean_cohort_auc,
+                    "mean_univariate_auc": mean_univ_auc,
+                }
+            )
+
+        # B. Combined Atlas Reference at this resolution
+        comb_log_file = config.out_dir / f"logistic_results_comb_res{res}.parquet"
+        if comb_log_file.exists():
+            df_comb_log = pl.read_parquet(comb_log_file)
+            sub_mel = df_comb_log.filter(pl.col("stratum") == "Melanoma")
+            sub_pan = df_comb_log.filter(pl.col("stratum") == "Pan-Cancer")
+            cohort_rows = df_comb_log.filter(pl.col("stratum").str.starts_with("Cohort_"))
+
+            mel_multi_auc = float(sub_mel["multivariate_auc"][0]) if sub_mel.height > 0 and "multivariate_auc" in sub_mel.columns else 0.5
+            pan_multi_auc = float(sub_pan["multivariate_auc"][0]) if sub_pan.height > 0 and "multivariate_auc" in sub_pan.columns else 0.5
+            mean_cohort_auc = float(cohort_rows["multivariate_auc"].mean()) if cohort_rows.height > 0 and "multivariate_auc" in cohort_rows.columns else 0.5
+            mean_univ_auc = float(sub_mel["auc"].mean()) if sub_mel.height > 0 else 0.5
+
+            comb_meta = comb_metrics_map.get(res, {})
+            cond_num = float(comb_meta.get("condition_number", np.nan))
+            n_clusters = int(comb_meta.get("n_clusters", sub_mel.height))
+            n_sig_genes = int(comb_meta.get("n_signature_genes", 0))
+
+            benchmark_records.append(
+                {
+                    "reference_type": "Combined-Atlas",
+                    "resolution": float(res),
+                    "n_clusters": n_clusters,
+                    "n_signature_genes": n_sig_genes,
+                    "condition_number": cond_num,
+                    "spearman_rho": np.nan,
+                    "concordance_percentage": np.nan,
+                    "melanoma_multivariate_auc": mel_multi_auc,
+                    "pancancer_multivariate_auc": pan_multi_auc,
+                    "mean_cohort_multivariate_auc": mean_cohort_auc,
+                    "mean_univariate_auc": mean_univ_auc,
+                }
+            )
+
+    if benchmark_records:
+        df_bench = pl.DataFrame(benchmark_records)
+        out_bench = config.out_dir / "multi_resolution_benchmark_summary.parquet"
+        df_bench.write_parquet(out_bench)
+        print(f"\nSaved multi-resolution benchmark summary ({df_bench.height} configurations) to: {out_bench}")
+        print(df_bench)
+
     # Print summary table of individual cohorts
     print("\n=========================================================================")
     print("INDIVIDUAL COHORT CONCORDANCE ANALYSIS (Bulk Deconv vs. Milo Combined)")
