@@ -778,6 +778,11 @@ rule build_sade_feldman_reference:
     output:
         phi=f"{SADE_VALIDATION_OUT}/reference_phi.parquet",
         markers=f"{SADE_VALIDATION_OUT}/reference_marker_genes.parquet",
+        phi_res05=f"{SADE_VALIDATION_OUT}/reference_phi_res0.5.parquet",
+        phi_res10=f"{SADE_VALIDATION_OUT}/reference_phi_res1.0.parquet",
+        phi_res15=f"{SADE_VALIDATION_OUT}/reference_phi_res1.5.parquet",
+        phi_res20=f"{SADE_VALIDATION_OUT}/reference_phi_res2.0.parquet",
+        metrics=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_sf.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
     shell:
@@ -789,28 +794,39 @@ rule deconvolute_iatlas_sade_feldman:
     input:
         script="scripts/sade_feldman_deconv_validation/02_deconvolute_iatlas.py",
         phi=f"{SADE_VALIDATION_OUT}/reference_phi.parquet",
+        integ_phi=f"{SADE_VALIDATION_OUT}/integrated_reference_phi.parquet",
     output:
         fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
+        fracs_sf_05=f"{SADE_VALIDATION_OUT}/deconv_fractions_sf_res0.5.parquet",
+        fracs_sf_10=f"{SADE_VALIDATION_OUT}/deconv_fractions_sf_res1.0.parquet",
+        fracs_sf_15=f"{SADE_VALIDATION_OUT}/deconv_fractions_sf_res1.5.parquet",
+        fracs_sf_20=f"{SADE_VALIDATION_OUT}/deconv_fractions_sf_res2.0.parquet",
+        fracs_comb_05=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res0.5.parquet",
+        fracs_comb_10=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res1.0.parquet",
+        fracs_comb_15=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res1.5.parquet",
+        fracs_comb_20=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res2.0.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
         lair_dir="/storage/halu/lair",
     shell:
         """
-        python {input.script} --reference {input.phi} --lair-dir {params.lair_dir} --out-dir {params.out_dir}
+        python {input.script} --lair-dir {params.lair_dir} --out-dir {params.out_dir} --benchmark-mode
         """
 
 rule logistic_regression_sade_feldman:
     input:
         script="scripts/sade_feldman_deconv_validation/03_logistic_regression.py",
         fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
+        fracs_comb=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res0.5.parquet",
     output:
         results=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
+        all_results=f"{SADE_VALIDATION_OUT}/logistic_regression_results_all_resolutions.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
         lair_dir="/storage/halu/lair",
     shell:
         """
-        python {input.script} --fractions {input.fracs} --lair-dir {params.lair_dir} --out-dir {params.out_dir}
+        python {input.script} --lair-dir {params.lair_dir} --out-dir {params.out_dir} --benchmark-mode
         """
 
 rule analyze_milopy_sade_feldman:
@@ -820,6 +836,7 @@ rule analyze_milopy_sade_feldman:
     output:
         states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da.parquet",
         all_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all.parquet",
+        all_res_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all_resolutions.parquet",
         pre_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_Pre.parquet",
         post_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_Post.parquet",
         cells=f"{SADE_VALIDATION_OUT}/milopy_cell_level_scores.parquet",
@@ -838,8 +855,13 @@ rule build_integrated_reference:
     output:
         phi=f"{SADE_VALIDATION_OUT}/integrated_reference_phi.parquet",
         markers=f"{SADE_VALIDATION_OUT}/integrated_marker_genes.parquet",
+        phi_res05=f"{SADE_VALIDATION_OUT}/integrated_reference_phi_res0.5.parquet",
+        phi_res10=f"{SADE_VALIDATION_OUT}/integrated_reference_phi_res1.0.parquet",
+        phi_res15=f"{SADE_VALIDATION_OUT}/integrated_reference_phi_res1.5.parquet",
+        phi_res20=f"{SADE_VALIDATION_OUT}/integrated_reference_phi_res2.0.parquet",
         meta=f"{SADE_VALIDATION_OUT}/integrated_cell_metadata.parquet",
         metrics=f"{SADE_VALIDATION_OUT}/integration_quality_metrics.parquet",
+        res_metrics=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_comb.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
         lair_dir="/storage/halu/lair",
@@ -852,13 +874,17 @@ rule concordance_sade_feldman:
     input:
         script="scripts/sade_feldman_deconv_validation/05_compare_concordance.py",
         logistic=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
+        logistic_all=f"{SADE_VALIDATION_OUT}/logistic_regression_results_all_resolutions.parquet",
         milo_all=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all.parquet",
+        sf_meta=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_sf.parquet",
+        comb_meta=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_comb.parquet",
     output:
         metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics.parquet",
         summary=f"{SADE_VALIDATION_OUT}/concordance_summary.parquet",
         cohorts=f"{SADE_VALIDATION_OUT}/cohort_level_concordance_summary.parquet",
         timepoints=f"{SADE_VALIDATION_OUT}/timepoint_concordance_summary.parquet",
         full_metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics_full.parquet",
+        benchmark_summary=f"{SADE_VALIDATION_OUT}/multi_resolution_benchmark_summary.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
     shell:
@@ -877,12 +903,17 @@ rule plot_sade_feldman_validation:
         metrics_full=f"{SADE_VALIDATION_OUT}/concordance_metrics_full.parquet",
         cells=f"{SADE_VALIDATION_OUT}/milopy_cell_level_scores.parquet",
         integ_meta=f"{SADE_VALIDATION_OUT}/integrated_cell_metadata.parquet",
+        benchmark_summary=f"{SADE_VALIDATION_OUT}/multi_resolution_benchmark_summary.parquet",
     output:
         fig1=f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
         fig1b=f"{SADE_VALIDATION_RES}/step01b_integrated_umap_batch_correction.svg",
+        fig1c=f"{SADE_VALIDATION_RES}/step01c_multi_resolution_marker_heatmaps.svg",
+        fig1d=f"{SADE_VALIDATION_RES}/step01d_combined_reference_umap_resolutions.svg",
         fig2=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
         fig2b=f"{SADE_VALIDATION_RES}/step02b_cohort_deconv_fractions_grid.svg",
         fig2c=f"{SADE_VALIDATION_RES}/step02c_cohort_cell_state_stacked_bars.svg",
+        fig2d_sf=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_by_resolution_sf.svg",
+        fig2d_comb=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_by_resolution_comb.svg",
         fig3a=f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
         fig3b=f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
         fig4a=f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
@@ -891,6 +922,7 @@ rule plot_sade_feldman_validation:
         fig5=f"{SADE_VALIDATION_RES}/step05_concordance_scatter.svg",
         fig5b=f"{SADE_VALIDATION_RES}/step05b_cohort_concordance_comparison.svg",
         fig5c=f"{SADE_VALIDATION_RES}/step05b_individual_cohort_scatters.svg",
+        fig5d_bench=f"{SADE_VALIDATION_RES}/step05c_resolution_predictive_benchmark.svg",
         fig6=f"{SADE_VALIDATION_RES}/step06_dual_umap_validation.svg",
         fig6b=f"{SADE_VALIDATION_RES}/step06b_stratified_umap_validation.svg",
     params:
@@ -905,9 +937,13 @@ rule run_extended_sade_feldman_pipeline:
     input:
         f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
         f"{SADE_VALIDATION_RES}/step01b_integrated_umap_batch_correction.svg",
+        f"{SADE_VALIDATION_RES}/step01c_multi_resolution_marker_heatmaps.svg",
+        f"{SADE_VALIDATION_RES}/step01d_combined_reference_umap_resolutions.svg",
         f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
         f"{SADE_VALIDATION_RES}/step02b_cohort_deconv_fractions_grid.svg",
         f"{SADE_VALIDATION_RES}/step02c_cohort_cell_state_stacked_bars.svg",
+        f"{SADE_VALIDATION_RES}/step02_deconv_fractions_by_resolution_sf.svg",
+        f"{SADE_VALIDATION_RES}/step02_deconv_fractions_by_resolution_comb.svg",
         f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
         f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
         f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
@@ -916,6 +952,7 @@ rule run_extended_sade_feldman_pipeline:
         f"{SADE_VALIDATION_RES}/step05_concordance_scatter.svg",
         f"{SADE_VALIDATION_RES}/step05b_cohort_concordance_comparison.svg",
         f"{SADE_VALIDATION_RES}/step05b_individual_cohort_scatters.svg",
+        f"{SADE_VALIDATION_RES}/step05c_resolution_predictive_benchmark.svg",
         f"{SADE_VALIDATION_RES}/step06_dual_umap_validation.svg",
         f"{SADE_VALIDATION_RES}/step06b_stratified_umap_validation.svg",
 
