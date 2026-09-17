@@ -27,8 +27,9 @@ class ReferenceConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     adata_path: Path
     tpm_path: Path | None
-    cluster_col: str
     out_dir: Path
+    resolutions: tuple[float, ...] = (0.5, 1.0, 1.5, 2.0)
+    cluster_prefix: str = "celltypist_leiden_"
     top_markers: int = 35
     min_cluster_size: int = 10
 
@@ -148,17 +149,8 @@ def run_reference_pipeline(config: ReferenceConfig) -> Result[Path, str]:
         case Success(adata):
             pass
 
-    if config.cluster_col not in adata.obs.columns:
-        return Failure(
-            f"Cluster column '{config.cluster_col}' not in adata.obs (columns: {list(adata.obs.columns)})"
-        )
-
-    cluster_series = adata.obs[config.cluster_col].astype(str)
-    unique_clusters: list[str] = sorted(cluster_series.unique().tolist())
-    clusters: list[str] = cluster_series.tolist()
     cells: list[str] = adata.obs_names.tolist()
-
-    print(f"Loaded AnnData with {adata.n_obs} cells across {len(unique_clusters)} clusters.")
+    print(f"Loaded AnnData with {adata.n_obs} cells.")
 
     # Determine if raw TPM parquet is provided / exists
     tpm_file = config.tpm_path if config.tpm_path and config.tpm_path.exists() else None
@@ -179,99 +171,134 @@ def run_reference_pipeline(config: ReferenceConfig) -> Result[Path, str]:
         # Intersect cells
         common_cells = [c for c in cells if c in tpm_df.columns]
         cell_mask = [c in set(common_cells) for c in cells]
-        aligned_clusters = [cl for cl, m in zip(clusters, cell_mask) if m]
 
-        print(f"Aligning {len(common_cells)} single cells with cluster labels...")
+        print(f"Aligning {len(common_cells)} single cells with TPM data...")
         sub_tpm = tpm_df.select(common_cells).to_numpy()[valid_gene_idx, :]  # (genes, cells)
 
         # Invert log2(TPM + 1) to linear TPM: 2^x - 1
         print("Inverting log2(TPM + 1) to linear TPM scale (2^x - 1)...")
         lin_matrix = np.power(2.0, sub_tpm) - 1.0
-
-        # Compute cluster linear means: (n_clusters, n_genes)
-        print("Computing cluster mean expression profiles in linear TPM...")
-        mean_matrix = compute_cluster_means(lin_matrix, aligned_clusters, unique_clusters)
     else:
         print("Warning: TPM parquet not found. Falling back to linearizing adata.X...")
         raw_genes = [str(g).upper() for g in adata.var_names]
         valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
 
         if issparse(adata.X):
-            expr_linear = adata.X[:, valid_gene_idx].expm1().toarray().T  # (genes, cells)
+            lin_matrix = adata.X[:, valid_gene_idx].expm1().toarray().T  # (genes, cells)
         else:
-            expr_linear = np.expm1(adata.X[:, valid_gene_idx]).T
+            lin_matrix = np.expm1(adata.X[:, valid_gene_idx]).T
+        common_cells = cells
+        cell_mask = [True] * len(cells)
 
-        mean_matrix = compute_cluster_means(expr_linear, clusters, unique_clusters)
-
-    # Filter out genes with zero mean across all clusters
-    total_mean = mean_matrix.sum(axis=0)
-    nonzero_mask = total_mean > 0
-    final_genes = [g for g, v in zip(filtered_genes, nonzero_mask) if v]
-    final_mean_matrix = mean_matrix[:, nonzero_mask]
-
-    print(f"Retained {len(final_genes)} non-zero expressed genes.")
-
-    # Select top marker genes per cluster
-    print(f"Selecting top {config.top_markers} canonical marker genes per cluster...")
-    df_markers = select_top_markers(
-        final_mean_matrix,
-        final_genes,
-        unique_clusters,
-        config.top_markers,
-    )
-
-    # Curate signature gene set (union of top markers across all clusters)
-    signature_genes = sorted(list(set(df_markers["gene"].to_list())))
-    print(f"Total unique curated signature genes: {len(signature_genes)}")
-
-    sig_gene_indices = [final_genes.index(g) for g in signature_genes]
-    sig_mean_matrix = final_mean_matrix[:, sig_gene_indices]
-
-    # Normalize signature matrix to simplex (sum to 1 per cluster) for deconvolution
-    row_sums = sig_mean_matrix.sum(axis=1, keepdims=True)
-    row_sums[row_sums == 0] = 1.0
-    phi_signature = sig_mean_matrix / row_sums
-
-    # Prepare outputs
     config.out_dir.mkdir(parents=True, exist_ok=True)
+    resolution_records: list[dict[str, object]] = []
+    primary_out_path = config.out_dir / "reference_phi.parquet"
 
-    # 1. Save curated signature Phi matrix (rows = clusters, columns = signature genes)
-    wide_dict: dict[str, object] = {"cluster": list(unique_clusters)}
-    for g_idx, g in enumerate(signature_genes):
-        wide_dict[g] = [float(phi_signature[c_idx, g_idx]) for c_idx in range(len(unique_clusters))]
-    df_phi_wide = pl.DataFrame(wide_dict)
-    out_wide = config.out_dir / "reference_phi.parquet"
-    df_phi_wide.write_parquet(out_wide)
-    print(f"Saved curated signature reference Phi ({len(signature_genes)} genes) to: {out_wide}")
+    for res in config.resolutions:
+        cluster_col = f"{config.cluster_prefix}{res}"
+        if cluster_col not in adata.obs.columns:
+            # Fallback to alternate naming if present
+            alt_col = f"leiden_{res}"
+            if alt_col in adata.obs.columns:
+                cluster_col = alt_col
+            else:
+                print(f"Warning: Cluster column '{cluster_col}' not found in AnnData. Skipping res={res}...")
+                continue
 
-    # 2. Save markers table
-    out_markers = config.out_dir / "reference_marker_genes.parquet"
-    df_markers.write_parquet(out_markers)
-    print(f"Saved marker genes to: {out_markers}")
+        cluster_series = adata.obs[cluster_col].astype(str)
+        unique_clusters: list[str] = sorted(cluster_series.unique().tolist())
+        clusters: list[str] = cluster_series.tolist()
+        aligned_clusters = [cl for cl, m in zip(clusters, cell_mask) if m]
 
-    # 3. Reference Phi in tidy format: [cluster, gene, linear_mean, phi_weight]
-    tidy_records: list[dict[str, object]] = []
-    for c_idx, cl in enumerate(unique_clusters):
+        print(f"\n--- Processing Sade-Feldman Resolution res={res} ({len(unique_clusters)} clusters) ---")
+        mean_matrix = compute_cluster_means(lin_matrix, aligned_clusters, unique_clusters)
+
+        # Filter out genes with zero mean across all clusters
+        total_mean = mean_matrix.sum(axis=0)
+        nonzero_mask = total_mean > 0
+        final_genes = [g for g, v in zip(filtered_genes, nonzero_mask) if v]
+        final_mean_matrix = mean_matrix[:, nonzero_mask]
+
+        # Select top marker genes per cluster
+        df_markers = select_top_markers(
+            final_mean_matrix,
+            final_genes,
+            unique_clusters,
+            config.top_markers,
+        )
+
+        signature_genes = sorted(list(set(df_markers["gene"].to_list())))
+        sig_gene_indices = [final_genes.index(g) for g in signature_genes]
+        sig_mean_matrix = final_mean_matrix[:, sig_gene_indices]
+
+        # Normalize signature matrix to simplex
+        row_sums = sig_mean_matrix.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        phi_signature = sig_mean_matrix / row_sums
+
+        # Condition number of signature matrix (measure of collinearity)
+        cond_num = float(np.linalg.cond(phi_signature))
+        print(f"Resolution {res}: {len(unique_clusters)} clusters, {len(signature_genes)} signature genes, condition number = {cond_num:.2f}")
+
+        resolution_records.append(
+            {
+                "reference_type": "Sade-Feldman",
+                "resolution": float(res),
+                "cluster_col": cluster_col,
+                "n_clusters": len(unique_clusters),
+                "n_signature_genes": len(signature_genes),
+                "condition_number": cond_num,
+            }
+        )
+
+        # 1. Save curated signature Phi matrix for this resolution
+        wide_dict: dict[str, object] = {"cluster": list(unique_clusters)}
         for g_idx, g in enumerate(signature_genes):
-            tidy_records.append(
-                {
-                    "cluster": cl,
-                    "gene": g,
-                    "linear_mean": float(sig_mean_matrix[c_idx, g_idx]),
-                    "phi_weight": float(phi_signature[c_idx, g_idx]),
-                }
-            )
-    df_phi_tidy = pl.DataFrame(tidy_records)
-    out_tidy = config.out_dir / "reference_phi_tidy.parquet"
-    df_phi_tidy.write_parquet(out_tidy)
-    print(f"Saved tidy reference Phi to: {out_tidy}")
+            wide_dict[g] = [float(phi_signature[c_idx, g_idx]) for c_idx in range(len(unique_clusters))]
+        df_phi_wide = pl.DataFrame(wide_dict)
 
-    return Success(out_wide)
+        out_res_wide = config.out_dir / f"reference_phi_res{res}.parquet"
+        df_phi_wide.write_parquet(out_res_wide)
+        print(f"Saved signature Phi (res={res}) to: {out_res_wide}")
+
+        # 2. Save markers table for this resolution
+        out_res_markers = config.out_dir / f"reference_marker_genes_res{res}.parquet"
+        df_markers.write_parquet(out_res_markers)
+
+        # 3. Save tidy Phi for this resolution
+        tidy_records: list[dict[str, object]] = []
+        for c_idx, cl in enumerate(unique_clusters):
+            for g_idx, g in enumerate(signature_genes):
+                tidy_records.append(
+                    {
+                        "cluster": cl,
+                        "gene": g,
+                        "linear_mean": float(sig_mean_matrix[c_idx, g_idx]),
+                        "phi_weight": float(phi_signature[c_idx, g_idx]),
+                    }
+                )
+        df_phi_tidy = pl.DataFrame(tidy_records)
+        df_phi_tidy.write_parquet(config.out_dir / f"reference_phi_tidy_res{res}.parquet")
+
+        # Save default backward-compatible files for res == 0.5
+        if abs(res - 0.5) < 1e-4:
+            df_phi_wide.write_parquet(primary_out_path)
+            df_markers.write_parquet(config.out_dir / "reference_marker_genes.parquet")
+            df_phi_tidy.write_parquet(config.out_dir / "reference_phi_tidy.parquet")
+            print("Saved backward-compatible primary reference_phi.parquet (res=0.5).")
+
+    # Save resolution benchmarking metrics table
+    df_metrics = pl.DataFrame(resolution_records)
+    out_metrics = config.out_dir / "reference_resolution_metrics_sf.parquet"
+    df_metrics.write_parquet(out_metrics)
+    print(f"\nSaved Sade-Feldman multi-resolution metrics to: {out_metrics}")
+
+    return Success(primary_out_path)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Step 1: Build deconvolution reference from Sade-Feldman single cell dataset."
+        description="Step 1: Build multi-resolution deconvolution references from Sade-Feldman single cell dataset."
     )
     parser.add_argument(
         "--adata",
@@ -286,10 +313,16 @@ def main() -> None:
         help="Path to gse120575_tpm.parquet",
     )
     parser.add_argument(
-        "--cluster-col",
+        "--resolutions",
         type=str,
-        default="celltypist_leiden_0.5",
-        help="Cluster column in adata.obs",
+        default="0.5,1.0,1.5,2.0",
+        help="Comma-separated clustering resolutions to evaluate",
+    )
+    parser.add_argument(
+        "--cluster-prefix",
+        type=str,
+        default="celltypist_leiden_",
+        help="Prefix for cluster columns in adata.obs (e.g. celltypist_leiden_)",
     )
     parser.add_argument(
         "--out-dir",
@@ -305,17 +338,20 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    res_list = tuple(float(r.strip()) for r in args.resolutions.split(",") if r.strip())
+
     config = ReferenceConfig(
         adata_path=Path(args.adata),
         tpm_path=Path(args.tpm) if args.tpm else None,
-        cluster_col=args.cluster_col,
+        resolutions=res_list,
+        cluster_prefix=args.cluster_prefix,
         out_dir=Path(args.out_dir),
         top_markers=args.top_markers,
     )
 
     match run_reference_pipeline(config):
         case Success(out_path):
-            print(f"Step 1 completed successfully. Reference saved at: {out_path}")
+            print(f"Step 1 completed successfully. Multi-resolution references saved at: {config.out_dir}")
             sys.exit(0)
         case Failure(err):
             print(f"Step 1 failed with error: {err}", file=sys.stderr)
