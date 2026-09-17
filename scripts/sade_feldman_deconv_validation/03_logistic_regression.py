@@ -58,6 +58,8 @@ class LogRegConfig(BaseModel):
     fractions_path: Path
     lair_dir: Path
     out_dir: Path
+    output_name: str = "logistic_regression_results.parquet"
+    benchmark_mode: bool = False
 
 
 def load_cohort_clinical_response(cohort_name: str, lair: datalair.Lair) -> Result[pd.DataFrame, str]:
@@ -224,51 +226,22 @@ def compute_fdr(p_values: list[float]) -> list[float]:
     return orig_fdr.tolist()
 
 
-def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
-    """Run logistic regression across all cohorts and cell states."""
-    if not config.fractions_path.exists():
-        return Failure(f"Fractions file not found: {config.fractions_path}")
-
-    df_fracs = pl.read_parquet(config.fractions_path)
+def analyze_single_fractions_matrix(
+    df_fracs: pl.DataFrame,
+    df_clin_pl: pl.DataFrame,
+    ref_type: str,
+    resolution: float,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Fit univariate and multivariate models on a single deconvolution fractions table."""
     metadata_cols = {"sample_id", "cohort", "cancer_type"}
     cell_states = tuple(c for c in df_fracs.columns if c not in metadata_cols)
     cohorts = tuple(sorted(df_fracs["cohort"].unique().to_list()))
 
-    print(f"Loaded deconvolution fractions for {df_fracs.height} samples across {len(cohorts)} cohorts.")
-    print(f"Number of cell states: {len(cell_states)}")
-
-    lair = datalair.Lair(str(config.lair_dir))
-    clin_records: list[dict[str, object]] = []
-
-    for cohort in cohorts:
-        clin_res = load_cohort_clinical_response(cohort, lair)
-        match clin_res:
-            case Failure(err):
-                print(f"Warning: {cohort} clinical response missing: {err}")
-            case Success(df_clin):
-                for sid, row in df_clin.iterrows():
-                    clin_records.append({"sample_id": str(sid), "response": int(row["response"])})
-
-    if not clin_records:
-        return Failure("No clinical response records could be loaded from cBioPortal.")
-
-    df_clin_pl = pl.DataFrame(clin_records)
-    # Join fractions with response
     df_merged = df_fracs.join(df_clin_pl, on="sample_id", how="inner")
-    print(f"Merged {df_merged.height} samples with both deconvolution fractions and clinical response.")
-
-    # Save merged sample-level table for plotting and downstream tasks
-    config.out_dir.mkdir(parents=True, exist_ok=True)
-    out_merged = config.out_dir / "sample_fractions_with_response.parquet"
-    df_merged.write_parquet(out_merged)
-    print(f"Saved merged sample table to: {out_merged}")
-
-    # Define Strata to analyze
     strata: list[tuple[str, pl.DataFrame]] = [
         ("Melanoma", df_merged.filter(pl.col("cancer_type") == "Melanoma")),
         ("Pan-Cancer", df_merged),
     ]
-    # Add individual cohorts with at least 15 samples and at least 3 responders
     for ch in cohorts:
         sub = df_merged.filter(pl.col("cohort") == ch)
         if sub.height >= 15 and sub.filter(pl.col("response") == 1).height >= 3:
@@ -284,13 +257,29 @@ def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
         stratum_pvals: list[float] = []
         stratum_temp_records: list[dict[str, object]] = []
 
+        # Fit multivariate model using all cell states with L2 regularization
+        if len(cell_states) > 1 and len(np.unique(y_arr)) == 2:
+            try:
+                X_mat = stratum_df.select(cell_states).to_numpy().astype(np.float64)
+                clf_multi = LogisticRegression(penalty="l2", C=1.0, solver="lbfgs", max_iter=500)
+                clf_multi.fit(X_mat, y_arr)
+                p_multi = clf_multi.predict_proba(X_mat)[:, 1]
+                multi_auc = float(roc_auc_score(y_arr, p_multi))
+            except Exception:
+                multi_auc = 0.5
+        else:
+            multi_auc = 0.5
+
         for cs in cell_states:
             x_arr = stratum_df[cs].to_numpy().astype(np.float64)
             fit_res = fit_univariate_logistic(x_arr, y_arr)
 
             rec: dict[str, object] = {
+                "reference_type": ref_type,
+                "resolution": float(resolution),
                 "stratum": stratum_name,
                 "cell_state": cs,
+                "multivariate_auc": multi_auc,
                 **fit_res,
             }
             stratum_temp_records.append(rec)
@@ -304,14 +293,103 @@ def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
             rec["significant_fdr01"] = bool(fdr < 0.1)
             results_records.append(rec)
 
-    df_results = pl.DataFrame(results_records)
-    out_results = config.out_dir / "logistic_regression_results.parquet"
-    df_results.write_parquet(out_results)
+    return df_merged, pl.DataFrame(results_records)
 
-    print(f"\nCompleted logistic regression analysis across {len(strata)} strata.")
-    print(f"Saved results table ({df_results.height} rows) to: {out_results}")
 
-    return Success(out_results)
+def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
+    """Run logistic regression across single or all benchmark fraction matrices."""
+    config.out_dir.mkdir(parents=True, exist_ok=True)
+    lair = datalair.Lair(str(config.lair_dir))
+
+    # Identify cohorts from fractions
+    sample_file = config.fractions_path if config.fractions_path.exists() else None
+    if sample_file is None:
+        sample_file = config.out_dir / "deconv_fractions.parquet"
+        if not sample_file.exists():
+            sample_candidates = list(config.out_dir.glob("deconv_fractions_*.parquet"))
+            if sample_candidates:
+                sample_file = sample_candidates[0]
+
+    if sample_file is None or not sample_file.exists():
+        return Failure(f"No deconvolution fractions files found in {config.out_dir}")
+
+    df_sample = pl.read_parquet(sample_file)
+    cohorts = tuple(sorted(df_sample["cohort"].unique().to_list()))
+
+    clin_records: list[dict[str, object]] = []
+    for cohort in cohorts:
+        clin_res = load_cohort_clinical_response(cohort, lair)
+        match clin_res:
+            case Failure(err):
+                print(f"Warning: {cohort} clinical response missing: {err}")
+            case Success(df_clin):
+                for sid, row in df_clin.iterrows():
+                    clin_records.append({"sample_id": str(sid), "response": int(row["response"])})
+
+    if not clin_records:
+        return Failure("No clinical response records could be loaded from cBioPortal.")
+
+    df_clin_pl = pl.DataFrame(clin_records)
+    print(f"Loaded clinical response for {df_clin_pl.height} unique patient samples.")
+
+    if config.benchmark_mode:
+        print("\n=== RUNNING MULTI-RESOLUTION LOGISTIC REGRESSION BENCHMARK ===")
+        targets: list[tuple[str, str, float, Path, str]] = []
+        for res in (0.5, 1.0, 1.5, 2.0):
+            sf_file = config.out_dir / f"deconv_fractions_sf_res{res}.parquet"
+            if sf_file.exists():
+                targets.append(("sf_res" + str(res), "Sade-Feldman", res, sf_file, f"logistic_results_sf_res{res}.parquet"))
+            comb_file = config.out_dir / f"deconv_fractions_comb_res{res}.parquet"
+            if comb_file.exists():
+                targets.append(("comb_res" + str(res), "Combined-Atlas", res, comb_file, f"logistic_results_comb_res{res}.parquet"))
+
+        if not targets:
+            if config.fractions_path.exists():
+                targets.append(("primary", "Sade-Feldman", 0.5, config.fractions_path, "logistic_regression_results.parquet"))
+            else:
+                return Failure("No fraction parquets found for benchmarking.")
+
+        all_results_dfs: list[pl.DataFrame] = []
+        last_out: Path = config.out_dir / "logistic_regression_results.parquet"
+
+        for tag, ref_type, res, frac_path, out_name in targets:
+            print(f"--- Fitting logistic models for {ref_type} (res={res}) ---")
+            df_fracs = pl.read_parquet(frac_path)
+            df_merged, df_res = analyze_single_fractions_matrix(df_fracs, df_clin_pl, ref_type, res)
+
+            out_p = config.out_dir / out_name
+            df_res.write_parquet(out_p)
+            all_results_dfs.append(df_res)
+            last_out = out_p
+
+            if tag == "sf_res0.5":
+                df_merged.write_parquet(config.out_dir / "sample_fractions_with_response.parquet")
+                df_res.write_parquet(config.out_dir / "logistic_regression_results.parquet")
+                print("Saved default logistic_regression_results.parquet (from sf_res0.5).")
+
+        df_all_results = pl.concat(all_results_dfs, how="vertical")
+        out_all_res = config.out_dir / "logistic_regression_results_all_resolutions.parquet"
+        df_all_results.write_parquet(out_all_res)
+        print(f"\nSaved combined multi-resolution logistic results ({df_all_results.height} rows) to: {out_all_res}")
+        return Success(last_out)
+
+    else:
+        # Single execution
+        if not config.fractions_path.exists():
+            return Failure(f"Fractions file not found: {config.fractions_path}")
+
+        df_fracs = pl.read_parquet(config.fractions_path)
+        df_merged, df_results = analyze_single_fractions_matrix(
+            df_fracs, df_clin_pl, "Sade-Feldman", 0.5
+        )
+
+        out_merged = config.out_dir / "sample_fractions_with_response.parquet"
+        df_merged.write_parquet(out_merged)
+
+        out_results = config.out_dir / config.output_name
+        df_results.write_parquet(out_results)
+        print(f"\nCompleted logistic regression analysis. Saved to: {out_results}")
+        return Success(out_results)
 
 
 def main() -> None:
@@ -336,12 +414,25 @@ def main() -> None:
         default="output/sade_feldman_deconv_validation",
         help="Directory to save output parquets",
     )
+    parser.add_argument(
+        "--output-name",
+        type=str,
+        default="logistic_regression_results.parquet",
+        help="Filename for single output results parquet",
+    )
+    parser.add_argument(
+        "--benchmark-mode",
+        action="store_true",
+        help="Execute logistic regression across all 8 multi-resolution fractions matrices",
+    )
     args = parser.parse_args()
 
     config = LogRegConfig(
         fractions_path=Path(args.fractions),
         lair_dir=Path(args.lair_dir),
         out_dir=Path(args.out_dir),
+        output_name=args.output_name,
+        benchmark_mode=args.benchmark_mode,
     )
 
     match run_logistic_regression_pipeline(config):
