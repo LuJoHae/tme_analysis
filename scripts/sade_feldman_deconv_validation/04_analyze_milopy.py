@@ -27,9 +27,11 @@ from scipy import stats  # type: ignore
 class MiloConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     adata_path: Path
-    cluster_col: str
+    cluster_col: str = "celltypist_leiden_0.5"
     milo_dir: Path
     out_dir: Path
+    resolutions: tuple[float, ...] = (0.5, 1.0, 1.5, 2.0)
+    cluster_prefix: str = "celltypist_leiden_"
 
 
 def load_or_run_milopy_single(
@@ -172,72 +174,98 @@ def run_milopy_multi_condition_pipeline(config: MiloConfig) -> Result[Path, str]
         if cname == "Combined":
             df_nhoods.write_parquet(config.out_dir / "milopy_nhoods_results.parquet")
 
-        # Aggregate by cell state for this condition
-        unique_clusters = sorted(list(set(cell_clusters)))
-        state_recs: list[dict[str, object]] = []
+        # Aggregate by cell state across multiple resolutions
+        for res in config.resolutions:
+            col_name = f"{config.cluster_prefix}{res}"
+            if col_name not in adata.obs.columns:
+                alt_col = f"leiden_{res}"
+                if alt_col in adata.obs.columns:
+                    col_name = alt_col
+                else:
+                    continue
 
-        for cl in unique_clusters:
-            mask = (cell_clusters == cl) & (~np.isnan(full_logfc))
-            vals = full_logfc[mask]
-            n_sub_cells = len(vals)
+            clusters_res = adata.obs[col_name].astype(str).to_numpy()
+            unique_clusters = sorted(list(set(clusters_res)))
+            state_recs: list[dict[str, object]] = []
 
-            if n_sub_cells > 0:
-                m_mean = float(np.mean(vals))
-                m_median = float(np.median(vals))
-                m_std = float(np.std(vals))
-                m_iqr = float(np.percentile(vals, 75) - np.percentile(vals, 25))
-                try:
-                    w_pval = float(stats.wilcoxon(vals)[1]) if not np.all(vals == 0) else 1.0
-                except Exception:
-                    w_pval = 1.0
-                pct_pos = float(np.mean(vals > 0))
-                pct_neg = float(np.mean(vals < 0))
-            else:
-                m_mean, m_median, m_std, m_iqr, w_pval, pct_pos, pct_neg = 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0
+            for cl in unique_clusters:
+                mask = (clusters_res == cl) & (~np.isnan(full_logfc))
+                vals = full_logfc[mask]
+                n_sub_cells = len(vals)
 
-            state_recs.append(
-                {
-                    "condition": cname,
-                    "cell_state": cl,
-                    "n_cells": n_sub_cells,
-                    "milo_mean_logfc": m_mean,
-                    "milo_median_logfc": m_median,
-                    "milo_std_logfc": m_std,
-                    "milo_iqr_logfc": m_iqr,
-                    "milo_wilcoxon_pval": w_pval,
-                    "pct_positive_cells": pct_pos,
-                    "pct_negative_cells": pct_neg,
-                }
-            )
+                if n_sub_cells > 0:
+                    m_mean = float(np.mean(vals))
+                    m_median = float(np.median(vals))
+                    m_std = float(np.std(vals))
+                    m_iqr = float(np.percentile(vals, 75) - np.percentile(vals, 25))
+                    try:
+                        w_pval = float(stats.wilcoxon(vals)[1]) if not np.all(vals == 0) else 1.0
+                    except Exception:
+                        w_pval = 1.0
+                    pct_pos = float(np.mean(vals > 0))
+                    pct_neg = float(np.mean(vals < 0))
+                else:
+                    m_mean, m_median, m_std, m_iqr, w_pval, pct_pos, pct_neg = 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0
 
-        df_states = pl.DataFrame(state_recs)
-        all_state_dfs.append(df_states)
-        df_states.write_parquet(config.out_dir / f"milopy_cell_state_da_{cname}.parquet")
-        if cname == "Combined":
-            df_states.write_parquet(config.out_dir / "milopy_cell_state_da.parquet")
+                state_recs.append(
+                    {
+                        "condition": cname,
+                        "resolution": float(res),
+                        "cluster_col": col_name,
+                        "cell_state": cl,
+                        "n_cells": n_sub_cells,
+                        "milo_mean_logfc": m_mean,
+                        "milo_median_logfc": m_median,
+                        "milo_std_logfc": m_std,
+                        "milo_iqr_logfc": m_iqr,
+                        "milo_wilcoxon_pval": w_pval,
+                        "pct_positive_cells": pct_pos,
+                        "pct_negative_cells": pct_neg,
+                    }
+                )
 
-    # Combine all state aggregations into one master table
+            df_res_states = pl.DataFrame(state_recs)
+            all_state_dfs.append(df_res_states)
+            out_res_states = config.out_dir / f"milopy_cell_state_da_{cname}_res{res}.parquet"
+            df_res_states.write_parquet(out_res_states)
+
+            # Backward compatibility for res == 0.5
+            if abs(res - 0.5) < 1e-4:
+                df_res_states.write_parquet(config.out_dir / f"milopy_cell_state_da_{cname}.parquet")
+                if cname == "Combined":
+                    df_res_states.write_parquet(config.out_dir / "milopy_cell_state_da.parquet")
+
+    # Combine all state aggregations into master tables
     df_all_states = pl.concat(all_state_dfs, how="vertical")
+    out_all_res = config.out_dir / "milopy_cell_state_da_all_resolutions.parquet"
+    df_all_states.write_parquet(out_all_res)
+
+    # Filter res=0.5 for default milopy_cell_state_da_all.parquet
+    df_default_states = df_all_states.filter(pl.col("resolution") == 0.5)
     out_all_states = config.out_dir / "milopy_cell_state_da_all.parquet"
-    df_all_states.write_parquet(out_all_states)
-    print(f"Saved master cell-state Milo table to: {out_all_states}")
+    df_default_states.write_parquet(out_all_states)
+    print(f"Saved master cell-state Milo tables to: {out_all_states} and {out_all_res}")
 
     # Build master cell-level scores table
-    df_cells = pl.DataFrame(
-        {
-            "cell_id": all_cell_ids,
-            "umap_1": umap_coords[:, 0].astype(float),
-            "umap_2": umap_coords[:, 1].astype(float),
-            "cell_state": cell_clusters,
-            "sample_id": samples,
-            "response": responses,
-            "treatment_status": treatment,
-            "milo_logfc": condition_cell_logfcs.get("Combined", np.zeros(n_total_cells)),
-            "milo_logfc_combined": condition_cell_logfcs.get("Combined", np.zeros(n_total_cells)),
-            "milo_logfc_pre": condition_cell_logfcs.get("Pre", np.zeros(n_total_cells)),
-            "milo_logfc_post": condition_cell_logfcs.get("Post", np.zeros(n_total_cells)),
-        }
-    )
+    cell_dict: dict[str, object] = {
+        "cell_id": all_cell_ids,
+        "umap_1": umap_coords[:, 0].astype(float),
+        "umap_2": umap_coords[:, 1].astype(float),
+        "cell_state": cell_clusters,
+        "sample_id": samples,
+        "response": responses,
+        "treatment_status": treatment,
+        "milo_logfc": condition_cell_logfcs.get("Combined", np.zeros(n_total_cells)),
+        "milo_logfc_combined": condition_cell_logfcs.get("Combined", np.zeros(n_total_cells)),
+        "milo_logfc_pre": condition_cell_logfcs.get("Pre", np.zeros(n_total_cells)),
+        "milo_logfc_post": condition_cell_logfcs.get("Post", np.zeros(n_total_cells)),
+    }
+    for res in config.resolutions:
+        r_col = f"{config.cluster_prefix}{res}"
+        if r_col in adata.obs:
+            cell_dict[f"cell_state_res{res}"] = adata.obs[r_col].astype(str).tolist()
+
+    df_cells = pl.DataFrame(cell_dict)
     out_cells = config.out_dir / "milopy_cell_level_scores.parquet"
     df_cells.write_parquet(out_cells)
     print(f"Saved master cell-level scores table to: {out_cells}")
@@ -262,6 +290,18 @@ def main() -> None:
         help="Cluster column in adata.obs",
     )
     parser.add_argument(
+        "--resolutions",
+        type=str,
+        default="0.5,1.0,1.5,2.0",
+        help="Comma-separated clustering resolutions to aggregate",
+    )
+    parser.add_argument(
+        "--cluster-prefix",
+        type=str,
+        default="celltypist_leiden_",
+        help="Prefix for cluster columns in adata.obs",
+    )
+    parser.add_argument(
         "--milo-dir",
         type=str,
         default="/storage/halu/data/output/whole_dataset",
@@ -275,9 +315,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    res_list = tuple(float(r.strip()) for r in args.resolutions.split(",") if r.strip())
+
     config = MiloConfig(
         adata_path=Path(args.adata),
         cluster_col=args.cluster_col,
+        resolutions=res_list,
+        cluster_prefix=args.cluster_prefix,
         milo_dir=Path(args.milo_dir),
         out_dir=Path(args.out_dir),
     )
