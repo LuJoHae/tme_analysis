@@ -1113,7 +1113,7 @@ def plot_combined_reference_umap_resolutions(data_dir: Path, results_dir: Path) 
             r_col = f"integrated_leiden_{res}"
             if r_col not in df_sub.columns:
                 r_col = "integrated_cluster"
-            clusters = df_sub[r_col].astype(str).to_list()
+            clusters = [str(x) for x in df_sub[r_col].to_list()]
             u1 = df_sub["umap_1"].to_list()
             u2 = df_sub["umap_2"].to_list()
             tech = df_sub["sequencing_tech"].to_list()
