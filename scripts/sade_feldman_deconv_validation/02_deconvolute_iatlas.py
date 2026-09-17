@@ -45,6 +45,8 @@ class DeconvConfig(BaseModel):
     lair_dir: Path
     cohorts: tuple[str, ...]
     out_dir: Path
+    output_name: str = "deconv_fractions.parquet"
+    benchmark_mode: bool = False
     n_iter: int = 50
     n_jobs: int = -1
 
@@ -175,67 +177,134 @@ def process_cohort_deconvolution(
 
 
 def run_deconv_pipeline(config: DeconvConfig) -> Result[Path, str]:
-    """Orchestrates deconvolution across all requested cohorts."""
-    ref_res = load_reference(config.reference_path)
-    match ref_res:
-        case Failure(err):
-            return Failure(err)
-        case Success((clusters, ref_genes, ref_matrix)):
-            pass
-
-    print(f"Reference loaded: {len(clusters)} clusters x {len(ref_genes)} genes.")
+    """Orchestrates deconvolution across cohorts, supporting single reference or multi-resolution benchmark mode."""
+    config.out_dir.mkdir(parents=True, exist_ok=True)
     lair = datalair.Lair(str(config.lair_dir))
 
-    cohort_dfs: list[pl.DataFrame] = []
+    # Preload bulk expression for all valid cohorts once to maximize efficiency
+    print("Loading bulk RNA-seq cohorts from cBioPortal / datalair...")
+    bulk_cache: dict[str, pd.DataFrame] = {}
     for cohort in config.cohorts:
         bulk_res = load_cohort_bulk_expression(cohort, lair)
         match bulk_res:
             case Failure(err):
                 print(f"Warning: Skipping {cohort}: {err}")
-                continue
             case Success(bulk_df):
+                bulk_cache[cohort] = bulk_df
+                print(f"Cached {cohort} bulk expression ({bulk_df.shape[1]} samples, {bulk_df.shape[0]} genes).")
+
+    if not bulk_cache:
+        return Failure("No bulk cohorts could be loaded.")
+
+    if config.benchmark_mode:
+        print("\n=== RUNNING MULTI-RESOLUTION BENCHMARK DECONVOLUTION ===")
+        # Identify all generated multi-resolution reference parquet files
+        ref_targets: list[tuple[str, Path, str]] = []
+        for res in (0.5, 1.0, 1.5, 2.0):
+            sf_file = config.out_dir / f"reference_phi_res{res}.parquet"
+            if sf_file.exists():
+                ref_targets.append((f"sf_res{res}", sf_file, f"deconv_fractions_sf_res{res}.parquet"))
+            comb_file = config.out_dir / f"integrated_reference_phi_res{res}.parquet"
+            if comb_file.exists():
+                ref_targets.append((f"comb_res{res}", comb_file, f"deconv_fractions_comb_res{res}.parquet"))
+
+        if not ref_targets:
+            # Check fallback to primary reference_phi.parquet
+            if config.reference_path.exists():
+                ref_targets.append(("primary", config.reference_path, "deconv_fractions.parquet"))
+            else:
+                return Failure("No reference parquet files found in out-dir for benchmarking.")
+
+        last_out: Path = config.out_dir / "deconv_fractions.parquet"
+        for tag, ref_path, out_name in ref_targets:
+            print(f"\n--- Deconvoluting against reference: {tag} ({ref_path.name}) ---")
+            ref_res = load_reference(ref_path)
+            match ref_res:
+                case Failure(err):
+                    print(f"Error loading {ref_path}: {err}")
+                    continue
+                case Success((clusters, ref_genes, ref_matrix)):
+                    pass
+
+            cohort_dfs: list[pl.DataFrame] = []
+            for cohort, bulk_df in bulk_cache.items():
+                d_res = process_cohort_deconvolution(
+                    cohort=cohort,
+                    bulk_df=bulk_df,
+                    clusters=clusters,
+                    ref_genes=ref_genes,
+                    ref_matrix=ref_matrix,
+                    n_iter=config.n_iter,
+                    n_jobs=config.n_jobs,
+                )
+                match d_res:
+                    case Failure(err):
+                        print(f"Warning: {cohort} failed for {tag}: {err}")
+                    case Success(df_cohort):
+                        cohort_dfs.append(df_cohort)
+
+            if cohort_dfs:
+                master_df = pl.concat(cohort_dfs, how="vertical")
+                out_p = config.out_dir / out_name
+                master_df.write_parquet(out_p)
+                print(f"[{tag}] Saved deconvolution fractions ({master_df.height} samples) to: {out_p}")
+                last_out = out_p
+
+                # Backward compatibility
+                if tag == "sf_res0.5":
+                    master_df.write_parquet(config.out_dir / "deconv_fractions.parquet")
+                    print("Saved default deconv_fractions.parquet (from sf_res0.5).")
+
+        return Success(last_out)
+
+    else:
+        # Single reference execution
+        ref_res = load_reference(config.reference_path)
+        match ref_res:
+            case Failure(err):
+                return Failure(err)
+            case Success((clusters, ref_genes, ref_matrix)):
                 pass
 
-        deconv_res = process_cohort_deconvolution(
-            cohort=cohort,
-            bulk_df=bulk_df,
-            clusters=clusters,
-            ref_genes=ref_genes,
-            ref_matrix=ref_matrix,
-            n_iter=config.n_iter,
-            n_jobs=config.n_jobs,
-        )
-        match deconv_res:
-            case Failure(err):
-                print(f"Warning: {cohort} failed deconvolution: {err}")
-            case Success(df_cohort):
-                cohort_dfs.append(df_cohort)
-                print(f"[{cohort}] Successfully deconvoluted {df_cohort.height} samples.")
+        print(f"Reference loaded: {len(clusters)} clusters x {len(ref_genes)} genes.")
+        cohort_dfs = []
+        for cohort, bulk_df in bulk_cache.items():
+            d_res = process_cohort_deconvolution(
+                cohort=cohort,
+                bulk_df=bulk_df,
+                clusters=clusters,
+                ref_genes=ref_genes,
+                ref_matrix=ref_matrix,
+                n_iter=config.n_iter,
+                n_jobs=config.n_jobs,
+            )
+            match d_res:
+                case Failure(err):
+                    print(f"Warning: {cohort} failed deconvolution: {err}")
+                case Success(df_cohort):
+                    cohort_dfs.append(df_cohort)
+                    print(f"[{cohort}] Successfully deconvoluted {df_cohort.height} samples.")
 
-    if not cohort_dfs:
-        return Failure("No cohorts were successfully deconvoluted.")
+        if not cohort_dfs:
+            return Failure("No cohorts were successfully deconvoluted.")
 
-    # Combine all cohorts into a single master fractions table
-    master_df = pl.concat(cohort_dfs, how="vertical")
-    config.out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = config.out_dir / "deconv_fractions.parquet"
-    master_df.write_parquet(out_path)
-
-    print(f"\nCompleted deconvolution across {len(cohort_dfs)} cohorts.")
-    print(f"Total samples: {master_df.height}. Output written to: {out_path}")
-
-    return Success(out_path)
+        master_df = pl.concat(cohort_dfs, how="vertical")
+        out_path = config.out_dir / config.output_name
+        master_df.write_parquet(out_path)
+        print(f"\nCompleted deconvolution across {len(cohort_dfs)} cohorts.")
+        print(f"Total samples: {master_df.height}. Output written to: {out_path}")
+        return Success(out_path)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Step 2: Deconvolute iAtlas cohorts using Sade-Feldman reference."
+        description="Step 2: Deconvolute iAtlas cohorts across single or multi-resolution references."
     )
     parser.add_argument(
         "--reference",
         type=str,
         default="output/sade_feldman_deconv_validation/reference_phi.parquet",
-        help="Path to reference_phi.parquet from Step 1",
+        help="Path to reference_phi.parquet",
     )
     parser.add_argument(
         "--lair-dir",
@@ -253,7 +322,18 @@ def main() -> None:
         "--out-dir",
         type=str,
         default="output/sade_feldman_deconv_validation",
-        help="Directory to save deconv_fractions.parquet",
+        help="Directory to save deconv fractions",
+    )
+    parser.add_argument(
+        "--output-name",
+        type=str,
+        default="deconv_fractions.parquet",
+        help="Filename for single output deconvolution parquet",
+    )
+    parser.add_argument(
+        "--benchmark-mode",
+        action="store_true",
+        help="Execute multi-resolution deconvolution across all 8 reference variants",
     )
     parser.add_argument(
         "--n-iter",
@@ -275,6 +355,8 @@ def main() -> None:
         lair_dir=Path(args.lair_dir),
         cohorts=cohort_list,
         out_dir=Path(args.out_dir),
+        output_name=args.output_name,
+        benchmark_mode=args.benchmark_mode,
         n_iter=args.n_iter,
         n_jobs=args.n_jobs,
     )
