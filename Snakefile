@@ -960,6 +960,141 @@ rule run_sade_feldman_pipeline:
     input:
         rules.run_extended_sade_feldman_pipeline.input,
 
+# ==============================================================================
+# Single-Cell Immuno Datasets Pipeline (Tier 1 Datasets)
+# ==============================================================================
+
+rule download_single_cell_immuno_datasets:
+    input:
+        script="scripts/01_download_single_cell_immuno.py"
+    output:
+        gse120575=f"{DATA_DIR}/raw/GSE120575/GSE120575_tpm.txt.gz",
+        gse115978=f"{DATA_DIR}/raw/GSE115978/GSE115978_tpm.csv.gz",
+        gse123139=f"{DATA_DIR}/raw/GSE123139/GSE123139_raw_tar.tar",
+        gse123813=f"{DATA_DIR}/raw/GSE123813/GSE123813_bcc_counts.txt.gz",
+        gse125449=f"{DATA_DIR}/raw/GSE125449/GSE125449_set1_matrix.gz",
+        gse179994=f"{DATA_DIR}/raw/GSE179994/GSE179994_counts.gz",
+        gse159115=f"{DATA_DIR}/raw/GSE159115/GSE159115_raw_tar.tar",
+        gse171306=f"{DATA_DIR}/raw/GSE171306/GSE171306_raw_tar.tar",
+        gondal2025=f"{DATA_DIR}/raw/Gondal2025/Gondal2025_zenodo.gz"
+    params:
+        base_dir=DATA_DIR
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} --base-dir {params.base_dir}
+        """
+
+
+rule preprocess_single_cell_immuno_datasets:
+    input:
+        script="scripts/03_preprocess_datasets.py",
+        gse120575=f"{DATA_DIR}/raw/GSE120575/GSE120575_tpm.txt.gz"
+    output:
+        marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
+    params:
+        input_dir=f"{DATA_DIR}/raw",
+        out_dir=f"{DATA_DIR}/preprocessed"
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} --input-dir {params.input_dir} --out-dir {params.out_dir}
+        touch {output.marker}
+        """
+
+rule report_single_cell_immuno_datasets:
+    input:
+        script="scripts/03_generate_single_cell_immuno_report.py"
+    output:
+        report_md=f"{DATA_DIR}/reports/icb_single_cell_datasets_summary.md",
+        svg1=f"{DATA_DIR}/reports/tier1_patient_counts.svg",
+        svg2=f"{DATA_DIR}/reports/dataset_tier_summary.svg"
+    params:
+        base_dir=DATA_DIR
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} --base-dir {params.base_dir}
+        """
+
+rule check_milopy_compatibility:
+    input:
+        script="scripts/04_check_milopy_compatibility.py",
+        marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
+    output:
+        report_md=f"{DATA_DIR}/reports/milopy_compatibility_report.md",
+        svg_chart=f"{DATA_DIR}/reports/milopy_readiness_summary.svg"
+    params:
+        base_dir=DATA_DIR
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} --base-dir {params.base_dir}
+        """
+
+rule run_single_cell_immuno_pipeline:
+    input:
+        rules.report_single_cell_immuno_datasets.output.report_md,
+        rules.report_single_cell_immuno_datasets.output.svg1,
+        rules.report_single_cell_immuno_datasets.output.svg2,
+        rules.check_milopy_compatibility.output.report_md,
+        rules.check_milopy_compatibility.output.svg_chart
+
+rule run_milopy_da:
+    input:
+        script="scripts/05_run_milopy_da.py",
+        marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
+    output:
+        report_md=f"{DATA_DIR}/reports/milopy_da_cohort_summary.md",
+        svg_chart=f"{DATA_DIR}/reports/milopy_da_cohort_summary.svg",
+        svg_percentage=f"{DATA_DIR}/reports/milopy_da_cohort_percentage.svg"
+    params:
+        base_dir=DATA_DIR
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} --base-dir {params.base_dir} --dataset all
+        """
+
+rule investigate_subtle_datasets:
+    input:
+        script="scripts/06_investigate_subtle_datasets.py",
+        marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
+    output:
+        report_md=f"{DATA_DIR}/reports/subtle_datasets_investigation.md"
+    params:
+        base_dir=DATA_DIR
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} --base-dir {params.base_dir}
+        """
+
+rule integrate_combined_cohorts:
+    input:
+        script="scripts/07_integrate_combined_cohorts.py",
+        marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
+    output:
+        report_md=f"{DATA_DIR}/reports/integrated_cohorts_summary.md",
+        melanoma_da=f"{DATA_DIR}/results/milopy/integrated_melanoma/integrated_da_results.parquet",
+        cutaneous_da=f"{DATA_DIR}/results/milopy/integrated_cutaneous/integrated_da_results.parquet",
+        pancancer_da=f"{DATA_DIR}/results/milopy/integrated_pancancer/integrated_da_results.parquet"
+    params:
+        base_dir=DATA_DIR
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} --base-dir {params.base_dir} --mode all
+        """
+
+# Single-Cell & Bulk Deconvolution Concordance & Calibration Modules
+# TODO: re-enable when workflow/rules/concordance.smk and calibration.smk exist
+# include: "workflow/rules/concordance.smk"
+# include: "workflow/rules/calibration.smk"
+
+
+
+
 
 
 

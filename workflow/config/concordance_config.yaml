@@ -1,0 +1,19 @@
+# Configuration for Single-Cell and Bulk Deconvolution Concordance Workflow
+
+# Output directories
+concordance_out_dir: "output/concordance"
+concordance_results_dir: "results/concordance"
+
+# Single-cell reference dataset
+sc_adata: "/storage/halu/data/GSE120575/gse120575_processed.h5ad"
+sc_patient_col: "patient"
+sc_response_col: "response"
+sc_cluster_col: "celltypist_leiden_0.5"
+sc_lineage_col: "cell_type"
+malignant_label: "Malignant"
+
+# Bulk RNA-seq cohort
+bulk_counts: "data/bulk_counts.parquet"
+clinical_meta: "data/bulk_clinical.parquet"
+bulk_sample_col: "sample_id"
+bulk_response_col: "response"
