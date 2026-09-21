@@ -9,6 +9,7 @@ Outputs logistic_regression_results.parquet and sample_fractions_with_response.p
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Final
@@ -226,6 +227,15 @@ def compute_fdr(p_values: list[float]) -> list[float]:
     return orig_fdr.tolist()
 
 
+def get_reference_category(name: str) -> str:
+    if name.startswith("Random"):
+        return "Random-Combined"
+    elif any(k in name for k in ("Duo", "Trio", "Contrast", "Combined", "Atlas", "Mega")):
+        return "Criteria-Combined"
+    else:
+        return "Single Dataset"
+
+
 def analyze_single_fractions_matrix(
     df_fracs: pl.DataFrame,
     df_clin_pl: pl.DataFrame,
@@ -276,6 +286,7 @@ def analyze_single_fractions_matrix(
 
             rec: dict[str, object] = {
                 "reference_type": ref_type,
+                "reference_category": get_reference_category(ref_type),
                 "resolution": float(resolution),
                 "stratum": stratum_name,
                 "cell_state": cs,
@@ -335,6 +346,26 @@ def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
     if config.benchmark_mode:
         print("\n=== RUNNING MULTI-RESOLUTION LOGISTIC REGRESSION BENCHMARK ===")
         targets: list[tuple[str, str, float, Path, str]] = []
+        name_map: dict[str, str] = {
+            "sf": "Sade-Feldman",
+            "comb": "Combined-Atlas",
+            "jerby": "Jerby-Arnon",
+            "maynard": "Maynard-NSCLC",
+            "ma": "Ma-Liver",
+            "yost": "Yost-BCC",
+            "atlas": "PanCancer-Atlas",
+            "combo_melanoma": "Melanoma-Duo",
+            "combo_plat_ss2": "Platform-SS2-Duo",
+            "combo_plat_10x": "Platform-10x-Duo",
+            "combo_cross_tissue": "Cross-Tissue-Contrast",
+            "combo_tri_ici": "ICI-Trio",
+            "random_pair1": "Random-Pair-1",
+            "random_pair2": "Random-Pair-2",
+            "random_triplet1": "Random-Triplet-1",
+            "random_triplet2": "Random-Triplet-2",
+        }
+
+        # 1. Standard Sade-Feldman & Integrated Multi-Atlas
         for res in (0.5, 1.0, 1.5, 2.0):
             sf_file = config.out_dir / f"deconv_fractions_sf_res{res}.parquet"
             if sf_file.exists():
@@ -343,21 +374,42 @@ def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
             if comb_file.exists():
                 targets.append(("comb_res" + str(res), "Combined-Atlas", res, comb_file, f"logistic_results_comb_res{res}.parquet"))
 
+        # 2. Any additional dataset fractions: deconv_fractions_{dataset_id}_res{res}.parquet
+        for frac_file in sorted(config.out_dir.glob("deconv_fractions_*_res*.parquet")):
+            fname = frac_file.name
+            m = re.match(r"deconv_fractions_([a-zA-Z0-9_\.-]+)_res([0-9\.]+)\.parquet", fname)
+            if m:
+                d_id, r_str = m.group(1), m.group(2)
+                res_val = float(r_str)
+                d_name = name_map.get(d_id, d_id.replace("_", "-").title())
+                tag = f"{d_id}_res{r_str}"
+                out_name = f"logistic_results_{d_id}_res{r_str}.parquet"
+                if not any(t[0] == tag for t in targets):
+                    targets.append((tag, d_name, res_val, frac_file, out_name))
+
         if not targets:
             if config.fractions_path.exists():
                 targets.append(("primary", "Sade-Feldman", 0.5, config.fractions_path, "logistic_regression_results.parquet"))
             else:
                 return Failure("No fraction parquets found for benchmarking.")
 
+        print(f"Discovered {len(targets)} fraction configurations for logistic regression benchmarking.")
         all_results_dfs: list[pl.DataFrame] = []
         last_out: Path = config.out_dir / "logistic_regression_results.parquet"
 
         for tag, ref_type, res, frac_path, out_name in targets:
+            out_p = config.out_dir / out_name
+            if out_p.exists() and out_p.stat().st_size > 1000:
+                print(f"[{tag}] Logistic results already exist at {out_p.name} (cached).")
+                df_res = pl.read_parquet(out_p)
+                all_results_dfs.append(df_res)
+                last_out = out_p
+                continue
+
             print(f"--- Fitting logistic models for {ref_type} (res={res}) ---")
             df_fracs = pl.read_parquet(frac_path)
             df_merged, df_res = analyze_single_fractions_matrix(df_fracs, df_clin_pl, ref_type, res)
 
-            out_p = config.out_dir / out_name
             df_res.write_parquet(out_p)
             all_results_dfs.append(df_res)
             last_out = out_p
@@ -367,7 +419,7 @@ def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
                 df_res.write_parquet(config.out_dir / "logistic_regression_results.parquet")
                 print("Saved default logistic_regression_results.parquet (from sf_res0.5).")
 
-        df_all_results = pl.concat(all_results_dfs, how="vertical")
+        df_all_results = pl.concat(all_results_dfs, how="diagonal")
         out_all_res = config.out_dir / "logistic_regression_results_all_resolutions.parquet"
         df_all_results.write_parquet(out_all_res)
         print(f"\nSaved combined multi-resolution logistic results ({df_all_results.height} rows) to: {out_all_res}")
@@ -405,7 +457,7 @@ def main() -> None:
     parser.add_argument(
         "--lair-dir",
         type=str,
-        default="/storage/halu/lair",
+        default="scratch/lair" if Path("scratch/lair").exists() else "/storage/halu/lair",
         help="Path to datalair directory",
     )
     parser.add_argument(

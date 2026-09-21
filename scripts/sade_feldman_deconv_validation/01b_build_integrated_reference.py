@@ -309,7 +309,7 @@ def run_integrated_pipeline(config: IntegratedRefConfig) -> Result[Path, str]:
                 "resolution": float(res),
                 "cluster_col": cluster_key,
                 "n_clusters": len(unique_clusters),
-                "n_signature_genes": len(common_genes),
+                "n_signature_genes": int(df_markers["gene"].n_unique()),
                 "condition_number": cond_num,
             }
         )

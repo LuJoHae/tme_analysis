@@ -475,10 +475,19 @@ def plot_step5_concordance_scatter(data_dir: Path, results_dir: Path) -> Result[
     try:
         df_conc = pl.read_parquet(conc_path).to_pandas()
         rho_val, p_val = 0.0, 1.0
+        p_perm = 1.0
+        kappa_val = 0.0
+        cos_sim = 0.0
         if summary_path.exists():
             df_sum = pl.read_parquet(summary_path)
             rho_val = float(df_sum["spearman_rho"][0])
             p_val = float(df_sum["spearman_pvalue"][0])
+            if "spearman_perm_pvalue" in df_sum.columns:
+                p_perm = float(df_sum["spearman_perm_pvalue"][0])
+            if "cohen_kappa" in df_sum.columns:
+                kappa_val = float(df_sum["cohen_kappa"][0])
+            if "cosine_similarity" in df_sum.columns:
+                cos_sim = float(df_sum["cosine_similarity"][0])
 
         hline = alt.Chart(pd.DataFrame({"y": [0.0]})).mark_rule(strokeDash=[3, 3], color="gray").encode(y="y:Q")
         vline = alt.Chart(pd.DataFrame({"x": [0.0]})).mark_rule(strokeDash=[3, 3], color="gray").encode(x="x:Q")
@@ -525,7 +534,7 @@ def plot_step5_concordance_scatter(data_dir: Path, results_dir: Path) -> Result[
         )
 
         chart = (hline + vline + trend + scatter + labels).properties(
-            title=f"Cross-Modality Concordance: Bulk Deconv Beta vs. Single-Cell Milo DA (Spearman rho = {rho_val:.2f}, p = {p_val:.3e})",
+            title=f"Cross-Modality Concordance: Bulk Deconv Beta vs. Single-Cell Milo DA (Spearman rho = {rho_val:.2f}, p_perm = {p_perm:.3f}, Cosine Sim = {cos_sim:.2f})",
             width=580,
             height=460,
         )
@@ -922,6 +931,38 @@ def run_all_plots(config: PlotConfig) -> Result[list[Path], str]:
         case Failure(err):
             print(f"  Warning: {err}")
 
+    print("Generating Figure 1 — Predictive Capacity Benchmark...")
+    match plot_fig1_predictive_capacity(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Figure 2 — Signature Collinearity Benchmark...")
+    match plot_fig2_signature_collinearity(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Figure 3 — Cellular Granularity Benchmark...")
+    match plot_fig3_cellular_granularity(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
+    print("Generating Figure 4 — Pareto Tradeoff Optimization...")
+    match plot_fig4_pareto_tradeoff(config.data_dir, config.results_dir):
+        case Success(path):
+            generated.append(path)
+            print(f"  Saved: {path.name}")
+        case Failure(err):
+            print(f"  Warning: {err}")
+
     if not generated:
         return Failure("No figures could be generated.")
 
@@ -989,10 +1030,24 @@ def plot_resolution_predictive_benchmark(data_dir: Path, results_dir: Path) -> R
 
     try:
         df_bench = pl.read_parquet(bench_file).to_pandas()
-        color_scale = alt.Scale(
-            domain=["Sade-Feldman", "Combined-Atlas"],
-            range=["#e41a1c", "#377eb8"],
-        )
+        ref_order = sorted(df_bench["reference_type"].unique().tolist())
+        
+        # Priority mapping for consistent, intuitive reference colors
+        preferred_colors = {
+            "Sade-Feldman": "#e41a1c",      # Red
+            "Combined-Atlas": "#377eb8",    # Blue
+            "Jerby-Arnon": "#4daf4a",       # Green
+            "Maynard-NSCLC": "#984ea3",     # Purple
+            "Ma-Liver": "#ff7f00",          # Orange
+            "Yost-BCC": "#a65628",          # Brown
+            "PanCancer-Atlas": "#f781bf",   # Pink
+        }
+        fallback_colors = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#a65628", "#f781bf", "#999999"]
+        color_range = [
+            preferred_colors.get(ref, fallback_colors[i % len(fallback_colors)])
+            for i, ref in enumerate(ref_order)
+        ]
+        color_scale = alt.Scale(domain=ref_order, range=color_range)
 
         # Panel A: Melanoma Response Multivariate AUC vs Resolution
         panel_a = (
@@ -1004,7 +1059,7 @@ def plot_resolution_predictive_benchmark(data_dir: Path, results_dir: Path) -> R
                 color=alt.Color("reference_type:N", title="Reference", scale=color_scale),
                 tooltip=["reference_type", "resolution", "n_clusters", "melanoma_multivariate_auc", "pancancer_multivariate_auc", "condition_number"],
             )
-            .properties(title="A. Predictive Capacity (Melanoma AUC)", width=220, height=200)
+            .properties(title="A. Predictive Capacity (Melanoma AUC)", width=240, height=200)
         )
         rule_05 = alt.Chart(pd.DataFrame({"y": [0.5]})).mark_rule(strokeDash=[3, 3], color="gray").encode(y="y:Q")
         panel_a = panel_a + rule_05
@@ -1019,7 +1074,7 @@ def plot_resolution_predictive_benchmark(data_dir: Path, results_dir: Path) -> R
                 color=alt.Color("reference_type:N", title="Reference", scale=color_scale),
                 tooltip=["reference_type", "resolution", "condition_number"],
             )
-            .properties(title="B. Signature Collinearity (Condition Number)", width=220, height=200)
+            .properties(title="B. Signature Collinearity (Condition Number)", width=240, height=200)
         )
 
         # Panel C: Number of Resolved Clusters vs Resolution
@@ -1032,7 +1087,7 @@ def plot_resolution_predictive_benchmark(data_dir: Path, results_dir: Path) -> R
                 color=alt.Color("reference_type:N", title="Reference", scale=color_scale),
                 tooltip=["reference_type", "resolution", "n_clusters"],
             )
-            .properties(title="C. Cellular Granularity (Clusters)", width=220, height=200)
+            .properties(title="C. Cellular Granularity (Clusters)", width=240, height=200)
         )
 
         chart = (panel_a | panel_b | panel_c).resolve_scale(y="independent").properties(
@@ -1042,6 +1097,15 @@ def plot_resolution_predictive_benchmark(data_dir: Path, results_dir: Path) -> R
         out_path = results_dir / "step05c_resolution_predictive_benchmark.svg"
         results_dir.mkdir(parents=True, exist_ok=True)
         chart.save(str(out_path))
+
+        # Also attempt static PNG export if vl-convert is available
+        png_path = results_dir / "step05c_resolution_predictive_benchmark.png"
+        try:
+            chart.save(str(png_path), scale_factor=2.0)
+            print(f"Exported PNG visualization to: {png_path}")
+        except Exception as png_err:
+            print(f"Notice: PNG export skipped ({png_err}), SVG saved successfully.")
+
         return Success(out_path)
     except Exception as exc:
         return Failure(f"Failed to plot resolution predictive benchmark: {exc}")
@@ -1153,6 +1217,800 @@ def plot_combined_reference_umap_resolutions(data_dir: Path, results_dir: Path) 
         return Success(out_path)
     except Exception as exc:
         return Failure(f"Failed to plot combined reference UMAP across resolutions: {exc}")
+
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Figure 1 — Predictive Capacity
+# ---------------------------------------------------------------------------
+
+def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Figure 1: Comprehensive 18-panel predictive capacity benchmark across references, resolutions,
+    dataset integration count (up to n=16), continuous single-cell scaling, and cell subsampling titration ladders.
+    """
+    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    if not bench_file.exists():
+        fallback = Path("output/output/sade_feldman_deconv_validation/multi_resolution_benchmark_summary.parquet")
+        if fallback.exists():
+            bench_file = fallback
+        else:
+            return Failure(f"Benchmark summary not found: {bench_file}")
+
+    try:
+        ref_metadata: dict[str, dict[str, Any]] = {
+            "Sade-Feldman": {"category": "Single Dataset", "n_datasets": 1, "n_cells": 16288},
+            "Jerby-Arnon": {"category": "Single Dataset", "n_datasets": 1, "n_cells": 7186},
+            "Maynard-NSCLC": {"category": "Single Dataset", "n_datasets": 1, "n_cells": 3000},
+            "Ma-Liver": {"category": "Single Dataset", "n_datasets": 1, "n_cells": 5115},
+            "Yost-BCC": {"category": "Single Dataset", "n_datasets": 1, "n_cells": 3500},
+            "Combined-Atlas": {"category": "Criteria-Combined", "n_datasets": 16, "n_cells": 41284},
+            "Melanoma-Duo": {"category": "Criteria-Combined", "n_datasets": 2, "n_cells": 10686},
+            "SS2-Cross-Cancer": {"category": "Criteria-Combined", "n_datasets": 2, "n_cells": 10186},
+            "10x-Cross-Cancer": {"category": "Criteria-Combined", "n_datasets": 2, "n_cells": 8615},
+            "Cross-Tissue-Pair": {"category": "Criteria-Combined", "n_datasets": 2, "n_cells": 8115},
+            "Triple-ICI": {"category": "Criteria-Combined", "n_datasets": 3, "n_cells": 13686},
+            "Random-Pair-1": {"category": "Random-Combined", "n_datasets": 2, "n_cells": 12301},
+            "Random-Pair-2": {"category": "Random-Combined", "n_datasets": 2, "n_cells": 6500},
+            "Random-Pair-3": {"category": "Random-Combined", "n_datasets": 2, "n_cells": 10686},
+            "Random-Triplet-1": {"category": "Random-Combined", "n_datasets": 3, "n_cells": 15301},
+            "Random-Triplet-2": {"category": "Random-Combined", "n_datasets": 3, "n_cells": 11615},
+            "Random-Triplet-3": {"category": "Random-Combined", "n_datasets": 3, "n_cells": 15801},
+            "All-Datasets-Combined": {"category": "Criteria-Combined", "n_datasets": 4, "n_cells": 18801},
+            "Random-Quadruplet-1": {"category": "Random-Combined", "n_datasets": 4, "n_cells": 18801},
+        }
+
+        df = pl.read_parquet(bench_file)
+
+        if "subsample_fraction" not in df.columns:
+            df = df.with_columns(pl.lit(1.0).alias("subsample_fraction"))
+
+        # Enrich metadata only if missing or zero
+        df = df.with_columns(
+            pl.when(pl.col("n_datasets").is_not_null() & (pl.col("n_datasets") > 0))
+            .then(pl.col("n_datasets"))
+            .otherwise(
+                pl.col("reference_type").map_elements(
+                    lambda r: ref_metadata.get(r, {}).get("n_datasets", 1),
+                    return_dtype=pl.Int64,
+                )
+            )
+            .alias("n_datasets"),
+            pl.when(pl.col("n_cells").is_not_null() & (pl.col("n_cells") > 0))
+            .then(pl.col("n_cells"))
+            .otherwise(
+                pl.col("reference_type").map_elements(
+                    lambda r: ref_metadata.get(r, {}).get("n_cells", 0),
+                    return_dtype=pl.Int64,
+                )
+            )
+            .alias("n_cells"),
+            pl.when(pl.col("reference_category").is_not_null() & (pl.col("reference_category") != "Unknown"))
+            .then(pl.col("reference_category"))
+            .otherwise(
+                pl.col("reference_type").map_elements(
+                    lambda r: str(ref_metadata.get(r, {}).get("category", "Single Dataset")),
+                    return_dtype=pl.String,
+                )
+            )
+            .alias("reference_category"),
+        )
+
+        # Full-cell configurations for resolution, cluster, and dataset-level sweeps
+        df_full = df.filter(pl.col("subsample_fraction") >= 0.999)
+        df_full_pd = df_full.to_pandas()
+        df_all_pd = df.to_pandas()
+
+        # Dataset-level mean summary for Row 3
+        df_ds_summary = (
+            df_full.group_by("n_datasets")
+            .agg(
+                pl.col("melanoma_multivariate_auc").mean().alias("mean_mel_auc"),
+                pl.col("pancancer_multivariate_auc").mean().alias("mean_pan_auc"),
+                pl.col("mean_cohort_multivariate_auc").mean().alias("mean_coh_auc"),
+            )
+            .sort("n_datasets")
+            .to_pandas()
+        )
+
+        # Smooth logarithmic saturation fit curves across ALL single cell points (including subsampled)
+        valid_cells = df.filter(pl.col("n_cells") > 0)
+        x_cells_arr = valid_cells["n_cells"].to_numpy().astype(np.float64)
+        x_log = np.log(x_cells_arr)
+
+        m_fit = np.polyfit(x_log, valid_cells["melanoma_multivariate_auc"].to_numpy(), 1)
+        p_fit = np.polyfit(x_log, valid_cells["pancancer_multivariate_auc"].to_numpy(), 1)
+        c_fit = np.polyfit(x_log, valid_cells["mean_cohort_multivariate_auc"].to_numpy(), 1)
+
+        x_grid = np.geomspace(max(1000.0, float(valid_cells["n_cells"].min())), float(valid_cells["n_cells"].max()), 100)
+        df_reg_mel = pd.DataFrame({"n_cells": x_grid, "melanoma_multivariate_auc": m_fit[0] * np.log(x_grid) + m_fit[1]})
+        df_reg_pan = pd.DataFrame({"n_cells": x_grid, "pancancer_multivariate_auc": p_fit[0] * np.log(x_grid) + p_fit[1]})
+        df_reg_coh = pd.DataFrame({"n_cells": x_grid, "mean_cohort_multivariate_auc": c_fit[0] * np.log(x_grid) + c_fit[1]})
+
+        cat_order = ["Single Dataset", "Criteria-Combined", "Random-Combined", "Cell-Subsample"]
+        color_scale = alt.Scale(scheme="tableau20")
+        dash_scale = alt.Scale(
+            domain=["Single Dataset", "Criteria-Combined", "Random-Combined"],
+            range=[[1, 0], [6, 2], [2, 4]],
+        )
+
+        base = alt.Chart(df_full_pd)
+        base_all = alt.Chart(df_all_pd)
+        rule_05 = alt.Chart(pd.DataFrame({"y": [0.5]})).mark_rule(strokeDash=[3, 3], color="gray", opacity=0.7).encode(y="y:Q")
+
+        PANEL_WIDTH = 280
+        PANEL_HEIGHT = 200
+
+        # ---------------------------------------------------------------------------
+        # ROW 1: AUC by Leiden Resolution
+        # ---------------------------------------------------------------------------
+        panel_a = (
+            base.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=45, filled=True))
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=alt.Legend(columns=2)),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale),
+                tooltip=["reference_type", "reference_category", "resolution", "melanoma_multivariate_auc", "n_clusters"],
+            )
+            .properties(title="A. Melanoma Response AUC by Resolution", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        ) + rule_05
+
+        panel_b = (
+            base.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=45, filled=True))
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("pancancer_multivariate_auc:Q", title="Pan-Cancer AUC", scale=alt.Scale(domain=[0.54, 0.68])),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=None),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
+                tooltip=["reference_type", "reference_category", "resolution", "pancancer_multivariate_auc"],
+            )
+            .properties(title="B. Pan-Cancer AUC by Resolution", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        ) + rule_05
+
+        panel_c = (
+            base.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=45, filled=True))
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("mean_cohort_multivariate_auc:Q", title="Mean Cohort AUC", scale=alt.Scale(domain=[0.58, 0.78])),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=None),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
+                tooltip=["reference_type", "reference_category", "resolution", "mean_cohort_multivariate_auc"],
+            )
+            .properties(title="C. Mean Cohort AUC by Resolution", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        # ---------------------------------------------------------------------------
+        # ROW 2: AUC against Number of Reference Cell States (n_clusters)
+        # ---------------------------------------------------------------------------
+        panel_d = (
+            base.mark_line(strokeWidth=1.8, point=alt.OverlayMarkDef(size=45, filled=True))
+            .encode(
+                x=alt.X("n_clusters:Q", title="Reference Cell States (Clusters)", axis=alt.Axis(tickMinStep=5)),
+                y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=None),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
+                tooltip=["reference_type", "reference_category", "n_clusters", "resolution", "melanoma_multivariate_auc"],
+            )
+            .properties(title="D. Melanoma AUC vs. Number of Cell States", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        ) + rule_05
+
+        panel_e = (
+            base.mark_line(strokeWidth=1.8, point=alt.OverlayMarkDef(size=45, filled=True))
+            .encode(
+                x=alt.X("n_clusters:Q", title="Reference Cell States (Clusters)", axis=alt.Axis(tickMinStep=5)),
+                y=alt.Y("pancancer_multivariate_auc:Q", title="Pan-Cancer AUC", scale=alt.Scale(domain=[0.54, 0.68])),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=None),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
+                tooltip=["reference_type", "reference_category", "n_clusters", "resolution", "pancancer_multivariate_auc"],
+            )
+            .properties(title="E. Pan-Cancer AUC vs. Number of Cell States", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        ) + rule_05
+
+        panel_f = (
+            base.mark_line(strokeWidth=1.8, point=alt.OverlayMarkDef(size=45, filled=True))
+            .encode(
+                x=alt.X("n_clusters:Q", title="Reference Cell States (Clusters)", axis=alt.Axis(tickMinStep=5)),
+                y=alt.Y("mean_cohort_multivariate_auc:Q", title="Mean Cohort AUC", scale=alt.Scale(domain=[0.58, 0.78])),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=None),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
+                tooltip=["reference_type", "reference_category", "n_clusters", "resolution", "mean_cohort_multivariate_auc"],
+            )
+            .properties(title="F. Mean Cohort AUC vs. Number of Cell States", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        # ---------------------------------------------------------------------------
+        # ROW 3: AUC across Number of Datasets Integrated (n up to 16)
+        # ---------------------------------------------------------------------------
+        base_ds = alt.Chart(df_ds_summary)
+
+        panel_g = (
+            alt.layer(
+                base.mark_boxplot(size=26, opacity=0.75, color="#e0e0e0").encode(
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
+                ),
+                base.mark_circle(size=32, opacity=0.65).encode(
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    xOffset=alt.XOffset("resolution:Q", scale=alt.Scale(range=[-10, 10])),
+                    y=alt.Y("melanoma_multivariate_auc:Q", scale=alt.Scale(domain=[0.55, 0.74])),
+                    color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                    tooltip=["reference_type", "n_datasets", "resolution", "melanoma_multivariate_auc"],
+                ),
+                base_ds.mark_line(color="#2b5c8f", strokeWidth=2.2, strokeDash=[3, 2], point=alt.OverlayMarkDef(color="#2b5c8f", size=50)).encode(
+                    x=alt.X("n_datasets:O"),
+                    y=alt.Y("mean_mel_auc:Q"),
+                ),
+            )
+            .properties(title="G. Melanoma AUC vs. Number of Integrated Datasets", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        panel_h = (
+            alt.layer(
+                base.mark_boxplot(size=26, opacity=0.75, color="#e0e0e0").encode(
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    y=alt.Y("pancancer_multivariate_auc:Q", title="Pan-Cancer AUC", scale=alt.Scale(domain=[0.54, 0.68])),
+                ),
+                base.mark_circle(size=32, opacity=0.65).encode(
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    xOffset=alt.XOffset("resolution:Q", scale=alt.Scale(range=[-10, 10])),
+                    y=alt.Y("pancancer_multivariate_auc:Q", scale=alt.Scale(domain=[0.54, 0.68])),
+                    color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                    tooltip=["reference_type", "n_datasets", "resolution", "pancancer_multivariate_auc"],
+                ),
+                base_ds.mark_line(color="#2b5c8f", strokeWidth=2.2, strokeDash=[3, 2], point=alt.OverlayMarkDef(color="#2b5c8f", size=50)).encode(
+                    x=alt.X("n_datasets:O"),
+                    y=alt.Y("mean_pan_auc:Q"),
+                ),
+            )
+            .properties(title="H. Pan-Cancer AUC vs. Number of Integrated Datasets", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        panel_i = (
+            alt.layer(
+                base.mark_boxplot(size=26, opacity=0.75, color="#e0e0e0").encode(
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    y=alt.Y("mean_cohort_multivariate_auc:Q", title="Mean Cohort AUC", scale=alt.Scale(domain=[0.58, 0.78])),
+                ),
+                base.mark_circle(size=32, opacity=0.65).encode(
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    xOffset=alt.XOffset("resolution:Q", scale=alt.Scale(range=[-10, 10])),
+                    y=alt.Y("mean_cohort_multivariate_auc:Q", scale=alt.Scale(domain=[0.58, 0.78])),
+                    color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                    tooltip=["reference_type", "n_datasets", "resolution", "mean_cohort_multivariate_auc"],
+                ),
+                base_ds.mark_line(color="#2b5c8f", strokeWidth=2.2, strokeDash=[3, 2], point=alt.OverlayMarkDef(color="#2b5c8f", size=50)).encode(
+                    x=alt.X("n_datasets:O"),
+                    y=alt.Y("mean_coh_auc:Q"),
+                ),
+            )
+            .properties(title="I. Mean Cohort AUC vs. Number of Integrated Datasets", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        # ---------------------------------------------------------------------------
+        # ROW 4: AUC across Continuous Single Cell Scaling (Logarithmic Fit)
+        # ---------------------------------------------------------------------------
+        chart_reg_mel = alt.Chart(df_reg_mel).mark_line(color="#1f77b4", strokeWidth=2.2, strokeDash=[4, 3]).encode(
+            x="n_cells:Q",
+            y="melanoma_multivariate_auc:Q",
+        )
+        panel_j = (
+            alt.layer(
+                base_all.mark_circle(size=40, opacity=0.7).encode(
+                    x=alt.X("n_cells:Q", title="Number of Single Cells Integrated", axis=alt.Axis(format="~s")),
+                    y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
+                    color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                    tooltip=["reference_type", "n_cells", "resolution", "subsample_fraction", "melanoma_multivariate_auc"],
+                ),
+                chart_reg_mel,
+            )
+            .properties(title="J. Melanoma AUC vs. Single Cells (Saturation Curve)", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        ) + rule_05
+
+        chart_reg_pan = alt.Chart(df_reg_pan).mark_line(color="#ff7f0e", strokeWidth=2.2, strokeDash=[4, 3]).encode(
+            x="n_cells:Q",
+            y="pancancer_multivariate_auc:Q",
+        )
+        panel_k = (
+            alt.layer(
+                base_all.mark_circle(size=40, opacity=0.7).encode(
+                    x=alt.X("n_cells:Q", title="Number of Single Cells Integrated", axis=alt.Axis(format="~s")),
+                    y=alt.Y("pancancer_multivariate_auc:Q", title="Pan-Cancer AUC", scale=alt.Scale(domain=[0.54, 0.68])),
+                    color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                    tooltip=["reference_type", "n_cells", "resolution", "subsample_fraction", "pancancer_multivariate_auc"],
+                ),
+                chart_reg_pan,
+            )
+            .properties(title="K. Pan-Cancer AUC vs. Single Cells (Saturation Curve)", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        ) + rule_05
+
+        chart_reg_coh = alt.Chart(df_reg_coh).mark_line(color="#2ca02c", strokeWidth=2.2, strokeDash=[4, 3]).encode(
+            x="n_cells:Q",
+            y="mean_cohort_multivariate_auc:Q",
+        )
+        panel_l = (
+            alt.layer(
+                base_all.mark_circle(size=40, opacity=0.7).encode(
+                    x=alt.X("n_cells:Q", title="Number of Single Cells Integrated", axis=alt.Axis(format="~s")),
+                    y=alt.Y("mean_cohort_multivariate_auc:Q", title="Mean Cohort AUC", scale=alt.Scale(domain=[0.58, 0.78])),
+                    color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                    tooltip=["reference_type", "n_cells", "resolution", "subsample_fraction", "mean_cohort_multivariate_auc"],
+                ),
+                chart_reg_coh,
+            )
+            .properties(title="L. Mean Cohort AUC vs. Single Cells (Saturation Curve)", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        # ---------------------------------------------------------------------------
+        # ROW 5: AUC across Cell Subsampling Fraction (10% to 100% Titration Curves)
+        # ---------------------------------------------------------------------------
+        df_sub = (
+            df.filter(
+                pl.col("reference_type").str.contains("Cells")
+                | pl.col("reference_type").is_in(["Combined-Atlas", "All-Datasets-Combined", "Random-Triplet-1"])
+            )
+            .with_columns(
+                pl.col("reference_type")
+                .map_elements(lambda r: r.split(" (")[0] if " (" in r else r, return_dtype=pl.String)
+                .alias("subsample_series")
+            )
+            .filter(pl.col("resolution") == 0.5)
+            .sort(["subsample_series", "subsample_fraction"])
+        )
+        df_sub_pd = df_sub.to_pandas()
+        base_sub = alt.Chart(df_sub_pd)
+        series_scale = alt.Scale(
+            domain=["Combined-Atlas", "All-Datasets-Combined", "Random-Triplet-1"],
+            range=["#d95f02", "#7570b3", "#1b9e77"],
+        )
+
+        panel_m = (
+            base_sub.mark_line(strokeWidth=2.2, point=alt.OverlayMarkDef(size=50, filled=True))
+            .encode(
+                x=alt.X("subsample_fraction:Q", title="Cell Subsampling Fraction", axis=alt.Axis(format="%", tickMinStep=0.1)),
+                y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
+                color=alt.Color("subsample_series:N", title="Atlas Series", scale=series_scale),
+                tooltip=["subsample_series", "subsample_fraction", "n_cells", "melanoma_multivariate_auc"],
+            )
+            .properties(title="M. Melanoma AUC vs. Cell Subsampling Fraction", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        ) + rule_05
+
+        panel_n = (
+            base_sub.mark_line(strokeWidth=2.2, point=alt.OverlayMarkDef(size=50, filled=True))
+            .encode(
+                x=alt.X("subsample_fraction:Q", title="Cell Subsampling Fraction", axis=alt.Axis(format="%", tickMinStep=0.1)),
+                y=alt.Y("pancancer_multivariate_auc:Q", title="Pan-Cancer AUC", scale=alt.Scale(domain=[0.54, 0.68])),
+                color=alt.Color("subsample_series:N", title="Atlas Series", scale=series_scale),
+                tooltip=["subsample_series", "subsample_fraction", "n_cells", "pancancer_multivariate_auc"],
+            )
+            .properties(title="N. Pan-Cancer AUC vs. Cell Subsampling Fraction", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        ) + rule_05
+
+        panel_o = (
+            base_sub.mark_line(strokeWidth=2.2, point=alt.OverlayMarkDef(size=50, filled=True))
+            .encode(
+                x=alt.X("subsample_fraction:Q", title="Cell Subsampling Fraction", axis=alt.Axis(format="%", tickMinStep=0.1)),
+                y=alt.Y("mean_cohort_multivariate_auc:Q", title="Mean Cohort AUC", scale=alt.Scale(domain=[0.58, 0.78])),
+                color=alt.Color("subsample_series:N", title="Atlas Series", scale=series_scale),
+                tooltip=["subsample_series", "subsample_fraction", "n_cells", "mean_cohort_multivariate_auc"],
+            )
+            .properties(title="O. Mean Cohort AUC vs. Cell Subsampling Fraction", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        # ---------------------------------------------------------------------------
+        # ROW 6: Strategy Distribution & Marginal Gain
+        # ---------------------------------------------------------------------------
+        panel_p = (
+            alt.layer(
+                base.mark_boxplot(size=28, outliers=False, opacity=0.8).encode(
+                    x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
+                    y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma AUC", scale=alt.Scale(domain=[0.55, 0.74])),
+                    color=alt.Color("reference_category:N", title="Strategy", legend=None),
+                ),
+                base.mark_circle(size=25, opacity=0.5, xOffset=8).encode(
+                    x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
+                    y=alt.Y("melanoma_multivariate_auc:Q", scale=alt.Scale(domain=[0.55, 0.74])),
+                    color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                    tooltip=["reference_type", "resolution", "melanoma_multivariate_auc"],
+                ),
+            )
+            .properties(title="P. Melanoma AUC Distribution by Strategy", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        panel_q = (
+            alt.layer(
+                base.mark_boxplot(size=28, outliers=False, opacity=0.8).encode(
+                    x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
+                    y=alt.Y("pancancer_multivariate_auc:Q", title="Pan-Cancer AUC", scale=alt.Scale(domain=[0.54, 0.68])),
+                    color=alt.Color("reference_category:N", title="Strategy", legend=None),
+                ),
+                base.mark_circle(size=25, opacity=0.5, xOffset=8).encode(
+                    x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
+                    y=alt.Y("pancancer_multivariate_auc:Q", scale=alt.Scale(domain=[0.54, 0.68])),
+                    color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                    tooltip=["reference_type", "resolution", "pancancer_multivariate_auc"],
+                ),
+            )
+            .properties(title="Q. Pan-Cancer AUC Distribution by Strategy", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        df_delta = (
+            df_full.sort("resolution")
+            .with_columns(
+                pl.col("melanoma_multivariate_auc")
+                .shift(1)
+                .over("reference_type")
+                .alias("prev_auc")
+            )
+            .with_columns(
+                (pl.col("melanoma_multivariate_auc") - pl.col("prev_auc")).alias("delta_auc")
+            )
+            .filter(pl.col("delta_auc").is_not_null())
+            .group_by("resolution")
+            .agg(pl.col("delta_auc").mean().alias("mean_delta_auc"))
+            .sort("resolution")
+            .to_pandas()
+        )
+        panel_r = (
+            alt.Chart(df_delta)
+            .mark_bar()
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("mean_delta_auc:Q", title="Mean ΔAUC vs Previous Resolution"),
+                color=alt.condition(
+                    alt.datum.mean_delta_auc > 0,
+                    alt.value("#4daf4a"),
+                    alt.value("#e41a1c"),
+                ),
+                tooltip=["resolution", "mean_delta_auc"],
+            )
+            .properties(title="R. Marginal AUC Gain per Resolution Step", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
+
+        row1 = (panel_a | panel_b | panel_c).resolve_scale(color="shared", strokeDash="shared")
+        row2 = (panel_d | panel_e | panel_f).resolve_scale(color="shared", strokeDash="shared")
+        row3 = (panel_g | panel_h | panel_i).resolve_scale(color="shared")
+        row4 = (panel_j | panel_k | panel_l).resolve_scale(color="shared")
+        row5 = (panel_m | panel_n | panel_o).resolve_scale(color="shared")
+        row6 = (panel_p | panel_q | panel_r).resolve_scale(color="independent")
+
+        final_chart = (
+            alt.vconcat(row1, row2, row3, row4, row5, row6, spacing=25)
+            .properties(
+                title="Figure 1 — Predictive Capacity Benchmark: Multi-Resolution Reference & Subsampling Comparison"
+            )
+            .configure_title(fontSize=16, anchor="start", font="Helvetica")
+            .configure_axis(labelFontSize=10, titleFontSize=11, titleFontWeight="bold")
+        )
+
+        out_path = results_dir / "fig1_predictive_capacity_benchmark.svg"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        final_chart.save(str(out_path))
+        png_path = results_dir / "fig1_predictive_capacity_benchmark.png"
+        try:
+            final_chart.save(str(png_path), scale_factor=2.0)
+        except Exception:
+            pass
+        return Success(out_path)
+    except Exception as exc:
+        return Failure(f"Failed to generate Figure 1: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Figure 2 — Signature Collinearity
+# ---------------------------------------------------------------------------
+
+def plot_fig2_signature_collinearity(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Figure 2: 4-panel signature collinearity analysis across all references and resolutions."""
+    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    if not bench_file.exists():
+        return Failure(f"Benchmark summary not found: {bench_file}")
+
+    try:
+        df = pl.read_parquet(bench_file).filter(pl.col("condition_number").is_not_null() & pl.col("condition_number").is_finite())
+        df_pd = df.to_pandas()
+
+        cat_order = ["Single Dataset", "Criteria-Combined", "Random-Combined"]
+        color_scale = alt.Scale(scheme="tableau20")
+
+        base = alt.Chart(df_pd)
+
+        # Panel 2A: Log-scale κ trajectory with threshold guidelines
+        kappa_thresholds = pd.DataFrame({"y": [30.0, 100.0], "label": ["κ=30 (Moderate)", "κ=100 (High)"]})
+        rules_2a = (
+            alt.Chart(kappa_thresholds)
+            .mark_rule(strokeDash=[4, 3], opacity=0.6)
+            .encode(
+                y="y:Q",
+                color=alt.Color("label:N", scale=alt.Scale(range=["#ff7f00", "#e41a1c"]), title="Threshold"),
+            )
+        )
+        panel_a = (
+            base.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=50, filled=True))
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("condition_number:Q", title="Condition Number (κ)", scale=alt.Scale(type="log")),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=alt.Legend(columns=2)),
+                tooltip=["reference_type", "reference_category", "resolution", "condition_number", "n_clusters"],
+            )
+            .properties(title="A. Signature Collinearity (κ) Trajectory", width=340, height=240)
+        )
+        panel_a = (panel_a + rules_2a).resolve_scale(color="independent")
+
+        # Panel 2B: Cluster count vs κ phase-space scatter
+        panel_b = (
+            base.mark_circle(opacity=0.75)
+            .encode(
+                x=alt.X("n_clusters:Q", title="Number of Clusters"),
+                y=alt.Y("condition_number:Q", title="Condition Number (κ)", scale=alt.Scale(type="log")),
+                color=alt.Color("reference_category:N", title="Strategy", sort=cat_order),
+                size=alt.Size("resolution:Q", title="Resolution", scale=alt.Scale(range=[30, 180])),
+                tooltip=["reference_type", "reference_category", "resolution", "n_clusters", "condition_number"],
+            )
+            .properties(title="B. Cluster Count vs κ Phase Space", width=280, height=240)
+        )
+        kappa_line = alt.Chart(pd.DataFrame({"x": [0, 60]})).mark_rule(strokeDash=[4, 4], color="#e41a1c", opacity=0.5).encode(
+            y=alt.datum(100)
+        )
+        panel_b = panel_b + kappa_line
+
+        # Panel 2C: Condition number κ across references at coarse (0.25), medium (1.0), fine (2.0) resolution
+        df_bars = (
+            df.filter(pl.col("resolution").is_in([0.25, 1.0, 2.0]))
+            .with_columns(pl.col("resolution").cast(pl.Utf8).alias("res_label"))
+            .sort(["reference_category", "reference_type"])
+            .to_pandas()
+        )
+        panel_c = (
+            alt.Chart(df_bars)
+            .mark_circle(size=80, opacity=0.9)
+            .encode(
+                x=alt.X("reference_type:N", title=None, sort=alt.EncodingSortField(field="reference_category"), axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("condition_number:Q", title="Condition Number (κ)", scale=alt.Scale(type="log", domain=[3, 400])),
+                color=alt.Color("reference_category:N", title="Strategy", sort=cat_order),
+                column=alt.Column("res_label:N", title="Resolution"),
+                tooltip=["reference_type", "reference_category", "res_label", "condition_number"],
+            )
+            .properties(title="C. κ at Coarse / Medium / Fine Resolution", width=180, height=200)
+        )
+
+        # Panel 2D: Distribution violin/strip of κ per strategy
+        panel_d = alt.layer(
+            base.mark_boxplot(size=35, outliers=False, opacity=0.85).encode(
+                x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
+                y=alt.Y("condition_number:Q", title="κ (log scale)", scale=alt.Scale(type="log")),
+                color=alt.Color("reference_category:N", legend=None, sort=cat_order),
+            ),
+            base.mark_circle(size=25, opacity=0.55, xOffset=8).encode(
+                x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
+                y=alt.Y("condition_number:Q", scale=alt.Scale(type="log")),
+                color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                tooltip=["reference_type", "resolution", "condition_number"],
+            ),
+        ).properties(title="D. κ Distribution by Strategy", width=240, height=220)
+
+        top_row = (panel_a | panel_b).resolve_scale(color="independent")
+        bot_row = (panel_d).resolve_scale(color="independent")
+        chart = alt.vconcat(
+            top_row,
+            alt.hconcat(panel_c, panel_d).resolve_scale(color="independent"),
+        ).properties(
+            title="Figure 2 — Signature Collinearity Analysis: Condition Number across References and Resolutions"
+        )
+
+        out_path = results_dir / "fig2_signature_collinearity_benchmark.svg"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        chart.save(str(out_path))
+        png_path = results_dir / "fig2_signature_collinearity_benchmark.png"
+        try:
+            chart.save(str(png_path), scale_factor=2.0)
+        except Exception:
+            pass
+        return Success(out_path)
+    except Exception as exc:
+        return Failure(f"Failed to generate Figure 2: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Figure 3 — Cellular Granularity
+# ---------------------------------------------------------------------------
+
+def plot_fig3_cellular_granularity(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Figure 3: 4-panel cellular granularity analysis: cluster counts, signature genes, per-cluster AUC."""
+    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    if not bench_file.exists():
+        return Failure(f"Benchmark summary not found: {bench_file}")
+
+    try:
+        df = pl.read_parquet(bench_file)
+        df_pd = df.to_pandas()
+
+        cat_order = ["Single Dataset", "Criteria-Combined", "Random-Combined"]
+        color_scale = alt.Scale(scheme="tableau20")
+        dash_scale = alt.Scale(domain=cat_order, range=[[1, 0], [6, 2], [2, 4]])
+
+        base = alt.Chart(df_pd)
+
+        # Panel 3A: Cluster count scaling curves
+        panel_a = (
+            base.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=50, filled=True))
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("n_clusters:Q", title="Number of Clusters"),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=alt.Legend(columns=2)),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale),
+                tooltip=["reference_type", "reference_category", "resolution", "n_clusters"],
+            )
+            .properties(title="A. Cluster Count Scaling", width=300, height=210)
+        )
+
+        # Panel 3B: Signature gene burden across resolutions
+        df_sig = df.filter(pl.col("n_signature_genes") > 0).to_pandas()
+        if df_sig.empty:
+            df_sig = df_pd.copy()
+        base_sig = alt.Chart(df_sig)
+        panel_b = (
+            base_sig.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=50, filled=True))
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("n_signature_genes:Q", title="Signature Gene Count"),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=None),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
+                tooltip=["reference_type", "reference_category", "resolution", "n_signature_genes"],
+            )
+            .properties(title="B. Signature Gene Burden", width=300, height=210)
+        )
+
+        # Panel 3C: AUC per cluster — efficiency metric (melanoma AUC / n_clusters)
+        df_eff = df.with_columns(
+            (pl.col("melanoma_multivariate_auc") / pl.col("n_clusters").cast(pl.Float64)).alias("auc_per_cluster")
+        ).to_pandas()
+        base_eff = alt.Chart(df_eff)
+        panel_c = (
+            base_eff.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=50, filled=True))
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("auc_per_cluster:Q", title="AUC per Cluster"),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=None),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
+                tooltip=["reference_type", "reference_category", "resolution", "auc_per_cluster", "n_clusters"],
+            )
+            .properties(title="C. AUC Efficiency per Cluster", width=300, height=210)
+        )
+
+        # Panel 3D: Violin/strip of n_clusters by strategy
+        panel_d = alt.layer(
+            base.mark_boxplot(size=35, outliers=False, opacity=0.85).encode(
+                x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
+                y=alt.Y("n_clusters:Q", title="Number of Clusters"),
+                color=alt.Color("reference_category:N", legend=None, sort=cat_order),
+            ),
+            base.mark_circle(size=28, opacity=0.55, xOffset=8).encode(
+                x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
+                y=alt.Y("n_clusters:Q"),
+                color=alt.Color("reference_type:N", scale=color_scale, legend=None),
+                tooltip=["reference_type", "resolution", "n_clusters"],
+            ),
+        ).properties(title="D. Cluster Count Distribution by Strategy", width=240, height=210)
+
+        top_row = (panel_a | panel_b | panel_c).resolve_scale(color="shared", strokeDash="shared")
+        chart = (top_row & panel_d).resolve_scale(color="independent").properties(
+            title="Figure 3 — Cellular Granularity: Cluster Count, Signature Burden, AUC Efficiency"
+        )
+
+        out_path = results_dir / "fig3_cellular_granularity_benchmark.svg"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        chart.save(str(out_path))
+        png_path = results_dir / "fig3_cellular_granularity_benchmark.png"
+        try:
+            chart.save(str(png_path), scale_factor=2.0)
+        except Exception:
+            pass
+        return Success(out_path)
+    except Exception as exc:
+        return Failure(f"Failed to generate Figure 3: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Figure 4 — Pareto Tradeoff Optimization
+# ---------------------------------------------------------------------------
+
+def plot_fig4_pareto_tradeoff(data_dir: Path, results_dir: Path) -> Result[Path, str]:
+    """Figure 4: 3-panel Pareto tradeoff analysis: Goldilocks scatter, heatmap, efficiency trajectory."""
+    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    if not bench_file.exists():
+        return Failure(f"Benchmark summary not found: {bench_file}")
+
+    try:
+        df = pl.read_parquet(bench_file).filter(
+            pl.col("condition_number").is_not_null() & pl.col("condition_number").is_finite() & (pl.col("condition_number") > 0)
+        )
+        df_pareto = df.with_columns(
+            pl.col("condition_number").log(base=10.0).alias("log10_kappa"),
+            (pl.col("melanoma_multivariate_auc") / pl.col("condition_number").log(base=10.0)).alias("efficiency"),
+        )
+        df_pd = df_pareto.to_pandas()
+
+        cat_order = ["Single Dataset", "Criteria-Combined", "Random-Combined"]
+        color_scale = alt.Scale(scheme="tableau20")
+
+        base = alt.Chart(df_pd)
+
+        # Panel 4A: Goldilocks scatter — log10(κ) vs Melanoma AUC
+        # Optimal zone shading: AUC>0.65 & κ<30 → log10(κ)<1.477
+        opt_zone = alt.Chart(pd.DataFrame({"x1": [0.4], "x2": [1.477], "y1": [0.65], "y2": [0.735]}))
+        opt_rect = opt_zone.mark_rect(opacity=0.10, color="#4daf4a").encode(
+            x="x1:Q", x2="x2:Q", y="y1:Q", y2="y2:Q"
+        )
+        opt_label = alt.Chart(pd.DataFrame({"x": [0.9], "y": [0.725], "label": ["Optimal Zone (AUC>0.65, κ<30)"]})).mark_text(
+            color="#2c8e2c", fontSize=11, fontStyle="italic", fontWeight="bold"
+        ).encode(x="x:Q", y="y:Q", text="label:N")
+        scatter_4a = (
+            base.mark_circle(opacity=0.8)
+            .encode(
+                x=alt.X("log10_kappa:Q", title="log₁₀(κ) — Signature Collinearity", scale=alt.Scale(domain=[0.4, 2.6])),
+                y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.54, 0.74])),
+                color=alt.Color("reference_category:N", title="Strategy", sort=cat_order),
+                size=alt.Size("resolution:Q", title="Resolution", scale=alt.Scale(range=[30, 220])),
+                shape=alt.Shape("reference_category:N", title="Strategy", sort=cat_order),
+                tooltip=["reference_type", "reference_category", "resolution", "melanoma_multivariate_auc", "condition_number", "log10_kappa"],
+            )
+            .properties(title="A. Goldilocks Scatter: AUC vs log₁₀(κ)", width=350, height=270)
+        )
+        kappa30_line = alt.Chart(pd.DataFrame({"x": [np.log10(30)]})).mark_rule(
+            strokeDash=[4, 3], color="#ff7f00", opacity=0.7
+        ).encode(x="x:Q")
+        kappa100_line = alt.Chart(pd.DataFrame({"x": [np.log10(100)]})).mark_rule(
+            strokeDash=[4, 3], color="#e41a1c", opacity=0.7
+        ).encode(x="x:Q")
+        panel_a = alt.layer(opt_rect, opt_label, scatter_4a, kappa30_line, kappa100_line).resolve_scale(color="independent", size="independent", shape="independent")
+
+        # Panel 4B: AUC × Condition-number heatmap — reference_type × resolution
+        df_heat = df.with_columns(
+            pl.col("resolution").cast(pl.Utf8).alias("res_str")
+        ).sort(["reference_category", "reference_type", "resolution"]).to_pandas()
+        panel_b = (
+            alt.Chart(df_heat)
+            .mark_rect()
+            .encode(
+                x=alt.X("res_str:N", title="Resolution", sort=sorted(df_heat["res_str"].unique().tolist())),
+                y=alt.Y("reference_type:N", title="Reference",
+                        sort=df_heat.drop_duplicates("reference_type").sort_values("reference_category")["reference_type"].tolist()),
+                color=alt.Color("melanoma_multivariate_auc:Q", title="Melanoma AUC",
+                                scale=alt.Scale(scheme="viridis", domain=[0.5, 0.85])),
+                tooltip=["reference_type", "reference_category", "res_str", "melanoma_multivariate_auc", "condition_number"],
+            )
+            .properties(title="B. AUC Heatmap: Reference × Resolution", width=280, height=320)
+        )
+
+        # Panel 4C: Efficiency metric trajectory — AUC / log10(κ) by resolution
+        panel_c = (
+            base.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=50, filled=True))
+            .encode(
+                x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
+                y=alt.Y("efficiency:Q", title="AUC / log₁₀(κ)  — Efficiency"),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=alt.Legend(columns=2)),
+                tooltip=["reference_type", "reference_category", "resolution", "efficiency", "melanoma_multivariate_auc", "condition_number"],
+            )
+            .properties(title="C. Efficiency Metric: AUC / log₁₀(κ) by Resolution", width=330, height=270)
+        )
+
+        chart = (
+            alt.hconcat(panel_a, panel_b, panel_c)
+            .resolve_scale(color="independent", size="independent", shape="independent")
+            .properties(title="Figure 4 — Pareto Tradeoff Optimization: Predictive Power vs. Signature Collinearity")
+        )
+
+        out_path = results_dir / "fig4_pareto_tradeoff_optimization.svg"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        chart.save(str(out_path))
+        png_path = results_dir / "fig4_pareto_tradeoff_optimization.png"
+        try:
+            chart.save(str(png_path), scale_factor=2.0)
+        except Exception:
+            pass
+        return Success(out_path)
+    except Exception as exc:
+        return Failure(f"Failed to generate Figure 4: {exc}")
 
 
 def main() -> None:

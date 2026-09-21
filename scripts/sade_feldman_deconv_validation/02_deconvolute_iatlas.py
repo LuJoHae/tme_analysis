@@ -8,6 +8,7 @@ Outputs deconv_fractions.parquet.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Final
@@ -198,8 +199,10 @@ def run_deconv_pipeline(config: DeconvConfig) -> Result[Path, str]:
 
     if config.benchmark_mode:
         print("\n=== RUNNING MULTI-RESOLUTION BENCHMARK DECONVOLUTION ===")
-        # Identify all generated multi-resolution reference parquet files
+        # Dynamically identify all generated multi-resolution reference parquet files
         ref_targets: list[tuple[str, Path, str]] = []
+        
+        # 1. Standard Sade-Feldman & Integrated Multi-Atlas
         for res in (0.5, 1.0, 1.5, 2.0):
             sf_file = config.out_dir / f"reference_phi_res{res}.parquet"
             if sf_file.exists():
@@ -208,6 +211,18 @@ def run_deconv_pipeline(config: DeconvConfig) -> Result[Path, str]:
             if comb_file.exists():
                 ref_targets.append((f"comb_res{res}", comb_file, f"deconv_fractions_comb_res{res}.parquet"))
 
+        # 2. Any additional dataset references: reference_phi_{dataset_id}_res{res}.parquet
+        for phi_file in sorted(config.out_dir.glob("reference_phi_*_res*.parquet")):
+            fname = phi_file.name
+            # parse {dataset_id} and {res}, explicitly ignoring tidy files
+            m = re.match(r"^reference_phi_(?!tidy_)([a-zA-Z0-9_\.-]+)_res([0-9\.]+)\.parquet$", fname)
+            if m:
+                d_id, r_val = m.group(1), m.group(2)
+                tag = f"{d_id}_res{r_val}"
+                out_name = f"deconv_fractions_{d_id}_res{r_val}.parquet"
+                if (tag, phi_file, out_name) not in ref_targets:
+                    ref_targets.append((tag, phi_file, out_name))
+
         if not ref_targets:
             # Check fallback to primary reference_phi.parquet
             if config.reference_path.exists():
@@ -215,8 +230,15 @@ def run_deconv_pipeline(config: DeconvConfig) -> Result[Path, str]:
             else:
                 return Failure("No reference parquet files found in out-dir for benchmarking.")
 
+        print(f"Found {len(ref_targets)} reference configurations for deconvolution benchmarking.")
         last_out: Path = config.out_dir / "deconv_fractions.parquet"
         for tag, ref_path, out_name in ref_targets:
+            out_p = config.out_dir / out_name
+            if out_p.exists() and out_p.stat().st_size > 1000:
+                print(f"[{tag}] Fractions already exist at {out_p.name} (cached). Skipping deconvolution.")
+                last_out = out_p
+                continue
+
             print(f"\n--- Deconvoluting against reference: {tag} ({ref_path.name}) ---")
             ref_res = load_reference(ref_path)
             match ref_res:
@@ -309,7 +331,7 @@ def main() -> None:
     parser.add_argument(
         "--lair-dir",
         type=str,
-        default="/storage/halu/lair",
+        default="scratch/lair" if Path("scratch/lair").exists() else "/storage/halu/lair",
         help="Path to datalair directory",
     )
     parser.add_argument(
