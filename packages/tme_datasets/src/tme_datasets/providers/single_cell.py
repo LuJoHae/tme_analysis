@@ -19,7 +19,10 @@ from ..preprocessing.normalization import normalize_total_counts
 from ..types import Modality
 
 
-def load_sade_feldman(raw_or_scratch_dir: Path) -> Result[ad.AnnData, str]:
+def load_sade_feldman(
+    raw_or_scratch_dir: Path,
+    auto_download: bool = True,
+) -> Result[ad.AnnData, str]:
     """Load and preprocess Sade-Feldman et al. 2018 (GSE120575, 16,288 cells)."""
     parquet_path = raw_or_scratch_dir / "gse120575_tpm.parquet"
     meta_path = raw_or_scratch_dir / "gse120575_tpm_cell_metadata.parquet"
@@ -27,6 +30,15 @@ def load_sade_feldman(raw_or_scratch_dir: Path) -> Result[ad.AnnData, str]:
     # Fallback to data/raw/GSE120575
     gz_tpm = raw_or_scratch_dir / "GSE120575_tpm.txt.gz"
     gz_meta = raw_or_scratch_dir / "GSE120575_meta.txt.gz"
+
+    # Auto-download if missing
+    if auto_download and not parquet_path.exists() and not gz_tpm.exists():
+        from ..download.fetcher import download_single_file
+
+        url_tpm = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE120nnn/GSE120575/suppl/GSE120575_Sade_Feldman_melanoma_single_cells_TPM_GEO.txt.gz"
+        url_meta = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE120nnn/GSE120575/suppl/GSE120575_patient_ID_single_cells.txt.gz"
+        download_single_file(url_tpm, gz_tpm)
+        download_single_file(url_meta, gz_meta)
 
     try:
         if parquet_path.exists() and meta_path.exists():
@@ -44,12 +56,43 @@ def load_sade_feldman(raw_or_scratch_dir: Path) -> Result[ad.AnnData, str]:
             return Success(adata)
 
         elif gz_tpm.exists():
-            df = pd.read_csv(gz_tpm, sep="\t", index_col=0)
-            adata = ad.AnnData(X=sp.csr_matrix(df.values.T.astype(np.float32)), var=pd.DataFrame(index=df.index))
-            adata.obs_names = list(df.columns)
+            # Robust reading of GEO TPM file with ragged line 2
+            with gzip.open(gz_tpm, "rt", encoding="utf-8", errors="replace") as f:
+                header = f.readline().rstrip("\r\n").split("\t")
+            cell_ids = [c for c in header[1:] if c.strip()]
+            usecols = [0] + list(range(1, len(cell_ids) + 1))
+
+            df = pd.read_csv(
+                gz_tpm,
+                sep="\t",
+                skiprows=2,
+                header=None,
+                usecols=usecols,
+                index_col=0,
+                engine="c",
+            )
+            df.columns = cell_ids
+
+            adata = ad.AnnData(
+                X=sp.csr_matrix(df.values.T.astype(np.float32)),
+                var=pd.DataFrame(index=df.index),
+            )
+            adata.obs_names = list(cell_ids)
+
             if gz_meta.exists():
-                meta = pd.read_csv(gz_meta, sep="\t", index_col=0)
-                adata.obs = meta.loc[adata.obs_names]
+                meta = pd.read_csv(
+                    gz_meta,
+                    sep="\t",
+                    skiprows=19,
+                    encoding="latin1",
+                )
+                if "title" in meta.columns:
+                    meta = meta.dropna(subset=["title"])
+                    meta = meta.drop_duplicates(subset=["title"])
+                    meta = meta.set_index("title")
+                    meta_filtered = meta.reindex(adata.obs_names)
+                    adata.obs = meta_filtered
+
             return Success(adata)
         else:
             return Failure(f"Sade-Feldman data files not found in {raw_or_scratch_dir}")

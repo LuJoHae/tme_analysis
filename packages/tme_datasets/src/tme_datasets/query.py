@@ -63,17 +63,26 @@ def load_dataset(
             c_dir = root / f"scratch/lair/CBioPortalDataset-{dataset_id}"
             if not c_dir.exists():
                 c_dir = root / f"output/CBioPortalDataset-{dataset_id}"
-            return load_iatlas_cohort(c_dir)
+            return load_iatlas_cohort(c_dir, cohort_name=dataset_id, auto_download=auto_download)
 
         case "EGAD00001006631":
             return load_genentech_egad(root / "manual-download/EGAD00001006631-align")
 
         case _ if dataset_id in ("Auslander", "Chen-CTLA4", "Chen-PD1", "Freeman", "Gide", "Hugo", "Lauss", "Liu", "Prat", "Ravi", "Riaz", "Rose", "Snyder", "VanAllen"):
             # Direct paper H5AD
-            h5_path = root / f"dataset_papers/{dataset_id}.h5ad"
-            if not h5_path.exists():
-                h5_path = root / f"data/preprocessed/{dataset_id}.h5ad"
-            return load_paper_h5ad(h5_path)
+            candidate_paths = [
+                root / f"dataset_papers/{dataset_id}.h5ad",
+                root / f"data/preprocessed/{dataset_id}.h5ad",
+                root / f"scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
+                root / f"data/{dataset_id}.h5ad",
+            ]
+            found = next((p for p in candidate_paths if p.exists()), None)
+            if found:
+                return load_paper_h5ad(found)
+            return Failure(
+                f"Paper H5AD '{dataset_id}.h5ad' not found in candidate paths: "
+                + ", ".join(str(p) for p in candidate_paths)
+            )
 
         case _:
             return Failure(f"No loader implementation available for dataset '{dataset_id}'")
