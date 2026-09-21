@@ -7,23 +7,7 @@ from returns.result import Result, Success, Failure
 from .config import DatasetSpec, DataDirectories, TIER_1_DATASETS
 
 
-def download_single_file(url: str, dest_path: Path) -> Result[Path, str]:
-    """Downloads a file from a URL to dest_path if not present or empty."""
-    try:
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        if dest_path.exists() and dest_path.stat().st_size > 0:
-            return Success(dest_path)
-
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Python single_cell_immuno_datasets)"}
-        )
-        with urllib.request.urlopen(req) as response, open(dest_path, "wb") as out_file:
-            out_file.write(response.read())
-            
-        return Success(dest_path)
-    except Exception as e:
-        return Failure(f"Failed to download {url} -> {dest_path}: {str(e)}")
+from tme_datasets.download import download_single_file
 
 
 def download_dataset(spec: DatasetSpec, raw_dir: Path) -> Result[tuple[Path, ...], str]:

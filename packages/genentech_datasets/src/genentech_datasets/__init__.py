@@ -1,3 +1,8 @@
+"""Deprecated: genentech_datasets is superseded by tme_datasets.
+
+Please use `from tme_datasets import load_dataset` instead.
+"""
+
 import datalair
 from pathlib import Path
 import pandas as pd

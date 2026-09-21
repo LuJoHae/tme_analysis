@@ -1,4 +1,8 @@
-"""Package single_cell_immuno_datasets: ICB single-cell data downloader, preprocessor, and report generator."""
+"""Package single_cell_immuno_datasets: ICB single-cell data downloader, preprocessor, and report generator.
+
+Deprecated: single_cell_immuno_datasets is superseded by tme_datasets.
+Please use `from tme_datasets import load_dataset, query_datasets` instead.
+"""
 
 from .config import (
     DatasetSpec,

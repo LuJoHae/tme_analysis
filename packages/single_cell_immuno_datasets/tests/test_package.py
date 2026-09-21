@@ -8,7 +8,7 @@ from single_cell_immuno_datasets.report import generate_summary_report, ALL_EVAL
 
 
 def test_tier1_datasets_config() -> None:
-    assert len(TIER_1_DATASETS) == 13
+    assert len(TIER_1_DATASETS) == 11
     accessions = [d.accession for d in TIER_1_DATASETS]
     assert "GSE120575" in accessions
     assert "Gondal2025" in accessions
