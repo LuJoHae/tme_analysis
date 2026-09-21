@@ -190,6 +190,28 @@ eb_config = NegativeBinomialConfig(
     seed=Some(42),
 )
 eb_adata = randomize_negative_binomial(adata, eb_config).unwrap()
+
+# Resample using Sanity Bayesian Log-Normal Poisson
+sanity_nb_cfg = NegativeBinomialConfig(
+    estimation_method=Some(NBEstimationMethod.SANITY),
+    seed=Some(42),
+)
+sanity_resampled = randomize_negative_binomial(adata, sanity_nb_cfg).unwrap()
+```
+
+#### 3. Sanity Bayesian Denoising & Normalization
+Directly estimate Log-Transcription Quotients (LTQs) and analytical error bars from raw counts (*Breda et al., Nature Biotechnology 2021*):
+
+```python
+from tme_datasets import run_sanity_normalization, SanityConfig
+
+sanity_cfg = SanityConfig(v_min=0.001, v_max=20.0, n_bins=40)
+sanity_adata = run_sanity_normalization(adata, sanity_cfg).unwrap()
+
+print("Sanity Layers and Variance:")
+print(f"  - Inferred LTQ shape:    {sanity_adata.layers['sanity_ltq'].shape}")
+print(f"  - Posterior Error shape:  {sanity_adata.layers['sanity_error'].shape}")
+print(f"  - True Gene Variances:    {sanity_adata.var['sanity_variance'].head(5).to_dict()}")
 ```
 
 ### C. In-Silico Targeted Gene Knockout & Overexpression

@@ -157,7 +157,7 @@ def main() -> None:
     print(f"  Mean count (original): {np.mean(demo_adata.X):.2f} | Mean count (NB): {np.mean(nb_adata.X):.2f}")
 
     # Mode 2: Parameter Inference Mode (Method of Moments / Empirical Bayes)
-    from tme_datasets import NBEstimationMethod
+    from tme_datasets import NBEstimationMethod, SanityConfig, run_sanity_normalization
     nb_mom_cfg = NegativeBinomialConfig(
         estimation_method=Some(NBEstimationMethod.MOMENTS),
         cluster_key=Some("cell_type"),
@@ -165,6 +165,12 @@ def main() -> None:
     )
     mom_adata = randomize_negative_binomial(demo_adata, nb_mom_cfg).unwrap()
     print(f"Parameter-Inferred NB (MoM stratified by cell_type): shape = {mom_adata.shape}")
+
+    # Mode 3: Sanity Bayesian Log-Normal Poisson Normalization & Error Bars
+    sanity_adata = run_sanity_normalization(demo_adata, SanityConfig(n_bins=15)).unwrap()
+    print(f"Sanity Denoising & Normalization (LTQ + Error Bars):")
+    print(f"  Available layers: {list(sanity_adata.layers.keys())}")
+    print(f"  Mean gene variance: {np.mean(sanity_adata.var['sanity_variance']):.4f}")
 
     # C. In-silico Targeted Knockout & Overexpression
     ko_adata = in_silico_knockout(demo_adata, genes=("PDCD1", "CD274"), efficiency=1.0).unwrap()

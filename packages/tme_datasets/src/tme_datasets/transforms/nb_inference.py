@@ -199,6 +199,22 @@ def infer_dataset_nb_parameters(
     """
     try:
         X = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X, dtype=np.float64)
+        if method == NBEstimationMethod.SANITY:
+            from ..preprocessing.sanity import run_sanity_normalization
+
+            sanity_res = run_sanity_normalization(adata)
+            if not isinstance(sanity_res, Success):
+                return Failure(sanity_res.failure())
+            s_adata = sanity_res.unwrap()
+            # In Sanity, means correspond to baseline alphas * median depth, dispersions to variance v_g
+            N_c = np.sum(X, axis=1)
+            med_depth = float(np.median(N_c))
+            means = s_adata.var["sanity_baseline_alpha"].values * med_depth
+            dispersions = np.clip(
+                s_adata.var["sanity_variance"].values, min_dispersion, max_dispersion
+            )
+            return Success({"global": (means, dispersions)})
+
         fit_fn = {
             NBEstimationMethod.MOMENTS: fit_nb_moments,
             NBEstimationMethod.MLE: fit_nb_mle,

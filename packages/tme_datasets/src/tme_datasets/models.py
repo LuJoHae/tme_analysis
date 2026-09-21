@@ -76,6 +76,17 @@ class NegativeBinomialConfig(BaseModel):
     seed: Maybe[int] = Nothing
 
 
+class SanityConfig(BaseModel):
+    """Configuration for Sanity Bayesian Log-Normal Poisson normalization and denoising."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    v_min: float = 0.001
+    v_max: float = 20.0
+    n_bins: int = 40
+    seed: Maybe[int] = Nothing
+
+
 class PerturbationConfig(BaseModel):
     """Configuration for composite dataset perturbations."""
 

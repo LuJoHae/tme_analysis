@@ -45,11 +45,12 @@ class StorageBackend(str, Enum):
 
 
 class NBEstimationMethod(str, Enum):
-    """Estimation method for Negative Binomial parameters."""
+    """Estimation method for Negative Binomial parameters and Bayesian count modeling."""
 
     MOMENTS = "moments"
     MLE = "mle"
     EMPIRICAL_BAYES = "empirical_bayes"
+    SANITY = "sanity"
 
 
 @runtime_checkable

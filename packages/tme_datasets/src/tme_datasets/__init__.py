@@ -38,7 +38,19 @@ from .models import (
     PerturbationConfig,
     PseudobulkConfig,
     QualityControlSpec,
+    SanityConfig,
     SubsampleSpec,
+)
+
+# Preprocessing & Normalization
+from .preprocessing import (
+    binarize_response,
+    filter_confounding_genes,
+    harmonize_obs_metadata,
+    normalize_total_counts,
+    run_sanity_normalization,
+    standardize_recist,
+    standardize_timepoint,
 )
 
 # Transforms & perturbations
@@ -134,11 +146,20 @@ __all__ = [
     "QualityControlSpec",
     "SubsampleSpec",
     "NegativeBinomialConfig",
+    "SanityConfig",
     "PerturbationConfig",
     "GeneReconcileConfig",
     "PseudobulkConfig",
     "HarmonizeConfig",
     "IntegrationMetricsResult",
+    # Preprocessing
+    "normalize_total_counts",
+    "filter_confounding_genes",
+    "binarize_response",
+    "standardize_recist",
+    "standardize_timepoint",
+    "harmonize_obs_metadata",
+    "run_sanity_normalization",
     # Transforms
     "subsample_cells",
     "supersample_cells",
