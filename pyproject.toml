@@ -40,10 +40,11 @@ dependencies = [
     "notebook>=7.5.7",
     "vl-convert-python>=1.9.0.post1",
     "firthmodels>=0.7.2",
+    "bayesprism",
     "snakemake>=9.23.1",
     "igraph>=1.0.0",
     "pertpy>=1.1.1",
-    "milopy",
+    "milopy>=0.3.0",
     "harmonypy>=0.0.10",
     "jax[cuda12]; sys_platform == 'linux'",
 ]
@@ -52,6 +53,7 @@ dependencies = [
 members = ["packages/*"]
 
 [tool.uv.sources]
+bayesprism = { workspace = true }
 icir = { git = "https://github.com/LuJoHae/ICI-Response.git" }
 tcga = { git = "https://github.com/LuJoHae/TCGA.git" }
 gibbscellprism = { git = "https://github.com/LuJoHae/GibbsCellPrism.git" }
@@ -68,4 +70,3 @@ ici_datasets = { workspace = true }
 ml_pipelines = { workspace = true }
 selective-inference = { workspace = true }
 single_cell_immuno_datasets = { workspace = true }
-milopy = { workspace = true }
