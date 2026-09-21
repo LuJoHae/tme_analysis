@@ -11,3 +11,26 @@ __pycache__/
 .snakemake/
 scratch/
 results/
+
+# Figures and images
+figures/
+**/figures/**
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.tiff
+*.webp
+*.gif
+*.bmp
+
+# PDF documents
+*.pdf
+
+# Python build artifacts
+*.egg-info/
+build/
+dist/
+
+# Archive files
+*.zip
