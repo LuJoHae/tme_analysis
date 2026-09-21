@@ -23,6 +23,7 @@ dependencies = [
     "single_cell_datasets",
     "ici_datasets",
     "single_cell_immuno_datasets",
+    "tme_datasets",
     "references",
     "ml_pipelines",
     "tables>=3.11.1",
@@ -53,6 +54,7 @@ dependencies = [
 members = ["packages/*"]
 
 [tool.uv.sources]
+tme_datasets = { workspace = true }
 bayesprism = { workspace = true }
 icir = { git = "https://github.com/LuJoHae/ICI-Response.git" }
 tcga = { git = "https://github.com/LuJoHae/TCGA.git" }
