@@ -141,14 +141,30 @@ super_adata = supersample_cells(adata, n_target=500, seed=Some(42)).unwrap()
 print(f"Supersampled shape: {super_adata.shape}")
 ```
 
-### B. Negative Binomial Count Randomization & Parameter Inference
-Simulates biological and technical noise using a Gamma-Poisson mixture model:
-$$\mathbb{E}[Y_{c,g}] = \mu_{c,g}, \quad \text{Var}(Y_{c,g}) = \mu_{c,g} + \alpha \mu_{c,g}^2$$
+### B. Randomization & Normalization Methods Comparison
 
-The package provides two complementary modes:
+The package provides a comprehensive suite of count randomizations, parameter inference engines, and variance-stabilizing normalizations. The table below summarizes their mathematical formulations, output layers, zero-count behavior, and primary use cases:
 
-#### 1. Simple Entry-Wise Perturbation (Default)
-Applies stochastic noise directly to each cell's observed expression level $X_{c,g}$ with fixed dispersion $\alpha$:
+| Method | Type | Mathematical Basis | Zero-Count Behavior | Output Layer / Var | Primary Use Case |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Simple Negative Binomial** | Randomization | $\lambda_{c,g} \sim \text{Gamma}(1/\alpha, \alpha X_{c,g})$, $Y \sim \text{Poisson}(\lambda)$ | $X_{c,g} = 0 \implies Y = 0$ (Zeros strictly preserved) | `.layers["randomized_nb"]` | Fast on-the-fly PyTorch data augmentation & noise sensitivity analysis |
+| **Method of Moments (MoM)** | Inference + Resampling | $\hat{\mu}_g = \frac{\sum_i X_{i,g}}{\sum_i s_i}$, $\hat{\alpha}_g = \frac{\hat{\sigma}_g^2 - \hat{\mu}_g}{\hat{\mu}_g^2}$ | Technical dropouts sample $>0$; biological zeros remain $0$ | `.layers["randomized_nb"]`, `.varm["nb_means"]`, `.varm["nb_dispersions"]` | Fast analytical parameter recovery and dropout recovery across clusters |
+| **Maximum Likelihood (MLE)** | Inference + Resampling | Profile likelihood Newton-Raphson on digamma $\psi(y + \frac{1}{\alpha})$ | Technical dropouts sample $>0$; biological zeros remain $0$ | `.layers["randomized_nb"]`, `.varm["nb_means"]`, `.varm["nb_dispersions"]` | Statistically optimal parameter estimation for moderate-sized cohorts |
+| **Empirical Bayes (EB)** | Inference + Resampling | Parametric trend $\alpha(\mu) = a_0 + \frac{a_1}{\mu}$ with shrinkage | Technical dropouts sample $>0$; biological zeros remain $0$ | `.layers["randomized_nb"]`, `.varm["nb_means"]`, `.varm["nb_dispersions"]` | DESeq2/edgeR-style dispersion shrinkage for high-sparsity / low-count datasets |
+| **Sanity Resampling** | Inference + Resampling | $n_{gc} \sim \text{Poisson}(N_c \alpha_g e^{\delta_{gc}})$, $\delta \sim \mathcal{N}(0, v_g)$ | Technical dropouts sample $>0$; biological zeros remain $0$ | `.layers["randomized_nb"]`, `.varm["nb_means"]`, `.varm["nb_dispersions"]` | First-principles sampling from inferred Log-Normal Poisson transcription states |
+| **Sanity Normalization** | Normalization / Denoising | Laplace approximation of marginal likelihood $P(\mathbf{n}_g \mid v_g)$ | Zero counts shrunk toward dataset mean with wide error bars | `.layers["sanity_ltq"]`, `.layers["sanity_error"]`, `.var["sanity_variance"]` | Rigorous, parameter-free expression estimation and cell-to-cell distance calculation |
+| **Analytic Pearson Residuals** | Normalization / HVG Selection | Closed-form offset NB: $r_{c,g} = \frac{n_{c,g} - \mu_{c,g}}{\sqrt{\mu_{c,g} + \mu_{c,g}^2 / \theta}}$ | Bounded negative residuals for zeros; no artificial zero-inflation | `.layers["pearson_residuals"]`, `.var["highly_variable"]` | Scalable variance stabilization and highly variable gene (HVG) selection |
+| **Regularized GLM (sctransform)** | Normalization | $\log(\mu) \sim \beta_0 + \beta_1 \log_{10}(N)$, kernel smoothing across genes | Bounded negative residuals for zeros | `.layers["pearson_residuals"]`, `.var["sct_beta0"]`, `.var["sct_beta1"]` | Faithful port of Hafemeister & Satija (2019) with explicit sequencing-depth regularization |
+| **Library Size CPM + $\log(1+x)$** | Normalization | $x'_{c,g} = \log\left(1 + 10^4 \cdot \frac{x_{c,g}}{N_c}\right)$ | Preserves exact zeros ($0 \to 0$) | `.X` (or custom layer) | Standard baseline preprocessing for downstream compatibility |
+| **Capture Dropout Simulation** | Perturbation | Bernoulli mask: $P(\text{mask}_{c,g} = 0) = \text{rate}$ | Turns positive counts into exact zeros | `.X` | Simulating variable single-cell sequencing depth and capture inefficiencies |
+| **Log-Normal Jitter** | Perturbation | Multiplicative noise: $X'_{c,g} = X_{c,g} \cdot e^{\mathcal{N}(0, \sigma^2)}$ | Preserves exact zeros | `.X` | Testing classifier and clustering stability against transcriptional noise |
+
+---
+
+### C. Detailed Usage of Each Method
+
+#### 1. Simple Entry-Wise Negative Binomial Perturbation (Default)
+Applies stochastic noise directly to each cell's observed expression level $X_{c,g}$ with fixed dispersion $\alpha$. If $X_{c,g} = 0$, it strictly yields $0$:
 ```python
 from tme_datasets import randomize_negative_binomial, NegativeBinomialConfig
 from returns.maybe import Some
@@ -156,15 +172,13 @@ from returns.maybe import Some
 # Default: Simple mode (zeros remain 0, unperturbed counts saved in .layers["raw_counts"])
 nb_config = NegativeBinomialConfig(dispersion=0.20, seed=Some(123))
 nb_adata = randomize_negative_binomial(adata, nb_config).unwrap()
+
 print(f"Original counts preserved in: {list(nb_adata.layers.keys())}")
+print(f"Mean count (raw): {adata.X.mean():.2f} | Mean count (NB): {nb_adata.X.mean():.2f}")
 ```
 
-#### 2. Parameter Inference & Resampling (MoM, MLE, Empirical Bayes)
-Infers true underlying gene parameters $(\mu_g, \alpha_g)$ across cells (or stratified by `cluster_key="cell_type"`), accounting for cell library size depth. Technical dropout zeros will sample counts $> 0$ with realistic probability, while true biological zeros remain 0:
-
-- **Method of Moments (`MOMENTS`)**: Exact closed-form algebraic estimator. $O(N \cdot G)$ vectorized computation.
-- **Maximum Likelihood (`MLE`)**: Newton-Raphson profile likelihood optimization on digamma $\psi(z)$ and trigamma functions.
-- **Empirical Bayes (`EMPIRICAL_BAYES`)**: Parametric mean-dispersion trend fitting with Bayesian shrinkage (DESeq2/edgeR style).
+#### 2. Negative Binomial Parameter Inference & Resampling (MoM, MLE, Empirical Bayes)
+Infers true underlying gene parameters $(\mu_g, \alpha_g)$ across cells (or stratified by `cluster_key="cell_type"`), accounting for cell library size depth $s_i$. Technical dropout zeros will sample counts $> 0$ with realistic probability, while true biological zeros remain 0:
 
 ```python
 from tme_datasets import (
@@ -175,23 +189,32 @@ from tme_datasets import (
     fit_nb_mle,
     fit_nb_empirical_bayes,
 )
+from returns.maybe import Some
 
-# Resample counts from Method of Moments parameters stratified by cell type
+# Option A: Method of Moments (MoM) stratified by cell type
 mom_config = NegativeBinomialConfig(
     estimation_method=Some(NBEstimationMethod.MOMENTS),
     cluster_key=Some("cell_type"),
     seed=Some(42),
 )
 mom_adata = randomize_negative_binomial(adata, mom_config).unwrap()
+print(f"Inferred MoM means shape: {mom_adata.varm['nb_means'].shape}")
 
-# Resample using Empirical Bayes shrinkage
+# Option B: Maximum Likelihood Estimation (MLE with Newton-Raphson on digamma)
+mle_config = NegativeBinomialConfig(
+    estimation_method=Some(NBEstimationMethod.MLE),
+    seed=Some(42),
+)
+mle_adata = randomize_negative_binomial(adata, mle_config).unwrap()
+
+# Option C: Empirical Bayes (Mean-dispersion trend fitting with shrinkage)
 eb_config = NegativeBinomialConfig(
     estimation_method=Some(NBEstimationMethod.EMPIRICAL_BAYES),
     seed=Some(42),
 )
 eb_adata = randomize_negative_binomial(adata, eb_config).unwrap()
 
-# Resample using Sanity Bayesian Log-Normal Poisson
+# Option D: Sanity Bayesian Log-Normal Poisson Resampling
 sanity_nb_cfg = NegativeBinomialConfig(
     estimation_method=Some(NBEstimationMethod.SANITY),
     seed=Some(42),
@@ -199,8 +222,8 @@ sanity_nb_cfg = NegativeBinomialConfig(
 sanity_resampled = randomize_negative_binomial(adata, sanity_nb_cfg).unwrap()
 ```
 
-#### 3. Sanity Bayesian Denoising & Normalization
-Directly estimate Log-Transcription Quotients (LTQs) and analytical error bars from raw counts (*Breda et al., Nature Biotechnology 2021*):
+#### 3. Sanity Bayesian Denoising & Normalization (First-Principles LTQ Estimation)
+Directly estimate Log-Transcription Quotients (LTQs) and analytical cell-by-gene error bars directly from raw counts (*Breda et al., Nature Biotechnology 2021*):
 
 ```python
 from tme_datasets import run_sanity_normalization, SanityConfig
@@ -208,10 +231,10 @@ from tme_datasets import run_sanity_normalization, SanityConfig
 sanity_cfg = SanityConfig(v_min=0.001, v_max=20.0, n_bins=40)
 sanity_adata = run_sanity_normalization(adata, sanity_cfg).unwrap()
 
-print("Sanity Layers and Variance:")
-print(f"  - Inferred LTQ shape:    {sanity_adata.layers['sanity_ltq'].shape}")
-print(f"  - Posterior Error shape:  {sanity_adata.layers['sanity_error'].shape}")
-print(f"  - True Gene Variances:    {sanity_adata.var['sanity_variance'].head(5).to_dict()}")
+print("Sanity Layers and Inferred Properties:")
+print(f"  - Inferred LTQ shape:      {sanity_adata.layers['sanity_ltq'].shape}")
+print(f"  - Posterior Error shape:    {sanity_adata.layers['sanity_error'].shape}")
+print(f"  - Inferred Gene Variances:  {sanity_adata.var['sanity_variance'].head(3).to_dict()}")
 ```
 
 #### 4. SCTransform & Analytic Pearson Residuals
@@ -221,23 +244,33 @@ Stabilize technical variance across sequencing depths using regularized Negative
 from tme_datasets import normalize_sctransform, SCTransformConfig, SCTransformFlavor
 from returns.maybe import Some
 
-# Flavor 1: Analytic Pearson Residuals (Fast, closed-form, native Scanpy)
+# Option A: Analytic Pearson Residuals (Fast, closed-form, native Scanpy)
 analytic_cfg = SCTransformConfig(
     flavor=SCTransformFlavor.ANALYTIC,
-    n_top_genes=Some(2000),  # Select top HVGs via Pearson residual variance
+    n_top_genes=Some(2000),  # Select top 2,000 HVGs via Pearson residual variance
     clip_residuals=True,     # Clip outliers to sqrt(N_cells)
 )
 sct_analytic_adata = normalize_sctransform(adata, analytic_cfg).unwrap()
-print(f"Analytic Pearson Residuals shape: {sct_analytic_adata.layers['pearson_residuals'].shape}")
-print(f"Top 2000 HVGs selected in: .var['highly_variable']")
+print(f"Analytic Pearson Residuals: {sct_analytic_adata.layers['pearson_residuals'].shape}")
+print(f"Top 2,000 HVGs selected in: .var['highly_variable']")
 
-# Flavor 2: Regularized GLM (Kernel-smoothed parameter regression)
+# Option B: Regularized GLM (Kernel-smoothed parameter regression)
 glm_cfg = SCTransformConfig(
     flavor=SCTransformFlavor.REGULARIZED_GLM,
     clip_residuals=True,
 )
 sct_glm_adata = normalize_sctransform(adata, glm_cfg).unwrap()
 print(f"Regularized GLM coefficients: .var['sct_beta0'], .var['sct_beta1']")
+```
+
+#### 5. Standard Library Size CPM + $\log(1+x)$ Normalization
+```python
+from tme_datasets import normalize_total_counts, log1p_transform
+
+# Pure functional pipeline: Raw Counts -> CPM -> log(1 + CPM)
+norm_adata = normalize_total_counts(adata, target_sum=1e4).unwrap()
+log_adata = log1p_transform(norm_adata).unwrap()
+print(f"CPM + log1p normalized max: {log_adata.X.max():.2f}")
 ```
 
 ### C. In-Silico Targeted Gene Knockout & Overexpression
