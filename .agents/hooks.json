@@ -1,0 +1,17 @@
+{
+  "ssh-guard": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'test -f scripts/ssh_gate.py && exec python3 scripts/ssh_gate.py || exec python3 .agents/scripts/ssh_gate.py'",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
