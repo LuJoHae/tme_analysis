@@ -53,6 +53,13 @@ class NBEstimationMethod(str, Enum):
     SANITY = "sanity"
 
 
+class SCTransformFlavor(str, Enum):
+    """Flavor of variance-stabilizing transformation."""
+
+    ANALYTIC = "analytic"
+    REGULARIZED_GLM = "regularized_glm"
+
+
 @runtime_checkable
 class DatasetProvider(Protocol):
     """Typeclass protocol for dataset loading and processing."""

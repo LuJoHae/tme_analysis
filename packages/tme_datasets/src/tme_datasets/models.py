@@ -6,7 +6,13 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 from returns.maybe import Maybe, Nothing
 
-from .types import GeneIDType, HarmonizeMode, Modality, NBEstimationMethod
+from .types import (
+    GeneIDType,
+    HarmonizeMode,
+    Modality,
+    NBEstimationMethod,
+    SCTransformFlavor,
+)
 
 
 class ChecksumSpec(BaseModel):
@@ -85,6 +91,19 @@ class SanityConfig(BaseModel):
     v_max: float = 20.0
     n_bins: int = 40
     seed: Maybe[int] = Nothing
+
+
+class SCTransformConfig(BaseModel):
+    """Configuration for SCTransform / Pearson residual normalization."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    flavor: SCTransformFlavor = SCTransformFlavor.ANALYTIC
+    n_top_genes: Maybe[int] = Nothing
+    theta: float = 100.0
+    clip_residuals: bool = True
+    max_residual: Maybe[float] = Nothing
+    use_layer_as_x: bool = True
 
 
 class PerturbationConfig(BaseModel):

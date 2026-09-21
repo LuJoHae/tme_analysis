@@ -26,6 +26,7 @@ from .types import (
     Modality,
     NBEstimationMethod,
     PerturbationTransform,
+    SCTransformFlavor,
     StorageBackend,
 )
 from .models import (
@@ -39,6 +40,7 @@ from .models import (
     PseudobulkConfig,
     QualityControlSpec,
     SanityConfig,
+    SCTransformConfig,
     SubsampleSpec,
 )
 
@@ -47,6 +49,7 @@ from .preprocessing import (
     binarize_response,
     filter_confounding_genes,
     harmonize_obs_metadata,
+    normalize_sctransform,
     normalize_total_counts,
     run_sanity_normalization,
     standardize_recist,
@@ -139,6 +142,7 @@ __all__ = [
     "GeneIDType",
     "StorageBackend",
     "NBEstimationMethod",
+    "SCTransformFlavor",
     "DatasetProvider",
     "PerturbationTransform",
     "ChecksumSpec",
@@ -147,6 +151,7 @@ __all__ = [
     "SubsampleSpec",
     "NegativeBinomialConfig",
     "SanityConfig",
+    "SCTransformConfig",
     "PerturbationConfig",
     "GeneReconcileConfig",
     "PseudobulkConfig",
@@ -160,6 +165,7 @@ __all__ = [
     "standardize_timepoint",
     "harmonize_obs_metadata",
     "run_sanity_normalization",
+    "normalize_sctransform",
     # Transforms
     "subsample_cells",
     "supersample_cells",

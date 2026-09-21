@@ -172,6 +172,16 @@ def main() -> None:
     print(f"  Available layers: {list(sanity_adata.layers.keys())}")
     print(f"  Mean gene variance: {np.mean(sanity_adata.var['sanity_variance']):.4f}")
 
+    # Mode 4: SCTransform / Analytic Pearson Residuals
+    from tme_datasets import SCTransformConfig, SCTransformFlavor, normalize_sctransform
+    sct_adata = normalize_sctransform(
+        demo_adata,
+        SCTransformConfig(flavor=SCTransformFlavor.ANALYTIC, n_top_genes=Some(15)),
+    ).unwrap()
+    print(f"Analytic Pearson Residuals (Lause et al.):")
+    print(f"  Available layers: {list(sct_adata.layers.keys())}")
+    print(f"  Mean residual: {np.mean(sct_adata.layers['pearson_residuals']):.4f}")
+
     # C. In-silico Targeted Knockout & Overexpression
     ko_adata = in_silico_knockout(demo_adata, genes=("PDCD1", "CD274"), efficiency=1.0).unwrap()
     pd1_idx = list(ko_adata.var_names).index("PDCD1")

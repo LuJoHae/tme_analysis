@@ -214,6 +214,32 @@ print(f"  - Posterior Error shape:  {sanity_adata.layers['sanity_error'].shape}"
 print(f"  - True Gene Variances:    {sanity_adata.var['sanity_variance'].head(5).to_dict()}")
 ```
 
+#### 4. SCTransform & Analytic Pearson Residuals
+Stabilize technical variance across sequencing depths using regularized Negative Binomial regression (*Hafemeister & Satija 2019*) or Analytic Pearson Residuals (*Lause et al. 2021*):
+
+```python
+from tme_datasets import normalize_sctransform, SCTransformConfig, SCTransformFlavor
+from returns.maybe import Some
+
+# Flavor 1: Analytic Pearson Residuals (Fast, closed-form, native Scanpy)
+analytic_cfg = SCTransformConfig(
+    flavor=SCTransformFlavor.ANALYTIC,
+    n_top_genes=Some(2000),  # Select top HVGs via Pearson residual variance
+    clip_residuals=True,     # Clip outliers to sqrt(N_cells)
+)
+sct_analytic_adata = normalize_sctransform(adata, analytic_cfg).unwrap()
+print(f"Analytic Pearson Residuals shape: {sct_analytic_adata.layers['pearson_residuals'].shape}")
+print(f"Top 2000 HVGs selected in: .var['highly_variable']")
+
+# Flavor 2: Regularized GLM (Kernel-smoothed parameter regression)
+glm_cfg = SCTransformConfig(
+    flavor=SCTransformFlavor.REGULARIZED_GLM,
+    clip_residuals=True,
+)
+sct_glm_adata = normalize_sctransform(adata, glm_cfg).unwrap()
+print(f"Regularized GLM coefficients: .var['sct_beta0'], .var['sct_beta1']")
+```
+
 ### C. In-Silico Targeted Gene Knockout & Overexpression
 Simulate targeted drug interventions or gene knockouts:
 

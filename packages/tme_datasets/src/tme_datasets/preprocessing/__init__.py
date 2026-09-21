@@ -9,6 +9,7 @@ from .metadata import (
 )
 from .normalization import expm1_transform, log1p_transform, normalize_total_counts
 from .sanity import run_sanity_normalization
+from .sctransform import normalize_sctransform
 
 __all__ = [
     "CONFOUNDING_PATTERNS",
@@ -21,4 +22,5 @@ __all__ = [
     "standardize_timepoint",
     "harmonize_obs_metadata",
     "run_sanity_normalization",
+    "normalize_sctransform",
 ]
