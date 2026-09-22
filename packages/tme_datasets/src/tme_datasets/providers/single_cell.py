@@ -52,10 +52,16 @@ def load_sade_feldman(
             cell_cols = [c for c in df_tpm.columns if c != "gene"]
             X_mat = df_tpm.select(cell_cols).to_numpy().T.astype(np.float32)
 
+            obs_df = df_meta.set_index(df_meta.columns[0])
+            obs_df.index = obs_df.index.astype(str)
+            obs_df.index.name = "cell_id"
+
+            var_df = pd.DataFrame(index=pd.Index(genes, dtype=str, name="gene_id"))
+
             adata = ad.AnnData(
                 X=sp.csr_matrix(X_mat),
-                obs=df_meta.set_index(df_meta.columns[0]),
-                var=pd.DataFrame(index=genes),
+                obs=obs_df,
+                var=var_df,
             )
             return Success(adata)
 
@@ -78,13 +84,17 @@ def load_sade_feldman(
                 engine="c",
             )
             df.columns = cell_ids
+            df.index = df.index.astype(str)
+            df.index.name = "gene"
             logger.info("Parsed %d genes across %d single cells from %s", len(df), len(cell_ids), gz_tpm.name)
 
+            var_df = pd.DataFrame(index=pd.Index(df.index, dtype=str, name="gene_id"))
             adata = ad.AnnData(
                 X=sp.csr_matrix(df.values.T.astype(np.float32)),
-                var=pd.DataFrame(index=df.index),
+                var=var_df,
             )
             adata.obs_names = list(cell_ids)
+            adata.obs_names.name = "cell_id"
 
             if gz_meta.exists():
                 logger.info("Parsing metadata annotations from %s...", gz_meta.name)
@@ -98,8 +108,21 @@ def load_sade_feldman(
                     meta = meta.dropna(subset=["title"])
                     meta = meta.drop_duplicates(subset=["title"])
                     meta = meta.set_index("title")
+                    meta.index = meta.index.astype(str)
                     meta_filtered = meta.reindex(adata.obs_names)
+                    meta_filtered.index.name = "cell_id"
                     adata.obs = meta_filtered
+
+            # Cache to parquet for near-instant future loading
+            try:
+                logger.info("Caching parsed GSE120575 matrix to parquet in %s...", raw_or_scratch_dir)
+                pl_tpm = pl.from_pandas(df.reset_index())
+                pl_tpm.write_parquet(parquet_path)
+                pl_meta = pl.from_pandas(adata.obs.reset_index())
+                pl_meta.write_parquet(meta_path)
+                logger.info("Successfully cached GSE120575 parquet files.")
+            except Exception as cache_exc:
+                logger.debug("Skipped parquet caching: %s", cache_exc)
 
             return Success(adata)
         else:

@@ -27,6 +27,7 @@ uv run python packages/tme_datasets/examples/tutorial_explore_all_features.py
 7. [PyTorch Dataset & DataLoader Bridge](#7-pytorch-dataset--dataloader-bridge)
 8. [Gene Identifier Unification](#8-gene-identifier-unification)
 9. [Out-of-Core Storage & Cryptographic Verification](#9-out-of-core-storage--cryptographic-verification)
+10. [End-to-End Single-Cell Downstream Workflow (Case Study: GSE120575)](#10-end-to-end-single-cell-downstream-workflow-case-study-gse120575)
 
 ---
 
@@ -443,6 +444,266 @@ if h5ad_path.exists():
     # 3. Convert to Chunked Zarr for high-performance streaming
     zarr_path = Path("data/preprocessed/GSE120575.zarr")
     convert_to_zarr(backed_adata.to_memory(), zarr_path).unwrap()
+```
+
+---
+
+## 10. End-to-End Single-Cell Downstream Workflow (Case Study: GSE120575)
+
+This section demonstrates a complete, production-grade downstream analysis pipeline for **Sade-Feldman et al. (Cell 2018, GSE120575)**: 16,291 CD45+ tumor-infiltrating immune cells from 48 metastatic melanoma patients treated with immune checkpoint blockade (ICB).
+
+### Overview of Workflow Steps
+1. **Ingestion & Caching**: Auto-download from NCBI GEO and cache as preprocessed H5AD to turn slow gzipped text parsing into an instantaneous load.
+2. **Clinical Feature Engineering**: Standardize response labels (Responder vs Non-responder), patient ID, and treatment timing (Pre-baseline vs Post-treatment).
+3. **Confounding Gene Filtering**: Purge mitochondrial (`MT-`), ribosomal (`RPS`/`RPL`), non-coding, and HLA artifacts.
+4. **Variance Stabilization & HVG Selection**: Apply Analytic Pearson Residuals (`normalize_sctransform`) to compute exact residuals and identify the top 2,000 variable genes.
+5. **Dimensionality Reduction & Graph Clustering**: PCA, kNN graph construction, UMAP embedding, and Leiden clustering.
+6. **TME Lineage Annotation via Signature Scoring**: Score pre-registered TME lineage markers (`get_tme_major_lineage_collection()`) to assign CD8+ T, CD4+ T, B, NK, Monocyte/Macrophage, and Dendritic cell identities.
+7. **Responder vs. Non-Responder Differential Abundance**: Calculate cell type composition differences across response groups using **Polars**.
+8. **In-Silico Checkpoint Knockout & Pseudobulk Simulation**: Perform in-silico target ablation (*PDCD1*, *CTLA4*) and generate ground-truth pseudobulk mixtures for deconvolution benchmarks.
+
+---
+
+### Step 1: Ingestion & Fast Local Caching
+
+Loading directly from raw GEO text files can take several minutes to decompress. Caching the parsed `AnnData` to H5AD once allows all subsequent sessions to load in milliseconds:
+
+```python
+from pathlib import Path
+from tme_datasets import load_dataset
+from returns.result import Success, Failure
+import anndata as ad
+
+cache_file = Path("data/preprocessed/GSE120575.h5ad")
+
+if cache_file.exists():
+    print(f"Loading cached AnnData from {cache_file}...")
+    adata = ad.read_h5ad(cache_file)
+else:
+    print("Loading GSE120575 via tme_datasets (auto-downloads from GEO if missing)...")
+    match load_dataset("GSE120575"):
+        case Success(raw_adata):
+            adata = raw_adata
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            adata.write_h5ad(cache_file)
+            print(f"Saved cached dataset to {cache_file}")
+        case Failure(err):
+            raise RuntimeError(f"Could not load GSE120575: {err}")
+
+print(f"Initial dimensions: {adata.shape} (16,291 cells x 55,737 genes)")
+```
+
+---
+
+### Step 2: Clinical Feature Engineering & Standardization
+
+The raw metadata contains columns such as `characteristics: response` and `characteristics: patinet ID (Pre=baseline; Post= on treatment)`. We standardize these into clean observation columns:
+
+```python
+import polars as pl
+import pandas as pd
+
+# 1. Binarize response (Responder -> 1, Non-responder -> 0)
+if "characteristics: response" in adata.obs.columns:
+    resp_map = {"Responder": 1, "Non-responder": 0}
+    adata.obs["response_binary"] = adata.obs["characteristics: response"].map(resp_map)
+    print(f"Response breakdown:\n{adata.obs['response_binary'].value_counts(dropna=False)}")
+
+# 2. Extract patient identifier and timepoint (Pre vs Post)
+if "characteristics: patinet ID (Pre=baseline; Post= on treatment)" in adata.obs.columns:
+    pat_series = adata.obs["characteristics: patinet ID (Pre=baseline; Post= on treatment)"].astype(str)
+    
+    # Extract timepoint: Pre (baseline) vs Post (on-treatment)
+    adata.obs["timepoint"] = pat_series.apply(
+        lambda s: "Pre" if "Pre" in s else ("Post" if "Post" in s else "Unknown")
+    )
+    # Extract clean patient ID: e.g. P1, P2, P33
+    adata.obs["patient_id"] = pat_series.str.extract(r"(P\d+)")
+
+# 3. Therapy regimen (anti-PD1, anti-CTLA4, anti-CTLA4+PD1)
+if "characteristics: therapy" in adata.obs.columns:
+    adata.obs["therapy"] = adata.obs["characteristics: therapy"]
+
+print(f"Timepoints: {dict(adata.obs['timepoint'].value_counts())}")
+print(f"Therapies:  {dict(adata.obs['therapy'].value_counts())}")
+```
+
+---
+
+### Step 3: Confounding Gene Filtering
+
+Single-cell immune profiling is frequently contaminated by non-informative mitochondrial, ribosomal, and immunoglobulin/HLA artifacts. We filter these out using `filter_confounding_genes`:
+
+```python
+from tme_datasets import filter_confounding_genes
+
+# Remove MT-, RPS-, RPL-, HLA-, and non-coding RNA confounds
+clean_adata = filter_confounding_genes(adata).unwrap()
+print(f"Post-filtering dimensions: {clean_adata.shape} (removed {adata.n_vars - clean_adata.n_vars} confounding genes)")
+```
+
+---
+
+### Step 4: Variance Stabilization (Analytic Pearson Residuals)
+
+We apply **Analytic Pearson Residuals** (*Lause et al., Genome Biology 2021*) to stabilize variance, rank the top 2,000 highly variable genes, and bound outlier residuals:
+
+```python
+from tme_datasets import normalize_sctransform, SCTransformConfig, SCTransformFlavor
+from returns.maybe import Some
+
+sct_cfg = SCTransformConfig(
+    flavor=SCTransformFlavor.ANALYTIC,
+    n_top_genes=Some(2000),
+    clip_residuals=True,
+    use_layer_as_x=False,  # Preserves raw counts in .X and stores residuals in .layers['pearson_residuals']
+)
+
+norm_adata = normalize_sctransform(clean_adata, sct_cfg).unwrap()
+print(f"Pearson residuals layer shape: {norm_adata.layers['pearson_residuals'].shape}")
+print(f"Highly variable genes selected: {norm_adata.var['highly_variable'].sum()}")
+```
+
+> [!TIP]
+> Alternatively, for true parameter-free Bayesian expression states and posterior standard error bars (without library size heuristics), use `run_sanity_normalization(clean_adata)` (*Breda et al., Nature Biotechnology 2021*).
+
+---
+
+### Step 5: Dimensionality Reduction, Neighborhood Graph & Clustering
+
+Using Scanpy on the variance-stabilized Pearson residuals:
+
+```python
+import scanpy as sc
+
+# Work on Pearson residuals for PCA and graph construction
+processed_adata = norm_adata.copy()
+processed_adata.X = processed_adata.layers["pearson_residuals"].copy()
+
+# 1. Principal Component Analysis on HVGs
+sc.tl.pca(processed_adata, n_comps=30, use_highly_variable=True)
+
+# 2. k-Nearest Neighbors Graph
+sc.pp.neighbors(processed_adata, n_neighbors=15, n_pcs=30)
+
+# 3. UMAP Embedding
+sc.tl.umap(processed_adata)
+
+# 4. Leiden Community Detection
+sc.tl.leiden(processed_adata, resolution=0.5, key_added="leiden_cluster")
+print(f"Identified {processed_adata.obs['leiden_cluster'].nunique()} Leiden clusters.")
+```
+
+---
+
+### Step 6: TME Lineage Annotation via Signature Scoring
+
+We score each cell against pre-registered tumor microenvironment lineage marker collections (`get_tme_major_lineage_collection()`), which returns a **Polars** DataFrame with standardized Z-scores or AUC ranks:
+
+```python
+from tme_datasets import get_tme_major_lineage_collection, score_geneset_zscore
+import numpy as np
+
+# Retrieve curated TME major lineage gene sets:
+# CD8_T_cell, CD4_T_cell, B_cell, NK_cell, Monocyte_Macrophage, Dendritic_cell, etc.
+lineage_coll = get_tme_major_lineage_collection()
+print(f"Scoring {len(lineage_coll.gene_sets)} lineage signatures across cells...")
+
+# Score signatures using standardized Z-score
+scores_df = score_geneset_zscore(norm_adata, lineage_coll).unwrap()
+
+# Join scores back into AnnData observation metadata
+for col in scores_df.columns:
+    if col not in ("cell_id", "sample_id"):
+        processed_adata.obs[f"sig_{col}"] = scores_df[col].to_numpy()
+
+# Annotate clusters based on highest mean lineage score
+cluster_lineage_map = {}
+for cluster_id in processed_adata.obs["leiden_cluster"].unique():
+    cluster_cells = processed_adata.obs["leiden_cluster"] == cluster_id
+    best_lineage = None
+    best_score = -np.inf
+    for gs in lineage_coll.gene_sets.values():
+        mean_score = processed_adata.obs.loc[cluster_cells, f"sig_{gs.name}"].mean()
+        if mean_score > best_score:
+            best_score = mean_score
+            best_lineage = gs.name
+    cluster_lineage_map[cluster_id] = best_lineage
+
+processed_adata.obs["cell_type"] = processed_adata.obs["leiden_cluster"].map(cluster_lineage_map)
+print("Annotated Cell-Type Distribution:")
+print(processed_adata.obs["cell_type"].value_counts())
+```
+
+---
+
+### Step 7: Responder vs. Non-Responder Differential Composition Analysis
+
+Using **Polars**, compute the relative cell-type fractions across response groups to examine immune microenvironment remodeling:
+
+```python
+import polars as pl
+
+# Convert metadata to Polars DataFrame
+obs_df = pl.from_pandas(processed_adata.obs.reset_index())
+
+# Group by clinical response and cell type
+composition = (
+    obs_df.filter(pl.col("response_binary").is_not_null())
+    .group_by(["response_binary", "cell_type"])
+    .len()
+    .with_columns(
+        (pl.col("len") / pl.col("len").sum().over("response_binary")).alias("fraction")
+    )
+    .sort(["cell_type", "response_binary"])
+)
+
+print("\n--- Cell-Type Proportions: Responders (1) vs Non-Responders (0) ---")
+print(composition)
+```
+
+---
+
+### Step 8: In-Silico Checkpoint Perturbation & Pseudobulk Simulation
+
+#### A. In-Silico Knockout of Immune Checkpoint Targets
+Simulate the functional loss or blockade of inhibitory receptors (*PDCD1*, *CTLA4*, *HAVCR2*, *LAG3*):
+
+```python
+from tme_datasets import in_silico_knockout, PerturbationConfig
+
+ko_cfg = PerturbationConfig(
+    target_genes=("PDCD1", "CTLA4", "HAVCR2"),
+)
+
+ko_adata = in_silico_knockout(processed_adata, ko_cfg).unwrap()
+print("Knockout verified: expression of target genes set strictly to zero.")
+```
+
+#### B. Generate Synthetic Bulk Mixtures with Exact Ground Truth
+Simulate 50 patient pseudobulk RNA-seq mixtures (1,000 cells per sample) with Dirichlet-sampled cell proportions to benchmark deconvolution algorithms (*BayesPrism*, *InstaPrism*):
+
+```python
+from tme_datasets import simulate_pseudobulk, PseudobulkConfig
+from returns.maybe import Some
+
+bulk_cfg = PseudobulkConfig(
+    n_samples=50,
+    cells_per_sample=1000,
+    noise_dispersion=Some(0.1),  # Add biological overdispersion noise
+    seed=Some(42),
+)
+
+# Simulate mixtures with exact known proportions
+sim_bulk_adata, truth_proportions_df = simulate_pseudobulk(
+    processed_adata,
+    bulk_cfg,
+    cell_type_key="cell_type",
+).unwrap()
+
+print(f"Simulated bulk matrix: {sim_bulk_adata.shape} (50 bulk samples x genes)")
+print("Ground truth cell fractions (first 3 samples):")
+print(truth_proportions_df.head(3))
 ```
 
 ---
