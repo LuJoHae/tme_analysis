@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Mapping
 from returns.maybe import Maybe, Nothing, Some
 
-from .models import DatasetSpec
+from .models import DatasetSpec, RegisteredDatasets
 from .types import Modality
 
 DATASET_REGISTRY: Mapping[str, DatasetSpec] = {
@@ -232,6 +232,6 @@ def get_dataset_spec(dataset_id: str) -> Maybe[DatasetSpec]:
     return Some(DATASET_REGISTRY[dataset_id]) if dataset_id in DATASET_REGISTRY else Nothing
 
 
-def list_registered_datasets() -> tuple[DatasetSpec, ...]:
-    """Return tuple of all registered dataset specifications."""
-    return tuple(DATASET_REGISTRY.values())
+def list_registered_datasets() -> RegisteredDatasets:
+    """Return an enriched collection of all registered dataset specifications."""
+    return RegisteredDatasets(DATASET_REGISTRY.values())

@@ -20,6 +20,7 @@ from tme_datasets import (
     # Core types & configs
     HarmonizeConfig,
     HarmonizeMode,
+    Modality,
     NegativeBinomialConfig,
     PseudobulkConfig,
     SubsampleSpec,
@@ -104,12 +105,23 @@ def create_demo_adata(n_cells: int = 120, n_genes: int = 30) -> ad.AnnData:
 def main() -> None:
     print_section("1. REGISTRY & METADATA INSPECTION")
     specs = list_registered_datasets()
-    print(f"Total registered datasets in tme_datasets: {len(specs)}")
-    print("\nFirst 6 registered datasets:")
-    for s in specs[:6]:
-        organ = s.organ.value_or("N/A") if isinstance(s.organ, Some) else "N/A"
-        cells = s.n_samples_or_cells.value_or("N/A") if isinstance(s.n_samples_or_cells, Some) else "N/A"
-        print(f"  - [{s.modality.value.upper()}] {s.id:<18} | {s.cancer_type:<22} | Organ: {organ:<10} | N: {cells}")
+    print(f"Total registered datasets: {len(specs)}")
+    print(f"Collection type: {type(specs).__name__}")
+    print(f"First 5 IDs via .ids(): {specs.ids()[:5]}")
+
+    # Dual indexing: positional vs dataset ID lookup
+    print(f"\nPositional indexing specs[0]: {specs[0].id} ({specs[0].title})")
+    sade = specs["GSE120575"]
+    print(f"Direct ID indexing specs['GSE120575']: {sade.title} | {sade.cancer_type} | Modality: {sade.modality.value}")
+
+    # Filtering registered datasets
+    sc_cohorts = specs.filter(modality=Modality.SINGLE_CELL)
+    print(f"Single-cell cohorts found: {len(sc_cohorts)} -> {sc_cohorts.ids()[:4]}")
+
+    # Export to strongly-typed Polars DataFrame
+    df = specs.to_polars()
+    print("\nPolars DataFrame representation (specs.to_polars()):")
+    print(df.select(["id", "modality", "cancer_type", "platform", "has_response_labels"]).head(6))
 
     print_section("2. GENE SET COLLECTIONS & SIGNATURE SCORING")
     coll = get_tme_major_lineage_collection()

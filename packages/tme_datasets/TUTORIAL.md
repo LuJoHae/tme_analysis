@@ -33,25 +33,44 @@ uv run python packages/tme_datasets/examples/tutorial_explore_all_features.py
 
 ## 1. Dataset Registry & Metadata Inspection
 
-All single-cell references, bulk iAtlas cohorts, and direct publication datasets are declaratively indexed in an immutable registry.
+All single-cell references, bulk iAtlas cohorts, and direct publication datasets are declaratively indexed in an immutable registry. Calling `list_registered_datasets()` returns a **`RegisteredDatasets`** collection that inherits from `tuple[DatasetSpec, ...]`, while providing powerful list accessors, dual indexing, and seamless export to **Polars** DataFrames.
 
 ```python
-from tme_datasets import list_registered_datasets, get_dataset_spec
+import polars as pl
+from tme_datasets import list_registered_datasets, get_dataset_spec, Modality
 from returns.maybe import Some
 
-# List all available datasets across modalities
+# 1. Retrieve the registered dataset collection
 specs = list_registered_datasets()
-print(f"Total registered datasets: {len(specs)}")
+print(f"Total registered datasets: {len(specs)}")  # e.g. 24
 
-# Inspect a specific dataset's metadata specification
-match get_dataset_spec("GSE120575"):
+# 2. Dual indexing: by index or by dataset ID
+first_spec = specs[0]
+sade_spec = specs["GSE120575"]  # Direct ID indexing (raises KeyError if missing)
+print(f"Dataset: {sade_spec.title} ({sade_spec.cancer_type})")
+
+# 3. Attribute list accessor methods
+all_ids = specs.ids()
+all_titles = specs.titles()
+all_modalities = specs.modalities()
+organs_raw = specs.organs(unwrapped=True)  # Returns list[str | None]
+sample_counts = specs.n_samples_or_cells(unwrapped=True)  # Returns list[int | None]
+
+# 4. Safe lookup and functional filtering
+match specs.get("GSE120575"):
     case Some(spec):
-        print(f"ID:       {spec.id}")
-        print(f"Title:    {spec.title}")
-        print(f"Modality: {spec.modality.value}")
-        print(f"Cancer:   {spec.cancer_type}")
-        print(f"Platform: {spec.platform}")
-        print(f"Response: {spec.has_response_labels}")
+        print(f"Found: {spec.id} [{spec.platform}]")
+
+sc_specs = specs.filter(modality=Modality.SINGLE_CELL)
+print(f"Single-cell cohorts: {sc_specs.ids()}")
+
+# 5. Convert to Polars DataFrame for downstream queries
+df = specs.to_polars()
+print(df.select(["id", "modality", "cancer_type", "platform", "has_response_labels"]))
+
+# Run expressive Polars queries
+melanoma_df = df.filter(pl.col("cancer_type") == "Melanoma")
+print(f"Melanoma datasets: {melanoma_df['id'].to_list()}")
 ```
 
 ---
