@@ -8,7 +8,10 @@ import numpy as np
 import pandas as pd
 from returns.result import Failure, Result, Success
 
+from ..logging import get_logger
 from ..preprocessing.metadata import binarize_response, standardize_recist
+
+logger = get_logger("providers.bulk_papers")
 
 PAPER_DATASETS = (
     "Auslander",
@@ -31,28 +34,38 @@ PAPER_DATASETS = (
 def load_paper_h5ad(h5ad_path: Path) -> Result[ad.AnnData, str]:
     """Load an authentic paper H5AD dataset from publication archives or dataset_papers/."""
     if not h5ad_path.exists():
-        return Failure(f"H5AD file not found: {h5ad_path}")
+        msg = f"H5AD file not found: {h5ad_path}"
+        logger.error(msg)
+        return Failure(msg)
 
     try:
+        logger.info("Reading paper H5AD file from %s...", h5ad_path.name)
         adata = ad.read_h5ad(h5ad_path)
         # Harmonize response column if present
         resp_cols = [c for c in adata.obs.columns if any(k in c.lower() for k in ("response", "recist", "dcb"))]
         if resp_cols and "response_binary" not in adata.obs.columns:
             resp_col = resp_cols[0]
+            logger.debug("Standardizing response column '%s' for %s", resp_col, h5ad_path.name)
             adata.obs["response_binary"] = adata.obs[resp_col].apply(binarize_response)
             adata.obs["response_recist"] = adata.obs[resp_col].apply(standardize_recist)
 
+        logger.info("Successfully parsed %s: %d samples x %d genes", h5ad_path.name, adata.n_obs, adata.n_vars)
         return Success(adata)
     except Exception as exc:
-        return Failure(f"Failed to load paper H5AD from {h5ad_path}: {exc}")
+        msg = f"Failed to load paper H5AD from {h5ad_path}: {exc}"
+        logger.error(msg)
+        return Failure(msg)
 
 
 def load_genentech_egad(align_dir: Path) -> Result[ad.AnnData, str]:
     """Load Genentech IMvigor210 raw RNA-seq alignment read counts (EGAD00001006631)."""
     if not align_dir.exists():
-        return Failure(f"EGAD alignment directory not found: {align_dir}")
+        msg = f"EGAD alignment directory not found: {align_dir}"
+        logger.error(msg)
+        return Failure(msg)
 
     try:
+        logger.info("Scanning patient subdirectories in %s...", align_dir)
         all_counts = []
         for dirpath in align_dir.iterdir():
             if not dirpath.is_dir():
@@ -67,8 +80,11 @@ def load_genentech_egad(align_dir: Path) -> Result[ad.AnnData, str]:
                 all_counts.append(series)
 
         if not all_counts:
-            return Failure(f"No ReadsPerGene.out.tab files found in {align_dir}")
+            msg = f"No ReadsPerGene.out.tab files found in {align_dir}"
+            logger.error(msg)
+            return Failure(msg)
 
+        logger.info("Concatenating %d patient alignment count profiles...", len(all_counts))
         df_counts = pd.concat(all_counts, axis=1).T
         adata = ad.AnnData(
             X=df_counts.values.astype(np.float32),
@@ -77,4 +93,6 @@ def load_genentech_egad(align_dir: Path) -> Result[ad.AnnData, str]:
         )
         return Success(adata)
     except Exception as exc:
-        return Failure(f"Failed to load Genentech EGAD dataset: {exc}")
+        msg = f"Failed to load Genentech EGAD dataset: {exc}"
+        logger.error(msg)
+        return Failure(msg)

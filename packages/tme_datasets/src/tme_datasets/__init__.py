@@ -11,6 +11,13 @@ from .query import (
     query_datasets,
 )
 
+# Logging
+from .logging import (
+    configure_logging,
+    get_logger,
+    set_log_level,
+)
+
 # Registry
 from .registry import (
     DATASET_REGISTRY,
@@ -214,4 +221,8 @@ __all__ = [
     # Verification
     "compute_file_hash",
     "verify_checksum",
+    # Logging
+    "configure_logging",
+    "get_logger",
+    "set_log_level",
 ]

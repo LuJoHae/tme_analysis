@@ -15,7 +15,10 @@ from scipy.special import polygamma, psi
 from returns.maybe import Maybe, Some
 from returns.result import Failure, Result, Success
 
+from ..logging import get_logger
 from ..types import NBEstimationMethod
+
+logger = get_logger("transforms.nb_inference")
 
 
 def compute_size_factors(X: np.ndarray) -> np.ndarray:
@@ -198,6 +201,12 @@ def infer_dataset_nb_parameters(
     Returns mapping: cluster_name -> (means, dispersions)
     """
     try:
+        logger.info(
+            "Inferring Negative Binomial parameters using %s (%d cells x %d genes)...",
+            method.value,
+            adata.n_obs,
+            adata.n_vars,
+        )
         X = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X, dtype=np.float64)
         if method == NBEstimationMethod.SANITY:
             from ..preprocessing.sanity import run_sanity_normalization
@@ -213,6 +222,7 @@ def infer_dataset_nb_parameters(
             dispersions = np.clip(
                 s_adata.var["sanity_variance"].values, min_dispersion, max_dispersion
             )
+            logger.info("Successfully inferred Sanity-based NB parameters (median dispersion: %.3f)", float(np.median(dispersions)))
             return Success({"global": (means, dispersions)})
 
         fit_fn = {
@@ -226,6 +236,7 @@ def infer_dataset_nb_parameters(
         if key is not None and key in adata.obs:
             clusters = adata.obs[key].astype(str).values
             unique_clusters = np.unique(clusters)
+            logger.info("Inferring cluster-specific NB parameters for %d clusters (%s)...", len(unique_clusters), key)
             results: dict[str, tuple[np.ndarray, np.ndarray]] = {}
 
             for c in unique_clusters:
@@ -240,6 +251,7 @@ def infer_dataset_nb_parameters(
                 )
                 results[str(c)] = (mu, alpha)
 
+            logger.info("Successfully inferred NB parameters for %d clusters", len(results))
             return Success(results)
 
         # Global fit across all cells
@@ -250,6 +262,13 @@ def infer_dataset_nb_parameters(
             min_dispersion=min_dispersion,
             max_dispersion=max_dispersion,
         )
+        logger.info(
+            "Successfully inferred global NB parameters (median mu: %.2f, median alpha: %.3f)",
+            float(np.median(mu)),
+            float(np.median(alpha)),
+        )
         return Success({"global": (mu, alpha)})
     except Exception as exc:
-        return Failure(f"Failed to infer Negative Binomial parameters: {exc}")
+        msg = f"Failed to infer Negative Binomial parameters: {exc}"
+        logger.error(msg)
+        return Failure(msg)

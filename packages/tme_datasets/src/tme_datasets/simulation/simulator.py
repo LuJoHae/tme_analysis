@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import anndata as ad
 import numpy as np
 import polars as pl
@@ -9,7 +10,10 @@ import scipy.sparse as sp
 from returns.maybe import Some
 from returns.result import Failure, Result, Success
 
+from ..logging import get_logger
 from ..models import PseudobulkConfig
+
+logger = get_logger("simulation.pseudobulk")
 
 
 def simulate_pseudobulk(
@@ -43,6 +47,15 @@ def simulate_pseudobulk(
         n_samples = config.n_samples
         n_genes = adata.n_vars
         cells_per_sample = config.cells_per_sample
+
+        logger.info(
+            "Simulating %d in-silico bulk mixtures from %d cells (%d cell types, %d cells/mixture)...",
+            n_samples,
+            adata.n_obs,
+            n_types,
+            cells_per_sample,
+        )
+        start_time = time.time()
 
         bulk_matrix = np.zeros((n_samples, n_genes), dtype=np.float32)
         proportions_data: dict[str, list[float | str]] = {
@@ -79,6 +92,7 @@ def simulate_pseudobulk(
         # Optional Negative Binomial sequencing noise
         if isinstance(config.noise_dispersion, Some):
             disp = max(1e-5, config.noise_dispersion.value_or(0.1))
+            logger.debug("Applying Negative Binomial sequencing noise (dispersion=%.3f)...", disp)
             shape = 1.0 / disp
             scale = disp * np.maximum(bulk_matrix, 0.0)
             lam = rng.gamma(shape=shape, scale=np.maximum(scale, 1e-8))
@@ -94,6 +108,15 @@ def simulate_pseudobulk(
         )
 
         truth_df = pl.DataFrame(proportions_data)
+        elapsed = max(0.01, time.time() - start_time)
+        logger.info(
+            "Successfully simulated %d pseudobulk mixtures across %d genes in %.2fs",
+            n_samples,
+            n_genes,
+            elapsed,
+        )
         return Success((bulk_adata, truth_df))
     except Exception as exc:
-        return Failure(f"Failed to simulate pseudobulk mixtures: {exc}")
+        msg = f"Failed to simulate pseudobulk mixtures: {exc}"
+        logger.error(msg)
+        return Failure(msg)

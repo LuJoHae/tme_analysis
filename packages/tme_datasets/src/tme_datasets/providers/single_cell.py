@@ -12,11 +12,14 @@ import scipy.sparse as sp
 from returns.maybe import Nothing, Some
 from returns.result import Failure, Result, Success
 
+from ..logging import get_logger
 from ..models import DatasetSpec, QualityControlSpec
 from ..preprocessing.gene_filtering import filter_confounding_genes
 from ..preprocessing.metadata import harmonize_obs_metadata
 from ..preprocessing.normalization import normalize_total_counts
 from ..types import Modality
+
+logger = get_logger("providers.single_cell")
 
 
 def load_sade_feldman(
@@ -42,6 +45,7 @@ def load_sade_feldman(
 
     try:
         if parquet_path.exists() and meta_path.exists():
+            logger.info("Loading preprocessed Sade-Feldman parquet files from %s...", raw_or_scratch_dir)
             df_tpm = pl.read_parquet(parquet_path)
             df_meta = pl.read_parquet(meta_path).to_pandas()
             genes = df_tpm["gene"].to_list()
@@ -57,10 +61,12 @@ def load_sade_feldman(
 
         elif gz_tpm.exists():
             # Robust reading of GEO TPM file with ragged line 2
+            logger.info("Parsing gzipped GEO TPM expression matrix (%s)...", gz_tpm.name)
             with gzip.open(gz_tpm, "rt", encoding="utf-8", errors="replace") as f:
                 header = f.readline().rstrip("\r\n").split("\t")
             cell_ids = [c for c in header[1:] if c.strip()]
             usecols = [0] + list(range(1, len(cell_ids) + 1))
+            logger.debug("Identified %d cell barcode columns in header", len(cell_ids))
 
             df = pd.read_csv(
                 gz_tpm,
@@ -72,6 +78,7 @@ def load_sade_feldman(
                 engine="c",
             )
             df.columns = cell_ids
+            logger.info("Parsed %d genes across %d single cells from %s", len(df), len(cell_ids), gz_tpm.name)
 
             adata = ad.AnnData(
                 X=sp.csr_matrix(df.values.T.astype(np.float32)),
@@ -80,6 +87,7 @@ def load_sade_feldman(
             adata.obs_names = list(cell_ids)
 
             if gz_meta.exists():
+                logger.info("Parsing metadata annotations from %s...", gz_meta.name)
                 meta = pd.read_csv(
                     gz_meta,
                     sep="\t",
@@ -97,7 +105,9 @@ def load_sade_feldman(
         else:
             return Failure(f"Sade-Feldman data files not found in {raw_or_scratch_dir}")
     except Exception as exc:
-        return Failure(f"Failed to load Sade-Feldman: {exc}")
+        msg = f"Failed to load Sade-Feldman: {exc}"
+        logger.error(msg)
+        return Failure(msg)
 
 
 def load_jerby_arnon(raw_dir: Path) -> Result[ad.AnnData, str]:
@@ -110,15 +120,19 @@ def load_jerby_arnon(raw_dir: Path) -> Result[ad.AnnData, str]:
         return Failure(f"GSE115978 file not found in {raw_dir}")
 
     try:
+        logger.info("Loading Jerby-Arnon TPM dataset from %s...", tpm_path.name)
         df = pd.read_csv(tpm_path, index_col=0)
         adata = ad.AnnData(
             X=sp.csr_matrix(df.values.T.astype(np.float32)),
             obs=pd.DataFrame(index=df.columns),
             var=pd.DataFrame(index=df.index),
         )
+        logger.info("Filtering confounding genes for Jerby-Arnon (%d cells x %d genes)...", adata.n_obs, adata.n_vars)
         return filter_confounding_genes(adata)
     except Exception as exc:
-        return Failure(f"Failed to load Jerby-Arnon: {exc}")
+        msg = f"Failed to load Jerby-Arnon: {exc}"
+        logger.error(msg)
+        return Failure(msg)
 
 
 def load_maynard(repo_root: Path) -> Result[ad.AnnData, str]:
@@ -128,10 +142,13 @@ def load_maynard(repo_root: Path) -> Result[ad.AnnData, str]:
         return Failure(f"Maynard dataset not found at {h5ad_path}")
 
     try:
+        logger.info("Loading Maynard NSCLC H5AD from %s...", h5ad_path.name)
         adata = ad.read_h5ad(h5ad_path)
         return Success(adata)
     except Exception as exc:
-        return Failure(f"Failed to load Maynard: {exc}")
+        msg = f"Failed to load Maynard: {exc}"
+        logger.error(msg)
+        return Failure(msg)
 
 
 def load_ma_liver(raw_dir: Path) -> Result[ad.AnnData, str]:
@@ -144,6 +161,7 @@ def load_ma_liver(raw_dir: Path) -> Result[ad.AnnData, str]:
         return Failure(f"GSE125449 matrix not found in {raw_dir}")
 
     try:
+        logger.info("Loading Ma Liver HCC matrix and features from %s...", raw_dir)
         import scipy.io as sio
         mat = sio.mmread(matrix_path).T.tocsr()
         genes = pd.read_csv(genes_path, header=None)[0].tolist()
@@ -154,6 +172,9 @@ def load_ma_liver(raw_dir: Path) -> Result[ad.AnnData, str]:
             obs=pd.DataFrame(index=barcodes),
             var=pd.DataFrame(index=genes),
         )
+        logger.info("Normalizing total counts for Ma Liver dataset (%d cells x %d genes)...", adata.n_obs, adata.n_vars)
         return normalize_total_counts(adata)
     except Exception as exc:
-        return Failure(f"Failed to load Ma Liver: {exc}")
+        msg = f"Failed to load Ma Liver: {exc}"
+        logger.error(msg)
+        return Failure(msg)

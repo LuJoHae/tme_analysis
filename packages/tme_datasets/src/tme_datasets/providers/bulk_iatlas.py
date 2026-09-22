@@ -8,7 +8,10 @@ import numpy as np
 import pandas as pd
 from returns.result import Failure, Result, Success
 
+from ..logging import get_logger
 from ..preprocessing.metadata import binarize_response, standardize_recist
+
+logger = get_logger("providers.bulk_iatlas")
 
 IATLAS_COHORTS = (
     "Hugo-iAtlas",
@@ -79,9 +82,12 @@ def load_iatlas_cohort(
                 break
 
         if not found_expr:
-            return Failure(f"No mRNA expression file found in {cohort_dir}")
+            msg = f"No mRNA expression file found in {cohort_dir}"
+            logger.error(msg)
+            return Failure(msg)
 
         target_dir = found_expr.parent
+        logger.info("Reading mRNA expression file from %s...", found_expr.name)
 
         df_expr = pd.read_csv(found_expr, sep="\t", index_col=0)
         # Drop redundant Hugo symbol or Entrez column if present
@@ -91,6 +97,12 @@ def load_iatlas_cohort(
         # Samples are columns, genes are index
         sample_ids = list(df_expr.columns)
         genes = list(df_expr.index)
+        logger.info(
+            "Parsed %d samples across %d genes from %s",
+            len(sample_ids),
+            len(genes),
+            found_expr.name,
+        )
 
         # 2. Load clinical annotations
         clinical_sample_file = next(
@@ -104,6 +116,7 @@ def load_iatlas_cohort(
         df_clinical = pd.DataFrame(index=sample_ids)
 
         if clinical_sample_file and clinical_sample_file.exists():
+            logger.info("Parsing clinical annotations from %s...", clinical_sample_file.name)
             # Skip comment lines beginning with '#'
             df_raw_clin = pd.read_csv(clinical_sample_file, sep="\t", comment="#")
             id_col = next((c for c in df_raw_clin.columns if any(k in c.upper() for k in ("SAMPLE_ID", "SAMPLEID"))), df_raw_clin.columns[0])

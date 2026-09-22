@@ -11,6 +11,7 @@ References:
 
 from __future__ import annotations
 
+import time
 import anndata as ad
 import numpy as np
 import scanpy as sc
@@ -18,8 +19,11 @@ import scipy.sparse as sp
 from returns.maybe import Some
 from returns.result import Failure, Result, Success
 
+from ..logging import get_logger
 from ..models import SCTransformConfig
 from ..types import SCTransformFlavor
+
+logger = get_logger("preprocessing.sctransform")
 
 
 def _kernel_smooth(x: np.ndarray, y: np.ndarray, bandwidth: float = 0.5) -> np.ndarray:
@@ -40,6 +44,13 @@ def _normalize_analytic_pearson(
 ) -> Result[ad.AnnData, str]:
     """Compute Analytic Pearson Residuals using closed-form offset Negative Binomial (Lause et al., 2021)."""
     try:
+        start_time = time.time()
+        logger.info(
+            "Computing Analytic Pearson Residuals for %d cells x %d genes (theta=%.2f)...",
+            adata.n_obs,
+            adata.n_vars,
+            config.theta,
+        )
         new_adata = adata.copy()
 
         # Preserve unnormalized counts in layers
@@ -47,11 +58,12 @@ def _normalize_analytic_pearson(
 
         # Optional HVG selection via Pearson residuals flavor
         if isinstance(config.n_top_genes, Some):
-            n_top = config.n_top_genes.unwrap()
+            n_top = min(config.n_top_genes.unwrap(), new_adata.n_vars)
+            logger.debug("Calculating highly variable genes (top %d)...", n_top)
             sc.experimental.pp.highly_variable_genes(
                 new_adata,
                 flavor="pearson_residuals",
-                n_top_genes=min(n_top, new_adata.n_vars),
+                n_top_genes=n_top,
                 subset=False,
             )
 
@@ -78,9 +90,16 @@ def _normalize_analytic_pearson(
         if not config.use_layer_as_x:
             new_adata.X = new_adata.layers["raw_counts"].copy()
 
+        elapsed = max(0.01, time.time() - start_time)
+        logger.info(
+            "Successfully completed Analytic Pearson Residuals normalization in %.2fs",
+            elapsed,
+        )
         return Success(new_adata)
     except Exception as exc:
-        return Failure(f"Analytic Pearson Residuals normalization failed: {exc}")
+        msg = f"Analytic Pearson Residuals normalization failed: {exc}"
+        logger.error(msg)
+        return Failure(msg)
 
 
 def _normalize_regularized_glm(
@@ -95,6 +114,13 @@ def _normalize_regularized_glm(
     4. Computes clipped Pearson residuals z_{c,g} = (n_{c,g} - mu_{c,g}) / sigma_{c,g}.
     """
     try:
+        start_time = time.time()
+        logger.info(
+            "Fitting regularized Negative Binomial GLM for %d cells x %d genes (theta=%.2f)...",
+            adata.n_obs,
+            adata.n_vars,
+            config.theta,
+        )
         new_adata = adata.copy()
         X = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X, dtype=np.float64)
 
@@ -115,6 +141,7 @@ def _normalize_regularized_glm(
 
         # 1. Fit per-gene OLS / log-linear regression
         # log(y + 1) ~ beta_0 + beta_1 * x_pred
+        logger.debug("Fitting per-gene linear coefficients on cell depths...")
         log_y = np.log(X + 1.0)
         # Solve beta for all genes: (X^T X)^-1 X^T log_y
         beta, _, _, _ = np.linalg.lstsq(X_design, log_y, rcond=None)
@@ -122,6 +149,7 @@ def _normalize_regularized_glm(
         beta_1_raw = beta[1]
 
         # 2. Kernel smoothing across genes over log10(gene_means)
+        logger.debug("Applying Gaussian kernel regression smoothing over log10 gene means...")
         sort_idx = np.argsort(log10_means)
         sorted_log_means = log10_means[sort_idx]
 
@@ -164,9 +192,16 @@ def _normalize_regularized_glm(
         new_adata.var["sct_beta0"] = beta_0_smooth
         new_adata.var["sct_beta1"] = beta_1_smooth
 
+        elapsed = max(0.01, time.time() - start_time)
+        logger.info(
+            "Successfully completed regularized GLM SCTransform in %.2fs",
+            elapsed,
+        )
         return Success(new_adata)
     except Exception as exc:
-        return Failure(f"Regularized GLM SCTransform normalization failed: {exc}")
+        msg = f"Regularized GLM SCTransform normalization failed: {exc}"
+        logger.error(msg)
+        return Failure(msg)
 
 
 def normalize_sctransform(
@@ -181,6 +216,12 @@ def normalize_sctransform(
     2. `SCTransformFlavor.REGULARIZED_GLM`:
        Regularized Negative Binomial regression with parameter kernel smoothing (Hafemeister & Satija, 2019).
     """
+    logger.info(
+        "Starting SCTransform normalization (flavor=%s, %d cells x %d genes)...",
+        config.flavor.value,
+        adata.n_obs,
+        adata.n_vars,
+    )
     match config.flavor:
         case SCTransformFlavor.ANALYTIC:
             return _normalize_analytic_pearson(adata, config)

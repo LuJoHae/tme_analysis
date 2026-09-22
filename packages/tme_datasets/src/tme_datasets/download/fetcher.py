@@ -2,40 +2,115 @@
 
 from __future__ import annotations
 
-import tarfile
-import urllib.request
 from pathlib import Path
+import tarfile
+import time
+import urllib.request
 from returns.result import Failure, Result, Success
+
+from ..logging import get_logger
+
+logger = get_logger("download")
 
 
 def download_single_file(url: str, dest_path: Path) -> Result[Path, str]:
-    """Download a file from a URL to dest_path if not already present or empty."""
+    """Download a file from a URL to dest_path if not already present or empty.
+
+    Streams chunks and emits real-time progress to logger.
+    """
     try:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         if dest_path.exists() and dest_path.stat().st_size > 0:
+            logger.debug(
+                "File already present: %s (%.1f MB)",
+                dest_path.name,
+                dest_path.stat().st_size / (1024 * 1024),
+            )
             return Success(dest_path)
+
+        logger.info("Downloading %s -> %s", url, dest_path)
+        start_time = time.time()
 
         req = urllib.request.Request(
             url,
             headers={"User-Agent": "Mozilla/5.0 (Python tme_datasets)"},
         )
-        with urllib.request.urlopen(req) as response, open(dest_path, "wb") as out_file:
-            out_file.write(response.read())
+        chunk_size = 1024 * 1024  # 1 MB
 
+        with urllib.request.urlopen(req) as response, open(dest_path, "wb") as out_file:
+            content_len_header = response.info().get("Content-Length")
+            total_bytes = int(content_len_header) if content_len_header else None
+            downloaded = 0
+            last_reported_mb = 0
+
+            while True:
+                chunk = response.read(chunk_size)
+                if not chunk:
+                    break
+                out_file.write(chunk)
+                downloaded += len(chunk)
+
+                downloaded_mb = downloaded / (1024 * 1024)
+                # Report every 20 MB or at milestones
+                if downloaded_mb - last_reported_mb >= 20:
+                    if total_bytes:
+                        pct = (downloaded / total_bytes) * 100
+                        total_mb = total_bytes / (1024 * 1024)
+                        logger.info(
+                            "Downloading %s: %.1f / %.1f MB (%.1f%%)",
+                            dest_path.name,
+                            downloaded_mb,
+                            total_mb,
+                            pct,
+                        )
+                    else:
+                        logger.info(
+                            "Downloading %s: %.1f MB downloaded",
+                            dest_path.name,
+                            downloaded_mb,
+                        )
+                    last_reported_mb = downloaded_mb
+
+        elapsed = max(0.01, time.time() - start_time)
+        final_mb = downloaded / (1024 * 1024)
+        rate = final_mb / elapsed
+        logger.info(
+            "Successfully downloaded %s (%.1f MB in %.1fs, %.1f MB/s)",
+            dest_path.name,
+            final_mb,
+            elapsed,
+            rate,
+        )
         return Success(dest_path)
     except Exception as exc:
-        return Failure(f"Failed to download {url} -> {dest_path}: {exc}")
+        msg = f"Failed to download {url} -> {dest_path}: {exc}"
+        logger.error(msg)
+        return Failure(msg)
 
 
 def unpack_tar(tar_path: Path, extract_dir: Path) -> Result[Path, str]:
     """Extract a tar archive to the specified directory."""
     if not tar_path.is_file():
-        return Failure(f"Tar file not found: {tar_path}")
+        msg = f"Tar file not found: {tar_path}"
+        logger.error(msg)
+        return Failure(msg)
 
     try:
         extract_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Extracting archive %s -> %s...", tar_path.name, extract_dir)
+        start_time = time.time()
+
         with tarfile.open(tar_path, "r:*") as tar:
             tar.extractall(path=extract_dir)
+
+        elapsed = time.time() - start_time
+        logger.info(
+            "Successfully extracted %s in %.1fs",
+            tar_path.name,
+            elapsed,
+        )
         return Success(extract_dir)
     except Exception as exc:
-        return Failure(f"Failed to unpack tar {tar_path}: {exc}")
+        msg = f"Failed to unpack tar {tar_path}: {exc}"
+        logger.error(msg)
+        return Failure(msg)

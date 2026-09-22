@@ -9,6 +9,7 @@ Reference:
 
 from __future__ import annotations
 
+import time
 import anndata as ad
 import numpy as np
 import scipy.sparse as sp
@@ -16,7 +17,10 @@ from scipy.optimize import root_scalar
 from scipy.special import lambertw
 from returns.result import Failure, Result, Success
 
+from ..logging import get_logger
 from ..models import SanityConfig
+
+logger = get_logger("preprocessing.sanity")
 
 
 def _solve_qg(y_gc: np.ndarray, v_g: float, n_g: float) -> float:
@@ -171,6 +175,16 @@ def run_sanity_normalization(
         X = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X, dtype=np.float64)
 
         N_cells, G_genes = X.shape
+        logger.info(
+            "Starting Sanity Bayesian normalization for %d cells x %d genes (v_bins=%d, v_min=%.2e, v_max=%.2e)...",
+            N_cells,
+            G_genes,
+            config.n_bins,
+            config.v_min,
+            config.v_max,
+        )
+        start_time = time.time()
+
         # Cell library sizes N_c
         N_c = np.sum(X, axis=1)
         N_c = np.maximum(N_c, 1.0)
@@ -186,7 +200,13 @@ def run_sanity_normalization(
         total_depth = np.sum(N_c)
         baseline_alphas = (np.sum(X, axis=0) / max(total_depth, 1.0)).astype(np.float64)
 
+        log_interval = max(500, G_genes // 5) if G_genes >= 1000 else max(100, G_genes // 2)
+
         for g in range(G_genes):
+            if g > 0 and g % log_interval == 0:
+                pct = (g / G_genes) * 100
+                logger.info("Sanity Bayesian progress: %d / %d genes (%.1f%%)...", g, G_genes, pct)
+
             n_gc = X[:, g]
             delta_g, err_g, v_g = run_sanity_single_gene(n_gc, N_c, v_grid)
             ltq_mat[:, g] = delta_g
@@ -199,6 +219,15 @@ def run_sanity_normalization(
         new_adata.var["sanity_variance"] = variances
         new_adata.var["sanity_baseline_alpha"] = baseline_alphas
 
+        elapsed = max(0.01, time.time() - start_time)
+        logger.info(
+            "Successfully completed Sanity normalization for %d genes across %d cells in %.2fs",
+            G_genes,
+            N_cells,
+            elapsed,
+        )
         return Success(new_adata)
     except Exception as exc:
-        return Failure(f"Sanity normalization failed: {exc}")
+        msg = f"Sanity normalization failed: {exc}"
+        logger.error(msg)
+        return Failure(msg)

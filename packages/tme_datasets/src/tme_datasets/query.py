@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Sequence
 import anndata as ad
 from returns.maybe import Nothing, Some
@@ -16,6 +17,7 @@ from .genesets.collections import (
 )
 from .genesets.models import GeneSetCollection
 from .harmonization.align import align_and_concatenate
+from .logging import get_logger
 from .models import GeneReconcileConfig, HarmonizeConfig
 from .providers.bulk_iatlas import load_iatlas_cohort
 from .providers.bulk_papers import load_genentech_egad, load_paper_h5ad
@@ -27,26 +29,21 @@ from .providers.single_cell import (
 )
 from .registry import get_dataset_spec, list_registered_datasets
 
+logger = get_logger("query")
 
-def load_dataset(
+
+def _dispatch_load(
     dataset_id: str,
-    base_dir: Path | None = None,
-    auto_download: bool = True,
+    root: Path,
+    auto_download: bool,
 ) -> Result[ad.AnnData, str]:
-    """Load an individual single-cell or bulk dataset by its registered identifier."""
-    spec_maybe = get_dataset_spec(dataset_id)
-    if not isinstance(spec_maybe, Some):
-        return Failure(f"Dataset '{dataset_id}' is not recognized in the registry")
-
-    root = base_dir or Path.cwd()
-
-    # Dispatch to specific provider loaders
+    """Internal dispatch to dataset-specific loader."""
     match dataset_id:
         case "GSE120575":
             # Sade-Feldman
-            res = load_sade_feldman(root / "scratch/GSE120575")
+            res = load_sade_feldman(root / "scratch/GSE120575", auto_download=auto_download)
             if not isinstance(res, Success):
-                res = load_sade_feldman(root / "data/raw/GSE120575")
+                res = load_sade_feldman(root / "data/raw/GSE120575", auto_download=auto_download)
             return res
 
         case "GSE115978":
@@ -88,6 +85,39 @@ def load_dataset(
             return Failure(f"No loader implementation available for dataset '{dataset_id}'")
 
 
+def load_dataset(
+    dataset_id: str,
+    base_dir: Path | None = None,
+    auto_download: bool = True,
+) -> Result[ad.AnnData, str]:
+    """Load an individual single-cell or bulk dataset by its registered identifier."""
+    logger.info("Loading dataset '%s' (auto_download=%s)...", dataset_id, auto_download)
+    start_time = time.time()
+
+    spec_maybe = get_dataset_spec(dataset_id)
+    if not isinstance(spec_maybe, Some):
+        msg = f"Dataset '{dataset_id}' is not recognized in the registry"
+        logger.error(msg)
+        return Failure(msg)
+
+    root = base_dir or Path.cwd()
+    res = _dispatch_load(dataset_id, root, auto_download)
+
+    elapsed = max(0.01, time.time() - start_time)
+    match res:
+        case Success(adata):
+            logger.info(
+                "Successfully loaded dataset '%s': %d obs x %d vars (took %.2fs)",
+                dataset_id,
+                adata.n_obs,
+                adata.n_vars,
+                elapsed,
+            )
+        case Failure(err):
+            logger.error("Failed to load dataset '%s': %s (took %.2fs)", dataset_id, err, elapsed)
+
+    return res
+
 def query_datasets(
     dataset_ids: Sequence[str],
     config: HarmonizeConfig | None = None,
@@ -95,9 +125,18 @@ def query_datasets(
 ) -> Result[ad.AnnData, str]:
     """Query and harmonize multiple single-cell or bulk datasets into a unified AnnData object."""
     if not dataset_ids:
-        return Failure("At least one dataset ID must be provided")
+        msg = "At least one dataset ID must be provided"
+        logger.error(msg)
+        return Failure(msg)
 
     cfg = config or HarmonizeConfig()
+    logger.info(
+        "Querying and harmonizing %d datasets: %s (mode=%s, reconcile_genes=%s)",
+        len(dataset_ids),
+        list(dataset_ids),
+        cfg.mode.value,
+        cfg.reconcile_genes,
+    )
     loaded_adatas = []
 
     for ds_id in dataset_ids:
@@ -106,6 +145,7 @@ def query_datasets(
                 return Failure(f"Failed to load dataset '{ds_id}': {err}")
             case Success(adata):
                 if cfg.reconcile_genes:
+                    logger.debug("Reconciling gene identifiers for '%s'...", ds_id)
                     reconcile_res = reconcile_genes(
                         adata,
                         GeneReconcileConfig(target_type=cfg.gene_target_type),
@@ -118,7 +158,19 @@ def query_datasets(
                 else:
                     loaded_adatas.append(adata)
 
-    return align_and_concatenate(loaded_adatas, dataset_ids, cfg)
+    logger.info("Aligning and concatenating %d loaded datasets...", len(loaded_adatas))
+    res = align_and_concatenate(loaded_adatas, dataset_ids, cfg)
+    match res:
+        case Success(unified):
+            logger.info(
+                "Successfully harmonized %d datasets: %d obs x %d vars",
+                len(loaded_adatas),
+                unified.n_obs,
+                unified.n_vars,
+            )
+        case Failure(err):
+            logger.error("Failed to align and concatenate datasets: %s", err)
+    return res
 
 
 def load_geneset_collection(collection_id: str) -> Result[GeneSetCollection, str]:
