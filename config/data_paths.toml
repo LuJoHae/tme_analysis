@@ -5,6 +5,7 @@
 data_root = "data"
 raw_dir = "data/raw"
 preprocessed_dir = "data/preprocessed"
+manual_download_dir = "data/manual_download"
 dataset_papers_dir = "dataset_papers"
 scratch_dir = "scratch"
 reference_h5ad = "data/reference.h5ad"
@@ -20,8 +21,14 @@ raw_dataset_template = "{dataset_id}"
 [paths.candidate_h5ad_search_patterns]
 patterns = [
     "data/preprocessed/{dataset_id}.h5ad",
+    "data/preprocessed/{dataset_id}_processed.h5ad",
+    "data/manual_download/{dataset_id}.h5ad",
+    "/storage/halu/data/preprocessed/{dataset_id}.h5ad",
+    "/storage/halu/data/preprocessed/{dataset_id}_processed.h5ad",
+    "/storage/halu/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
     "dataset_papers/{dataset_id}.h5ad",
     "data/{dataset_id}.h5ad",
+    "jupyter/data/{dataset_id}.h5ad",
     "scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
     "scratch/lair/CBioPortalDataset-{dataset_id}/{dataset_id}.h5ad",
     "scratch/{dataset_id}/{dataset_id}.h5ad",
@@ -30,5 +37,6 @@ patterns = [
 
 # Custom path overrides for specific cohorts if needed
 [paths.overrides]
-EGAD00001006631 = "manual-download/EGAD00001006631-align"
-Maynard_NSCLC = "jupyter/data/maynard2020_3k.h5ad"
+EGAD00001006631 = "data/manual_download/EGAD00001006631-align"
+Maynard_NSCLC = "data/manual_download/Maynard_NSCLC.h5ad"
+

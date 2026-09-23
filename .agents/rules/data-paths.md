@@ -16,12 +16,14 @@ from tme_datasets.paths import (
     get_data_paths,
     get_preprocessed_h5ad_path,
     get_raw_dataset_dir,
+    get_manual_download_dir,
     get_scratch_dataset_dir,
     find_dataset_h5ad,
 )
 
 h5ad_path = get_preprocessed_h5ad_path("GSE120575")
 raw_dir = get_raw_dataset_dir("GSE120575")
+manual_dir = get_manual_download_dir()
 ```
 
 ## 2. Deterministic Repository Layout
@@ -34,6 +36,7 @@ All paths are backed by `config/data_paths.toml` and adhere to this hierarchy:
 │   ├── ensembl/                           # PYENSEMBL LOCAL DATA & GTF DATABASES
 │   │   ├── homo_sapiens/                  # Downloaded GTFs and SQLite indexes
 │   │   └── gene_mapping_cache_release_111.parquet # Fast symbol-to-ENSG persistent cache
+│   ├── manual_download/                   # MANUALLY DOWNLOADED & CONTROLLED DATASETS (EGAD, Maynard, Paper H5ADs)
 │   ├── raw/
 │   │   ├── <dataset_id>/                  # Isolated directory for raw downloaded archives (tar.gz, txt.gz, csv.gz)
 │   ├── preprocessed/

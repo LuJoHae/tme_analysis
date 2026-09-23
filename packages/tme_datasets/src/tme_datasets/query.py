@@ -21,19 +21,42 @@ from .logging import get_logger
 from .models import GeneReconcileConfig, HarmonizeConfig
 from .paths import (
     find_dataset_h5ad,
+    get_manual_download_dir,
     get_preprocessed_h5ad_path,
     get_raw_dataset_dir,
     get_scratch_dataset_dir,
 )
 from .providers.bulk_iatlas import load_iatlas_cohort
 from .providers.bulk_papers import load_genentech_egad, load_paper_h5ad
+from .providers.atlas_single_cell import (
+    load_azizi_brca,
+    load_becker_coad,
+    load_biermann_brainmet,
+    load_borcherding_ccrcc,
+    load_cheng_pancancer,
+    load_durante_uvm,
+    load_khaliq_cc,
+    load_kim_luad,
+    load_leader_nsclc,
+    load_lu_hcc,
+    load_pelka_crc,
+    load_pu_ptc,
+    load_qian_pancancer,
+    load_sharma_hcc,
+    load_vazquez_ov,
+    load_zhang_myeloid,
+    load_zhang_tnbc,
+    _apply_subset_and_subsample,
+)
 from .providers.single_cell import (
+    load_gse179994,
     load_jerby_arnon,
     load_ma_liver,
     load_maynard,
     load_sade_feldman,
+    load_yost,
 )
-from .registry import get_dataset_spec, list_registered_datasets
+from .registry import get_dataset_spec, list_registered_datasets, resolve_dataset_id
 
 logger = get_logger("query")
 
@@ -43,12 +66,16 @@ def _dispatch_load(
     root: Path,
     auto_download: bool,
     force_download: bool = False,
+    subset: Mapping[str, str] | None = None,
+    subsample_n: int | None = None,
 ) -> Result[ad.AnnData, str]:
     """Internal dispatch to dataset-specific loader using config-resolved paths."""
-    raw_dir = get_raw_dataset_dir(dataset_id, repo_root=root)
-    scratch_dir = get_scratch_dataset_dir(dataset_id, repo_root=root)
+    canonical_id = resolve_dataset_id(dataset_id)
+    raw_dir = get_raw_dataset_dir(canonical_id, repo_root=root)
+    scratch_dir = get_scratch_dataset_dir(canonical_id, repo_root=root)
+    manual_dir = get_manual_download_dir(repo_root=root)
 
-    match dataset_id:
+    match canonical_id:
         case "GSE120575":
             # Sade-Feldman
             res = load_sade_feldman(scratch_dir, auto_download=auto_download, force_download=force_download)
@@ -60,32 +87,99 @@ def _dispatch_load(
             return load_jerby_arnon(raw_dir, auto_download=auto_download, force_download=force_download)
 
         case "GSE125449":
-            return load_ma_liver(raw_dir)
+            return load_ma_liver(raw_dir, auto_download=auto_download, force_download=force_download)
+
+        case "GSE123813":
+            return load_yost(raw_dir, auto_download=auto_download, force_download=force_download)
+
+        case "GSE179994":
+            return load_gse179994(raw_dir, auto_download=auto_download, force_download=force_download)
 
         case "Maynard_NSCLC":
             return load_maynard(root)
 
-        case _ if dataset_id.endswith("-iAtlas"):
+        # 17 Pan-Cancer Reference Atlas Cohorts
+        case "GSE178341":
+            return load_pelka_crc(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE114727":
+            return load_azizi_brca(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "E-MTAB-8107":
+            return load_qian_pancancer(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE154763":
+            return load_cheng_pancancer(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE154826":
+            return load_leader_nsclc(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE131907":
+            return load_kim_luad(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE201349":
+            return load_becker_coad(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE200997":
+            return load_khaliq_cc(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE121638":
+            return load_borcherding_ccrcc(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE156625":
+            return load_sharma_hcc(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE149614":
+            return load_lu_hcc(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE184362":
+            return load_pu_ptc(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE139829":
+            return load_durante_uvm(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE200218":
+            return load_biermann_brainmet(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE180661":
+            return load_vazquez_ov(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE169246":
+            return load_zhang_tnbc(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "GSE215120":
+            return load_zhang_myeloid(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case _ if canonical_id.endswith("-iAtlas"):
             # cBioPortal iAtlas cohort
-            return load_iatlas_cohort(raw_dir, cohort_name=dataset_id, auto_download=auto_download, force_download=force_download)
+            return load_iatlas_cohort(raw_dir, cohort_name=canonical_id, auto_download=auto_download, force_download=force_download)
 
         case "EGAD00001006631":
-            return load_genentech_egad(raw_dir)
+            align_dir = manual_dir / "EGAD00001006631-align"
+            if not align_dir.exists() and raw_dir.exists():
+                align_dir = raw_dir
+            return load_genentech_egad(align_dir)
 
-        case _ if dataset_id in (
+        case _ if canonical_id in (
             "Auslander", "Chen-CTLA4", "Chen-PD1", "Freeman", "Gide", "Hugo",
             "Lauss", "Liu", "Prat", "Ravi", "Riaz", "Rose", "Snyder", "VanAllen"
         ):
             # Direct paper H5AD
-            found = find_dataset_h5ad(dataset_id, repo_root=root)
+            found = find_dataset_h5ad(canonical_id, repo_root=root)
             match found:
                 case Some(h5ad_path):
                     return load_paper_h5ad(h5ad_path)
                 case _:
-                    return Failure(f"Paper H5AD for '{dataset_id}' not found in candidate paths")
+                    expected_file = manual_dir / f"{canonical_id}.h5ad"
+                    return Failure(
+                        f"Paper H5AD for '{canonical_id}' not found. "
+                        f"Expected file at '{expected_file}'. "
+                        f"Please run 'python scripts/setup_manual_downloads.py' (or 'make setup-manual-downloads') "
+                        f"to copy paper cohorts from cluster storage into data/manual_download/."
+                    )
 
         case _:
-            return Failure(f"No loader implementation available for dataset '{dataset_id}'")
+            return Failure(f"No loader implementation available for dataset '{dataset_id}' (canonical '{canonical_id}')")
 
 
 def load_dataset(
@@ -98,6 +192,8 @@ def load_dataset(
     normalize_ensembl: bool = True,
     ensembl_release: int | None = None,
     drop_unmapped: bool = True,
+    subset: Mapping[str, str] | None = None,
+    subsample_n: int | None = None,
 ) -> Result[ad.AnnData, str]:
     """Load an individual single-cell or bulk dataset by its registered identifier.
 
@@ -130,28 +226,31 @@ def load_dataset(
     )
     start_time = time.time()
 
-    spec_maybe = get_dataset_spec(dataset_id)
+    canonical_id = resolve_dataset_id(dataset_id)
+    spec_maybe = get_dataset_spec(canonical_id)
     if not isinstance(spec_maybe, Some):
-        msg = f"Dataset '{dataset_id}' is not recognized in the registry"
+        msg = f"Dataset '{dataset_id}' (canonical '{canonical_id}') is not recognized in the registry"
         logger.error(msg)
         return Failure(msg)
 
     root = base_dir or Path.cwd()
 
     # Step 1: Fast path - load from preprocessed H5AD if available
-    if not force_recompute:
-        h5ad_found = find_dataset_h5ad(dataset_id, repo_root=root)
+    if not force_recompute and not force_download:
+        h5ad_found = find_dataset_h5ad(canonical_id, repo_root=root)
         match h5ad_found:
             case Some(h5ad_path):
                 size_mb = h5ad_path.stat().st_size / (1024 * 1024)
                 logger.info(
                     "Found cached H5AD for '%s' at %s (%.1f MB). Loading directly in <0.5s...",
-                    dataset_id,
+                    canonical_id,
                     h5ad_path.name,
                     size_mb,
                 )
                 try:
                     adata = ad.read_h5ad(h5ad_path)
+                    if subset or subsample_n:
+                        adata = _apply_subset_and_subsample(adata, subset=subset, subsample_n=subsample_n)
                     elapsed = max(0.01, time.time() - start_time)
                     logger.info(
                         "Successfully loaded dataset '%s': %d obs x %d vars from H5AD (took %.2fs)",
@@ -169,7 +268,14 @@ def load_dataset(
                     )
 
     # Step 2: Ingestion path - dispatch to provider loader
-    res = _dispatch_load(dataset_id, root, auto_download=auto_download, force_download=force_download)
+    res = _dispatch_load(
+        canonical_id,
+        root,
+        auto_download=auto_download,
+        force_download=force_download,
+        subset=subset,
+        subsample_n=subsample_n,
+    )
 
     # Step 3: Ensembl Normalization and H5AD Serialization
     match res:
@@ -191,9 +297,10 @@ def load_dataset(
                             norm_err,
                         )
 
-            if cache_h5ad:
+            # Only cache complete dataset if no subsetting / subsampling was requested
+            if cache_h5ad and not subset and subsample_n is None:
                 try:
-                    target_h5ad = get_preprocessed_h5ad_path(dataset_id, repo_root=root)
+                    target_h5ad = get_preprocessed_h5ad_path(canonical_id, repo_root=root)
                     target_h5ad.parent.mkdir(parents=True, exist_ok=True)
 
                     # Sanitize index names for robust h5py serialization
@@ -207,12 +314,12 @@ def load_dataset(
                     size_mb = target_h5ad.stat().st_size / (1024 * 1024)
                     logger.info(
                         "Successfully serialized dataset '%s' to H5AD: %s (%.1f MB). Future calls will load instantly.",
-                        dataset_id,
+                        canonical_id,
                         target_h5ad.name,
                         size_mb,
                     )
                 except Exception as cache_exc:
-                    logger.warning("Failed to serialize H5AD cache for '%s': %s", dataset_id, cache_exc)
+                    logger.warning("Failed to serialize H5AD cache for '%s': %s", canonical_id, cache_exc)
 
             elapsed = max(0.01, time.time() - start_time)
             logger.info(

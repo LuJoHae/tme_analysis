@@ -32,9 +32,14 @@ PAPER_DATASETS = (
 
 
 def load_paper_h5ad(h5ad_path: Path) -> Result[ad.AnnData, str]:
-    """Load an authentic paper H5AD dataset from publication archives or dataset_papers/."""
+    """Load an authentic paper H5AD dataset from publication archives or data/manual_download/."""
     if not h5ad_path.exists():
-        msg = f"H5AD file not found: {h5ad_path}"
+        msg = (
+            f"Paper H5AD file not found at '{h5ad_path}'. "
+            f"This dataset requires manual placement into 'data/manual_download/{h5ad_path.name}'. "
+            f"If working on the cluster, run 'python scripts/setup_manual_downloads.py' (or 'make setup-manual-downloads') "
+            f"to copy paper cohorts from cluster storage into data/manual_download/."
+        )
         logger.error(msg)
         return Failure(msg)
 
@@ -60,7 +65,12 @@ def load_paper_h5ad(h5ad_path: Path) -> Result[ad.AnnData, str]:
 def load_genentech_egad(align_dir: Path) -> Result[ad.AnnData, str]:
     """Load Genentech IMvigor210 raw RNA-seq alignment read counts (EGAD00001006631)."""
     if not align_dir.exists():
-        msg = f"EGAD alignment directory not found: {align_dir}"
+        msg = (
+            f"EGAD alignment directory not found at '{align_dir}'. "
+            f"This dataset requires controlled-access / manual download. "
+            f"Please ensure the alignment directory is placed at 'data/manual_download/EGAD00001006631-align' "
+            f"(or run 'python scripts/setup_manual_downloads.py' on the cluster)."
+        )
         logger.error(msg)
         return Failure(msg)
 

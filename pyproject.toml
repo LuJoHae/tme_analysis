@@ -72,3 +72,4 @@ ici_datasets = { workspace = true }
 ml_pipelines = { workspace = true }
 selective-inference = { workspace = true }
 single_cell_immuno_datasets = { workspace = true }
+milopy = { workspace = true }

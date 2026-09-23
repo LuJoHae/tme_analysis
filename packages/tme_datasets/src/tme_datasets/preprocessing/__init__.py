@@ -25,4 +25,14 @@ __all__ = [
     "harmonize_obs_metadata",
     "run_sanity_normalization",
     "normalize_sctransform",
+    "inspect_expression_type",
+    "tag_expression_metadata",
+    "ExpressionType",
+    "ExpressionInspectionResult",
 ]
+from .matrix_inspection import (
+    ExpressionInspectionResult,
+    ExpressionType,
+    inspect_expression_type,
+    tag_expression_metadata,
+)

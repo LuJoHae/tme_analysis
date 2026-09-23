@@ -183,35 +183,78 @@ def load_jerby_arnon(
 
 def load_maynard(repo_root: Path) -> Result[ad.AnnData, str]:
     """Load Maynard et al. 2020 NSCLC dataset (3,000 cells)."""
-    h5ad_path = repo_root / "jupyter/data/maynard2020_3k.h5ad"
-    if not h5ad_path.exists():
-        return Failure(f"Maynard dataset not found at {h5ad_path}")
+    from ..paths import find_dataset_h5ad
 
-    try:
-        logger.info("Loading Maynard NSCLC H5AD from %s...", h5ad_path.name)
-        adata = ad.read_h5ad(h5ad_path)
-        return Success(adata)
-    except Exception as exc:
-        msg = f"Failed to load Maynard: {exc}"
-        logger.error(msg)
-        return Failure(msg)
+    h5ad_maybe = find_dataset_h5ad("Maynard_NSCLC", repo_root=repo_root)
+    match h5ad_maybe:
+        case Some(h5ad_path):
+            try:
+                logger.info("Loading Maynard NSCLC H5AD from %s...", h5ad_path)
+                adata = ad.read_h5ad(h5ad_path)
+                return Success(adata)
+            except Exception as exc:
+                msg = f"Failed to load Maynard: {exc}"
+                logger.error(msg)
+                return Failure(msg)
+        case _:
+            msg = (
+                "Maynard NSCLC dataset not found in candidate paths. "
+                "Expected file at 'data/manual_download/Maynard_NSCLC.h5ad' (or 'jupyter/data/maynard2020_3k.h5ad'). "
+                "Please run 'python scripts/setup_manual_downloads.py' (or 'make setup-manual-downloads') to copy it."
+            )
+            logger.error(msg)
+            return Failure(msg)
 
 
-def load_ma_liver(raw_dir: Path) -> Result[ad.AnnData, str]:
+def load_ma_liver(
+    raw_dir: Path,
+    auto_download: bool = True,
+    force_download: bool = False,
+) -> Result[ad.AnnData, str]:
     """Load Ma et al. 2019 HCC dataset (GSE125449, 5,115 cells)."""
-    matrix_path = raw_dir / "GSE125449_set1_matrix.gz"
-    genes_path = raw_dir / "GSE125449_set1_genes.gz"
-    barcodes_path = raw_dir / "GSE125449_set1_barcodes.gz"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    matrix_candidates = [
+        raw_dir / "GSE125449_Set1_matrix.mtx.gz",
+        raw_dir / "GSE125449_set1_matrix.gz",
+        raw_dir / "GSE125449_set1_matrix.mtx.gz",
+    ]
+    genes_candidates = [
+        raw_dir / "GSE125449_Set1_genes.tsv.gz",
+        raw_dir / "GSE125449_set1_genes.gz",
+        raw_dir / "GSE125449_set1_genes.tsv.gz",
+    ]
+    barcodes_candidates = [
+        raw_dir / "GSE125449_Set1_barcodes.tsv.gz",
+        raw_dir / "GSE125449_set1_barcodes.gz",
+        raw_dir / "GSE125449_set1_barcodes.tsv.gz",
+    ]
+
+    matrix_path = next((p for p in matrix_candidates if p.exists()), matrix_candidates[0])
+    genes_path = next((p for p in genes_candidates if p.exists()), genes_candidates[0])
+    barcodes_path = next((p for p in barcodes_candidates if p.exists()), barcodes_candidates[0])
+
+    if (auto_download or force_download) and (force_download or not matrix_path.exists()):
+        from ..download.fetcher import download_single_file
+
+        url_mat = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE125nnn/GSE125449/suppl/GSE125449_Set1_matrix.mtx.gz"
+        url_genes = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE125nnn/GSE125449/suppl/GSE125449_Set1_genes.tsv.gz"
+        url_barcodes = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE125nnn/GSE125449/suppl/GSE125449_Set1_barcodes.tsv.gz"
+        if force_download and matrix_path.exists():
+            matrix_path.unlink()
+        download_single_file(url_mat, matrix_path)
+        download_single_file(url_genes, genes_path)
+        download_single_file(url_barcodes, barcodes_path)
 
     if not matrix_path.exists():
-        return Failure(f"GSE125449 matrix not found in {raw_dir}")
+        return Failure(f"GSE125449 matrix file not found in {raw_dir}")
 
     try:
         logger.info("Loading Ma Liver HCC matrix and features from %s...", raw_dir)
         import scipy.io as sio
+
         mat = sio.mmread(matrix_path).T.tocsr()
-        genes = pd.read_csv(genes_path, header=None)[0].tolist()
-        barcodes = pd.read_csv(barcodes_path, header=None)[0].tolist()
+        genes = pd.read_csv(genes_path, header=None, sep=r"\s+")[0].tolist()
+        barcodes = pd.read_csv(barcodes_path, header=None, sep=r"\s+")[0].tolist()
 
         adata = ad.AnnData(
             X=mat.astype(np.float32),
@@ -224,3 +267,150 @@ def load_ma_liver(raw_dir: Path) -> Result[ad.AnnData, str]:
         msg = f"Failed to load Ma Liver: {exc}"
         logger.error(msg)
         return Failure(msg)
+
+
+def load_yost(
+    raw_dir: Path,
+    auto_download: bool = True,
+    force_download: bool = False,
+    n_cells: int | None = None,
+) -> Result[ad.AnnData, str]:
+    """Load and preprocess Yost et al. 2019 BCC/SCC dataset (GSE123813)."""
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    counts_candidates = [
+        raw_dir / "GSE123813_bcc_scRNA_counts.txt.gz",
+        raw_dir / "GSE123813_bcc_counts.txt.gz",
+        raw_dir / "GSE123813_scc_scRNA_counts.txt.gz",
+    ]
+    counts_path = next((p for p in counts_candidates if p.exists()), counts_candidates[0])
+
+    if (auto_download or force_download) and (force_download or not counts_path.exists()):
+        from ..download.fetcher import download_single_file
+
+        url_counts = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE123nnn/GSE123813/suppl/GSE123813_bcc_scRNA_counts.txt.gz"
+        if force_download and counts_path.exists():
+            counts_path.unlink()
+        download_single_file(url_counts, counts_path)
+
+    if not counts_path.exists():
+        return Failure(f"GSE123813 counts file not found in {raw_dir}")
+
+    try:
+        logger.info("Loading Yost et al. BCC counts from %s...", counts_path.name)
+        genes: list[str] = []
+        matrix_rows: list[np.ndarray] = []
+        with gzip.open(counts_path, "rt") as f:
+            header = f.readline().strip().split("\t")
+            cell_names = header[1 : n_cells + 1] if n_cells else header[1:]
+            num_cols = len(cell_names)
+            for line in f:
+                parts = line.strip().split("\t")
+                genes.append(parts[0])
+                arr = np.fromiter((float(x) for x in parts[1 : num_cols + 1]), dtype=np.float32, count=num_cols)
+                matrix_rows.append(arr)
+
+        raw_mat = np.vstack(matrix_rows)  # (n_genes, n_cells)
+        sparse_mat = sp.csr_matrix(raw_mat.T, dtype=np.float32)
+
+        # Parse patient IDs and response mapping
+        response_map = {
+            "su001": 1, "su002": 1, "su003": 1, "su004": 1, "su009": 1, "su011": 1, "su012": 1,
+            "su005": 0, "su006": 0, "su007": 0, "su008": 0, "su010": 0, "su013": 0, "su014": 0,
+        }
+        obs_df = pd.DataFrame(index=cell_names)
+
+        def _extract_patient(barcode: str) -> str:
+            parts = barcode.replace("_", ".").split(".")
+            for p in parts:
+                if p.lower().startswith("su") and len(p) >= 4 and p[2:].isdigit():
+                    return p.lower()
+            return "unknown"
+
+        obs_df["patient"] = [_extract_patient(b) for b in cell_names]
+        obs_df["response_binary"] = obs_df["patient"].map(response_map)
+
+        adata = ad.AnnData(
+            X=sparse_mat,
+            obs=obs_df,
+            var=pd.DataFrame(index=genes),
+        )
+        logger.info("Successfully loaded Yost BCC dataset: %d cells x %d genes", adata.n_obs, adata.n_vars)
+        return normalize_total_counts(adata)
+    except Exception as exc:
+        msg = f"Failed to load Yost GSE123813: {exc}"
+        logger.error(msg)
+        return Failure(msg)
+
+
+def load_gse179994(
+    raw_dir: Path,
+    auto_download: bool = True,
+    force_download: bool = False,
+) -> Result[ad.AnnData, str]:
+    """Load and preprocess Tietscher et al. Pan-Cancer T-cell Atlas (GSE179994)."""
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    rds_gz_path = raw_dir / "GSE179994_all.Tcell.rawCounts.rds.gz"
+    rds_path = raw_dir / "GSE179994_all.Tcell.rawCounts.rds"
+    meta_path = raw_dir / "GSE179994_Tcell.metadata.tsv.gz"
+
+    if (auto_download or force_download) and (force_download or (not rds_gz_path.exists() and not rds_path.exists())):
+        from ..download.fetcher import download_single_file
+
+        url_rds = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE179nnn/GSE179994/suppl/GSE179994_all.Tcell.rawCounts.rds.gz"
+        url_meta = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE179nnn/GSE179994/suppl/GSE179994_Tcell.metadata.tsv.gz"
+        if force_download and rds_gz_path.exists():
+            rds_gz_path.unlink()
+        download_single_file(url_rds, rds_gz_path)
+        download_single_file(url_meta, meta_path)
+
+    # Decompress RDS if needed for pyreadr
+    if not rds_path.exists() and rds_gz_path.exists():
+        logger.info("Decompressing %s...", rds_gz_path.name)
+        with gzip.open(rds_gz_path, "rb") as f_in, open(rds_path, "wb") as f_out:
+            import shutil
+
+            shutil.copyfileobj(f_in, f_out)
+
+    if not rds_path.exists():
+        return Failure(f"GSE179994 RDS count file not found in {raw_dir}")
+
+    try:
+        import pyreadr
+
+        logger.info("Reading GSE179994 RDS raw count matrix via pyreadr from %s...", rds_path.name)
+        rds_dict = pyreadr.read_r(str(rds_path))
+        key = next(iter(rds_dict.keys()))
+        df_counts = rds_dict[key]
+
+        if df_counts.shape[0] > df_counts.shape[1]:  # genes x cells
+            cell_names = list(df_counts.columns)
+            gene_names = list(df_counts.index)
+            mat_csr = sp.csr_matrix(df_counts.values.T.astype(np.float32))
+        else:  # cells x genes
+            cell_names = list(df_counts.index)
+            gene_names = list(df_counts.columns)
+            mat_csr = sp.csr_matrix(df_counts.values.astype(np.float32))
+
+        obs_df = pd.DataFrame(index=cell_names)
+
+        if meta_path.exists():
+            df_meta = pd.read_csv(meta_path, sep="\t", index_col=0)
+            obs_df = obs_df.join(df_meta, how="left")
+            if "sample" in obs_df.columns:
+                s = obs_df["sample"].astype(str)
+                is_post = s.str.contains(r"\.post|\.tr", regex=True, case=False)
+                is_pre = s.str.contains(r"\.pre|\.ut", regex=True, case=False)
+                obs_df["response_treatment"] = np.where(is_post, "On-treatment", np.where(is_pre, "Pre-treatment", "Unknown"))
+
+        adata = ad.AnnData(
+            X=mat_csr,
+            obs=obs_df,
+            var=pd.DataFrame(index=gene_names),
+        )
+        logger.info("Successfully loaded GSE179994: %d cells x %d genes", adata.n_obs, adata.n_vars)
+        return normalize_total_counts(adata)
+    except Exception as exc:
+        msg = f"Failed to load GSE179994: {exc}"
+        logger.error(msg)
+        return Failure(msg)
+

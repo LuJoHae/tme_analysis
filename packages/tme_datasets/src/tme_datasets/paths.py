@@ -24,6 +24,7 @@ class DataPathsConfig(BaseModel):
     data_root: Path
     raw_dir: Path
     preprocessed_dir: Path
+    manual_download_dir: Path
     dataset_papers_dir: Path
     scratch_dir: Path
     reference_h5ad: Path
@@ -34,14 +35,21 @@ class DataPathsConfig(BaseModel):
     raw_dataset_template: str = "{dataset_id}"
     candidate_patterns: tuple[str, ...] = (
         "data/preprocessed/{dataset_id}.h5ad",
+        "data/preprocessed/{dataset_id}_processed.h5ad",
+        "data/manual_download/{dataset_id}.h5ad",
+        "/storage/halu/data/preprocessed/{dataset_id}.h5ad",
+        "/storage/halu/data/preprocessed/{dataset_id}_processed.h5ad",
+        "/storage/halu/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
         "dataset_papers/{dataset_id}.h5ad",
         "data/{dataset_id}.h5ad",
+        "jupyter/data/{dataset_id}.h5ad",
         "scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
         "scratch/lair/CBioPortalDataset-{dataset_id}/{dataset_id}.h5ad",
         "scratch/{dataset_id}/{dataset_id}.h5ad",
         "data/raw/{dataset_id}/{dataset_id}.h5ad",
     )
     overrides: Mapping[str, str] = Field(default_factory=dict)
+
 
 
 def find_repo_root(start_dir: Path | None = None) -> Path:
@@ -97,8 +105,14 @@ def get_data_paths(
     patterns_sec = paths_sec.get("candidate_h5ad_search_patterns", {})
     candidate_patterns = tuple(patterns_sec.get("patterns", [
         "data/preprocessed/{dataset_id}.h5ad",
+        "data/preprocessed/{dataset_id}_processed.h5ad",
+        "data/manual_download/{dataset_id}.h5ad",
+        "/storage/halu/data/preprocessed/{dataset_id}.h5ad",
+        "/storage/halu/data/preprocessed/{dataset_id}_processed.h5ad",
+        "/storage/halu/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
         "dataset_papers/{dataset_id}.h5ad",
         "data/{dataset_id}.h5ad",
+        "jupyter/data/{dataset_id}.h5ad",
         "scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
         "scratch/lair/CBioPortalDataset-{dataset_id}/{dataset_id}.h5ad",
         "scratch/{dataset_id}/{dataset_id}.h5ad",
@@ -116,6 +130,7 @@ def get_data_paths(
         data_root=_resolve(paths_sec.get("data_root", "data")),
         raw_dir=_resolve(paths_sec.get("raw_dir", "data/raw")),
         preprocessed_dir=_resolve(paths_sec.get("preprocessed_dir", "data/preprocessed")),
+        manual_download_dir=_resolve(paths_sec.get("manual_download_dir", "data/manual_download")),
         dataset_papers_dir=_resolve(paths_sec.get("dataset_papers_dir", "dataset_papers")),
         scratch_dir=_resolve(paths_sec.get("scratch_dir", "scratch")),
         reference_h5ad=_resolve(paths_sec.get("reference_h5ad", "data/reference.h5ad")),
@@ -127,6 +142,12 @@ def get_data_paths(
         candidate_patterns=candidate_patterns,
         overrides=overrides,
     )
+
+
+def get_manual_download_dir(repo_root: Path | None = None) -> Path:
+    """Return the canonical local directory for manually downloaded datasets."""
+    cfg = get_data_paths(repo_root=repo_root)
+    return cfg.manual_download_dir
 
 
 def get_ensembl_dir(repo_root: Path | None = None) -> Path:
@@ -184,8 +205,9 @@ def find_dataset_h5ad(dataset_id: str, repo_root: Path | None = None) -> Maybe[P
 
     # 2. Check candidate search patterns in priority order
     for pattern in cfg.candidate_patterns:
-        formatted_rel = pattern.format(dataset_id=dataset_id)
-        candidate = (cfg.repo_root / formatted_rel).resolve()
+        formatted = pattern.format(dataset_id=dataset_id)
+        p = Path(formatted)
+        candidate = p.resolve() if p.is_absolute() else (cfg.repo_root / p).resolve()
         if candidate.exists() and candidate.is_file() and candidate.stat().st_size > 0:
             return Some(candidate)
 

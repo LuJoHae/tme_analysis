@@ -11,9 +11,12 @@ import polars as pl
 import pytest
 from returns.result import Success
 
-from gene_utils import normalize_genes_to_ensembl
 from tme_datasets.paths import get_ensembl_dir
-from tme_datasets.preprocessing.gene_normalization import normalize_dataset_to_ensembl
+from tme_datasets.preprocessing.gene_normalization import (
+    ensure_ensembl_release_installed,
+    normalize_dataset_to_ensembl,
+    normalize_genes_to_ensembl,
+)
 
 
 class DummyGene:
@@ -111,7 +114,7 @@ def test_normalize_genes_exact_and_conflict_resolution(tmp_path: Path) -> None:
     var = pd.DataFrame(index=genes)
     adata = ad.AnnData(X=counts, obs=obs, var=var)
 
-    with patch("gene_utils._gene_utils.ensure_ensembl_release_installed", return_value=mock_ens):
+    with patch("tme_datasets.preprocessing.gene_normalization.ensure_ensembl_release_installed", return_value=mock_ens):
         norm = normalize_genes_to_ensembl(
             adata,
             release=111,
@@ -180,7 +183,7 @@ def test_normalize_genes_duplicate_aggregation(tmp_path: Path) -> None:
     counts = np.array([[10.0, 20.0], [5.0, 15.0]], dtype=np.float32)
     adata = ad.AnnData(X=counts, obs=pd.DataFrame(index=["c1", "c2"]), var=pd.DataFrame(index=genes))
 
-    with patch("gene_utils._gene_utils.ensure_ensembl_release_installed", return_value=mock_ens):
+    with patch("tme_datasets.preprocessing.gene_normalization.ensure_ensembl_release_installed", return_value=mock_ens):
         # 1. Sum aggregation
         norm_sum = normalize_genes_to_ensembl(
             adata,
@@ -217,7 +220,7 @@ def test_persistent_parquet_caching(tmp_path: Path) -> None:
         var=pd.DataFrame(index=genes),
     )
 
-    with patch("gene_utils._gene_utils.ensure_ensembl_release_installed", return_value=mock_ens):
+    with patch("tme_datasets.preprocessing.gene_normalization.ensure_ensembl_release_installed", return_value=mock_ens):
         # First call populates cache
         _ = normalize_genes_to_ensembl(adata, release=111, ensembl_dir=tmp_path)
         assert cache_file.exists()
@@ -243,7 +246,7 @@ def test_tme_datasets_wrapper_success(tmp_path: Path) -> None:
         var=pd.DataFrame(index=["CD8A"]),
     )
 
-    with patch("gene_utils._gene_utils.ensure_ensembl_release_installed", return_value=mock_ens):
+    with patch("tme_datasets.preprocessing.gene_normalization.ensure_ensembl_release_installed", return_value=mock_ens):
         res = normalize_dataset_to_ensembl(adata, release=111, ensembl_dir=tmp_path)
         assert isinstance(res, Success)
         norm_adata = res.unwrap()

@@ -32,6 +32,12 @@ def randomize_negative_binomial(
         rng_seed = config.seed.value_or(None) if isinstance(config.seed, Some) else None
         rng = np.random.default_rng(rng_seed)
 
+        if adata.uns.get("is_raw_counts") is False:
+            return Failure(
+                "Cannot apply Negative Binomial count perturbation on pre-normalized expression. "
+                "The dataset does not contain integer raw counts."
+            )
+
         new_adata = adata.copy()
         X = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X, dtype=np.float32)
 
