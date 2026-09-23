@@ -42,12 +42,14 @@ def ensure_ensembl_release_installed(
     os.environ["PYENSEMBL_CACHE_DIR"] = str(target_dir)
 
     ensembl = pyensembl.EnsemblRelease(release=release, species=species)
-    # Ensure cache directory path is set on pyensembl
-    ensembl.download_cache.cache_directory_path = str(target_dir)
 
     # Check if download and indexing are required
     files_ok = ensembl.required_local_files_exist()
-    db_indexed = ensembl.db._database_file_exists() if hasattr(ensembl.db, "_database_file_exists") else True
+    db_indexed = (
+        ensembl.db._database_file_exists()
+        if (files_ok and hasattr(ensembl.db, "_database_file_exists"))
+        else False
+    )
 
     if not files_ok or not db_indexed:
         logger.info(

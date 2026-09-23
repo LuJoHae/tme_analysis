@@ -42,15 +42,24 @@ class DummySpecies:
     latin_name = "homo_sapiens"
 
 
+class MockDownloadCache:
+    @property
+    def cache_directory_path(self) -> str:
+        return "/dummy/cache/path"
+
+
 class MockEnsemblRelease:
     """Mock pyensembl.EnsemblRelease for fast, deterministic unit testing."""
 
     def __init__(self, release: int = 111, species: str = "human") -> None:
         self.release = release
         self.species = DummySpecies()
-        self.download_cache = MagicMock()
+        self.download_cache = MockDownloadCache()
         self.db = MagicMock()
         self.db._database_file_exists.return_value = True
+        self.required_local_files_exist = MagicMock(return_value=True)
+        self.download = MagicMock()
+        self.index = MagicMock()
 
         # Pre-configured test database
         self._genes_by_id = {
@@ -242,3 +251,14 @@ def test_tme_datasets_wrapper_success(tmp_path: Path) -> None:
         assert "contig" in norm_adata.var.columns
         assert "biotype" in norm_adata.var.columns
         assert "gene_name" in norm_adata.var.columns
+
+
+def test_ensure_ensembl_release_installed_handles_readonly_cache_property(tmp_path: Path) -> None:
+    """Verify ensure_ensembl_release_installed works with pyensembl's read-only cache_directory_path."""
+    from gene_utils import ensure_ensembl_release_installed
+
+    mock_ens = MockEnsemblRelease(111)
+    with patch("pyensembl.EnsemblRelease", return_value=mock_ens):
+        ens = ensure_ensembl_release_installed(release=111, species="human", ensembl_dir=tmp_path)
+        assert ens.release == 111
+        assert tmp_path.exists()
