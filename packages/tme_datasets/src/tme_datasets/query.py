@@ -19,6 +19,12 @@ from .genesets.models import GeneSetCollection
 from .harmonization.align import align_and_concatenate
 from .logging import get_logger
 from .models import GeneReconcileConfig, HarmonizeConfig
+from .paths import (
+    find_dataset_h5ad,
+    get_preprocessed_h5ad_path,
+    get_raw_dataset_dir,
+    get_scratch_dataset_dir,
+)
 from .providers.bulk_iatlas import load_iatlas_cohort
 from .providers.bulk_papers import load_genentech_egad, load_paper_h5ad
 from .providers.single_cell import (
@@ -36,50 +42,47 @@ def _dispatch_load(
     dataset_id: str,
     root: Path,
     auto_download: bool,
+    force_download: bool = False,
 ) -> Result[ad.AnnData, str]:
-    """Internal dispatch to dataset-specific loader."""
+    """Internal dispatch to dataset-specific loader using config-resolved paths."""
+    raw_dir = get_raw_dataset_dir(dataset_id, repo_root=root)
+    scratch_dir = get_scratch_dataset_dir(dataset_id, repo_root=root)
+
     match dataset_id:
         case "GSE120575":
             # Sade-Feldman
-            res = load_sade_feldman(root / "scratch/GSE120575", auto_download=auto_download)
+            res = load_sade_feldman(scratch_dir, auto_download=auto_download, force_download=force_download)
             if not isinstance(res, Success):
-                res = load_sade_feldman(root / "data/raw/GSE120575", auto_download=auto_download)
+                res = load_sade_feldman(raw_dir, auto_download=auto_download, force_download=force_download)
             return res
 
         case "GSE115978":
-            return load_jerby_arnon(root / "data/raw/GSE115978")
+            return load_jerby_arnon(raw_dir, auto_download=auto_download, force_download=force_download)
 
         case "GSE125449":
-            return load_ma_liver(root / "data/raw/GSE125449")
+            return load_ma_liver(raw_dir)
 
         case "Maynard_NSCLC":
             return load_maynard(root)
 
         case _ if dataset_id.endswith("-iAtlas"):
             # cBioPortal iAtlas cohort
-            c_dir = root / f"scratch/lair/CBioPortalDataset-{dataset_id}"
-            if not c_dir.exists():
-                c_dir = root / f"output/CBioPortalDataset-{dataset_id}"
-            return load_iatlas_cohort(c_dir, cohort_name=dataset_id, auto_download=auto_download)
+            return load_iatlas_cohort(raw_dir, cohort_name=dataset_id, auto_download=auto_download, force_download=force_download)
 
         case "EGAD00001006631":
-            return load_genentech_egad(root / "manual-download/EGAD00001006631-align")
+            return load_genentech_egad(raw_dir)
 
-        case _ if dataset_id in ("Auslander", "Chen-CTLA4", "Chen-PD1", "Freeman", "Gide", "Hugo", "Lauss", "Liu", "Prat", "Ravi", "Riaz", "Rose", "Snyder", "VanAllen"):
+        case _ if dataset_id in (
+            "Auslander", "Chen-CTLA4", "Chen-PD1", "Freeman", "Gide", "Hugo",
+            "Lauss", "Liu", "Prat", "Ravi", "Riaz", "Rose", "Snyder", "VanAllen"
+        ):
             # Direct paper H5AD
-            candidate_paths = [
-                root / f"dataset_papers/{dataset_id}.h5ad",
-                root / f"data/preprocessed/{dataset_id}.h5ad",
-                root / f"scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
-                root / f"data/{dataset_id}.h5ad",
-            ]
-            found = next((p for p in candidate_paths if p.exists()), None)
-            if found:
-                return load_paper_h5ad(found)
-            return Failure(
-                f"Paper H5AD '{dataset_id}.h5ad' not found in candidate paths: "
-                + ", ".join(str(p) for p in candidate_paths)
-            )
+            found = find_dataset_h5ad(dataset_id, repo_root=root)
+            match found:
+                case Some(h5ad_path):
+                    return load_paper_h5ad(h5ad_path)
+                case _:
+                    return Failure(f"Paper H5AD for '{dataset_id}' not found in candidate paths")
 
         case _:
             return Failure(f"No loader implementation available for dataset '{dataset_id}'")
@@ -89,9 +92,34 @@ def load_dataset(
     dataset_id: str,
     base_dir: Path | None = None,
     auto_download: bool = True,
+    force_recompute: bool = False,
+    force_download: bool = False,
+    cache_h5ad: bool = True,
 ) -> Result[ad.AnnData, str]:
-    """Load an individual single-cell or bulk dataset by its registered identifier."""
-    logger.info("Loading dataset '%s' (auto_download=%s)...", dataset_id, auto_download)
+    """Load an individual single-cell or bulk dataset by its registered identifier.
+
+    Prioritizes loading directly from cached H5AD in <0.5s. If no H5AD exists (or
+    force_recompute=True), auto-downloads raw files, parses them, serializes to
+    an H5AD cache file, and returns the AnnData object.
+
+    Args:
+        dataset_id: Registered dataset identifier (e.g. 'GSE120575', 'Hugo-iAtlas').
+        base_dir: Optional root directory override.
+        auto_download: Automatically download missing raw vendor files.
+        force_recompute: Overwrite cached H5AD and re-parse from raw files.
+        force_download: Force re-downloading raw vendor files from network.
+        cache_h5ad: Write parsed AnnData to canonical H5AD cache upon completion.
+
+    Returns:
+        Success(adata) or Failure(error_message).
+    """
+    logger.info(
+        "Loading dataset '%s' (auto_download=%s, force_recompute=%s, force_download=%s)...",
+        dataset_id,
+        auto_download,
+        force_recompute,
+        force_download,
+    )
     start_time = time.time()
 
     spec_maybe = get_dataset_spec(dataset_id)
@@ -101,11 +129,67 @@ def load_dataset(
         return Failure(msg)
 
     root = base_dir or Path.cwd()
-    res = _dispatch_load(dataset_id, root, auto_download)
 
-    elapsed = max(0.01, time.time() - start_time)
+    # Step 1: Fast path - load from preprocessed H5AD if available
+    if not force_recompute:
+        h5ad_found = find_dataset_h5ad(dataset_id, repo_root=root)
+        match h5ad_found:
+            case Some(h5ad_path):
+                size_mb = h5ad_path.stat().st_size / (1024 * 1024)
+                logger.info(
+                    "Found cached H5AD for '%s' at %s (%.1f MB). Loading directly in <0.5s...",
+                    dataset_id,
+                    h5ad_path.name,
+                    size_mb,
+                )
+                try:
+                    adata = ad.read_h5ad(h5ad_path)
+                    elapsed = max(0.01, time.time() - start_time)
+                    logger.info(
+                        "Successfully loaded dataset '%s': %d obs x %d vars from H5AD (took %.2fs)",
+                        dataset_id,
+                        adata.n_obs,
+                        adata.n_vars,
+                        elapsed,
+                    )
+                    return Success(adata)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to read cached H5AD at %s: %s. Falling back to raw ingestion.",
+                        h5ad_path,
+                        exc,
+                    )
+
+    # Step 2: Ingestion path - dispatch to provider loader
+    res = _dispatch_load(dataset_id, root, auto_download=auto_download, force_download=force_download)
+
+    # Step 3: Serialize to H5AD cache
     match res:
         case Success(adata):
+            if cache_h5ad:
+                try:
+                    target_h5ad = get_preprocessed_h5ad_path(dataset_id, repo_root=root)
+                    target_h5ad.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Sanitize index names for robust h5py serialization
+                    if adata.obs_names.name is None or not isinstance(adata.obs_names.name, str):
+                        adata.obs_names.name = "sample_id" if "cell_id" not in adata.obs.columns else "cell_id"
+                    if adata.var_names.name is None or not isinstance(adata.var_names.name, str):
+                        adata.var_names.name = "gene_id"
+
+                    logger.info("Writing parsed AnnData to H5AD cache at %s...", target_h5ad)
+                    adata.write_h5ad(target_h5ad)
+                    size_mb = target_h5ad.stat().st_size / (1024 * 1024)
+                    logger.info(
+                        "Successfully serialized dataset '%s' to H5AD: %s (%.1f MB). Future calls will load instantly.",
+                        dataset_id,
+                        target_h5ad.name,
+                        size_mb,
+                    )
+                except Exception as cache_exc:
+                    logger.warning("Failed to serialize H5AD cache for '%s': %s", dataset_id, cache_exc)
+
+            elapsed = max(0.01, time.time() - start_time)
             logger.info(
                 "Successfully loaded dataset '%s': %d obs x %d vars (took %.2fs)",
                 dataset_id,
@@ -114,6 +198,7 @@ def load_dataset(
                 elapsed,
             )
         case Failure(err):
+            elapsed = max(0.01, time.time() - start_time)
             logger.error("Failed to load dataset '%s': %s (took %.2fs)", dataset_id, err, elapsed)
 
     return res

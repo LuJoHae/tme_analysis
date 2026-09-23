@@ -1,0 +1,31 @@
+# Configuration for repository data directory structure in tme_analysis
+
+[paths]
+# Base root directory for data assets (relative to repo root or absolute)
+data_root = "data"
+raw_dir = "data/raw"
+preprocessed_dir = "data/preprocessed"
+dataset_papers_dir = "dataset_papers"
+scratch_dir = "scratch"
+reference_h5ad = "data/reference.h5ad"
+
+# File name templates
+preprocessed_template = "{dataset_id}.h5ad"
+raw_dataset_template = "{dataset_id}"
+
+# Candidate locations to search when resolving existing H5AD files (in order of priority)
+[paths.candidate_h5ad_search_patterns]
+patterns = [
+    "data/preprocessed/{dataset_id}.h5ad",
+    "dataset_papers/{dataset_id}.h5ad",
+    "data/{dataset_id}.h5ad",
+    "scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
+    "scratch/lair/CBioPortalDataset-{dataset_id}/{dataset_id}.h5ad",
+    "scratch/{dataset_id}/{dataset_id}.h5ad",
+    "data/raw/{dataset_id}/{dataset_id}.h5ad",
+]
+
+# Custom path overrides for specific cohorts if needed
+[paths.overrides]
+EGAD00001006631 = "manual-download/EGAD00001006631-align"
+Maynard_NSCLC = "jupyter/data/maynard2020_3k.h5ad"

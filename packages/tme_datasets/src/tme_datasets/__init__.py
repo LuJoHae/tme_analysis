@@ -25,6 +25,18 @@ from .registry import (
     list_registered_datasets,
 )
 
+# Config-driven Paths API
+from .paths import (
+    DataPathsConfig,
+    find_dataset_h5ad,
+    find_repo_root,
+    get_data_paths,
+    get_preprocessed_h5ad_path,
+    get_raw_dataset_dir,
+    get_reference_h5ad_path,
+    get_scratch_dataset_dir,
+)
+
 # Core types & models
 from .types import (
     DatasetProvider,
@@ -144,6 +156,15 @@ __all__ = [
     "DATASET_REGISTRY",
     "get_dataset_spec",
     "list_registered_datasets",
+    # Paths API
+    "DataPathsConfig",
+    "find_repo_root",
+    "get_data_paths",
+    "get_preprocessed_h5ad_path",
+    "get_raw_dataset_dir",
+    "get_scratch_dataset_dir",
+    "get_reference_h5ad_path",
+    "find_dataset_h5ad",
     # Types & Models
     "Modality",
     "HarmonizeMode",

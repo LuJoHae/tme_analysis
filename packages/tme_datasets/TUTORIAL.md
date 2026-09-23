@@ -75,31 +75,49 @@ print(f"Melanoma datasets: {melanoma_df['id'].to_list()}")
 
 ---
 
-## 2. Loading Individual Datasets
+## 2. Loading Individual Datasets (Fast-Loading & H5AD Caching)
 
-The `load_dataset` function serves as a single entry point for all datasets, automatically resolving local paths and parsing clinical metadata:
+The `load_dataset` function serves as the central entry point for all single-cell references, bulk iAtlas validation cohorts, and direct paper datasets.
+
+### Automatic Ingestion & Caching Workflow:
+1. **Fast-Path (<0.5s)**: First checks if a preprocessed `.h5ad` file exists across configured paths (`data/preprocessed/{dataset_id}.h5ad`). If present, it loads directly from the binary H5AD format, completely bypassing slow gzipped text/tsv parsing.
+2. **Auto-Download & Ingestion**: If no `.h5ad` file exists, it automatically downloads the vendor raw data (from NCBI GEO or cBioPortal) into `data/raw/{dataset_id}/` (if `auto_download=True`).
+3. **Automatic H5AD Serialization**: Once parsed into an `AnnData` object, it immediately serializes the object to `data/preprocessed/{dataset_id}.h5ad`. All subsequent calls to `load_dataset` load from this H5AD file in milliseconds.
+4. **Jupyter Notebook-Compatible Logging**: Logs stream immediately to `sys.stdout` with real-time download percentages, matrix parsing progress, and cache milestones without buffering delays or red stderr warnings.
 
 ```python
 from tme_datasets import load_dataset
 from returns.result import Success, Failure
 
-# Load a single-cell dataset
+# 1. Load single-cell dataset (loads from data/preprocessed/GSE120575.h5ad in <0.5s)
 match load_dataset("GSE120575"):
     case Success(adata):
         print(f"Sade-Feldman AnnData: {adata.shape} (cells x genes)")
     case Failure(err):
         print(f"Failed to load: {err}")
 
-# Load a bulk immunotherapy cohort (cBioPortal / iAtlas track)
+# 2. Load bulk cohort (auto-downloads raw cBioPortal archive if missing, caches H5AD)
 match load_dataset("Hugo-iAtlas"):
     case Success(adata):
         print(f"Hugo iAtlas: {adata.shape} (samples x genes)")
         print(f"Response labels present: {'response_binary' in adata.obs.columns}")
 
-# Load a direct paper dataset (Publication track)
-match load_dataset("Auslander"):
+# 3. Force re-parsing and re-writing H5AD cache (e.g. after code update)
+match load_dataset("GSE120575", force_recompute=True):
     case Success(adata):
-        print(f"Auslander direct paper: {adata.shape}")
+        print("Recomputed and updated H5AD cache.")
+
+# 4. Zero Hardcoding: Query dataset paths using the paths API
+from tme_datasets.paths import (
+    get_preprocessed_h5ad_path,
+    get_raw_dataset_dir,
+    find_dataset_h5ad,
+)
+
+h5ad_file = get_preprocessed_h5ad_path("GSE120575")
+raw_dir = get_raw_dataset_dir("GSE120575")
+print(f"Canonical H5AD path: {h5ad_file}")
+print(f"Raw data directory:  {raw_dir}")
 ```
 
 ---

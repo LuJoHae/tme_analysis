@@ -25,6 +25,7 @@ logger = get_logger("providers.single_cell")
 def load_sade_feldman(
     raw_or_scratch_dir: Path,
     auto_download: bool = True,
+    force_download: bool = False,
 ) -> Result[ad.AnnData, str]:
     """Load and preprocess Sade-Feldman et al. 2018 (GSE120575, 16,288 cells)."""
     parquet_path = raw_or_scratch_dir / "gse120575_tpm.parquet"
@@ -34,17 +35,22 @@ def load_sade_feldman(
     gz_tpm = raw_or_scratch_dir / "GSE120575_tpm.txt.gz"
     gz_meta = raw_or_scratch_dir / "GSE120575_meta.txt.gz"
 
-    # Auto-download if missing
-    if auto_download and not parquet_path.exists() and not gz_tpm.exists():
+    # Auto-download if missing or force_download
+    if (auto_download or force_download) and (force_download or (not parquet_path.exists() and not gz_tpm.exists())):
         from ..download.fetcher import download_single_file
 
         url_tpm = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE120nnn/GSE120575/suppl/GSE120575_Sade_Feldman_melanoma_single_cells_TPM_GEO.txt.gz"
         url_meta = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE120nnn/GSE120575/suppl/GSE120575_patient_ID_single_cells.txt.gz"
+        if force_download:
+            if gz_tpm.exists():
+                gz_tpm.unlink()
+            if gz_meta.exists():
+                gz_meta.unlink()
         download_single_file(url_tpm, gz_tpm)
         download_single_file(url_meta, gz_meta)
 
     try:
-        if parquet_path.exists() and meta_path.exists():
+        if not force_download and parquet_path.exists() and meta_path.exists():
             logger.info("Loading preprocessed Sade-Feldman parquet files from %s...", raw_or_scratch_dir)
             df_tpm = pl.read_parquet(parquet_path)
             df_meta = pl.read_parquet(meta_path).to_pandas()
@@ -133,11 +139,28 @@ def load_sade_feldman(
         return Failure(msg)
 
 
-def load_jerby_arnon(raw_dir: Path) -> Result[ad.AnnData, str]:
+def load_jerby_arnon(
+    raw_dir: Path,
+    auto_download: bool = True,
+    force_download: bool = False,
+) -> Result[ad.AnnData, str]:
     """Load Jerby-Arnon et al. 2018 (GSE115978, 7,186 cells)."""
     tpm_path = raw_dir / "GSE115978_tpm.csv.gz"
-    if not tpm_path.exists():
+    if not tpm_path.exists() and (raw_dir / "GSE115978_tpm.gz").exists():
         tpm_path = raw_dir / "GSE115978_tpm.gz"
+
+    meta_path = raw_dir / "GSE115978_cell.annotations.csv.gz"
+
+    # Auto-download from NCBI GEO if missing or force_download
+    if (auto_download or force_download) and (force_download or not tpm_path.exists()):
+        from ..download.fetcher import download_single_file
+
+        url_tpm = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE115nnn/GSE115978/suppl/GSE115978_tpm.csv.gz"
+        url_meta = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE115nnn/GSE115978/suppl/GSE115978_cell.annotations.csv.gz"
+        if force_download and tpm_path.exists():
+            tpm_path.unlink()
+        download_single_file(url_tpm, tpm_path)
+        download_single_file(url_meta, meta_path)
 
     if not tpm_path.exists():
         return Failure(f"GSE115978 file not found in {raw_dir}")

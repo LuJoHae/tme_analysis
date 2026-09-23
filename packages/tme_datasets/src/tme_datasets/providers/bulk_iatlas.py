@@ -30,6 +30,7 @@ def load_iatlas_cohort(
     cohort_dir: Path,
     cohort_name: str | None = None,
     auto_download: bool = True,
+    force_download: bool = False,
 ) -> Result[ad.AnnData, str]:
     """Load a single cBioPortal / iAtlas bulk cohort directory into an AnnData object."""
     # cBioPortal tar.gz archive mapping
@@ -53,18 +54,20 @@ def load_iatlas_cohort(
         "data_mrna_seq_fpkm.txt",
     ]
 
-    # Auto-download if missing
-    if auto_download and cohort_name in cbioportal_archives:
+    # Auto-download if missing or force_download=True
+    if (auto_download or force_download) and cohort_name in cbioportal_archives:
         tar_name = cbioportal_archives[cohort_name]
         tar_path = cohort_dir / tar_name
         # Check if already extracted
         has_expr = cohort_dir.exists() and any(
             any(cohort_dir.rglob(f)) for f in expr_files
         )
-        if not has_expr:
+        if force_download or not has_expr:
             from ..download.fetcher import download_single_file, unpack_tar
 
             url = f"https://datahub.assets.cbioportal.org/{tar_name}"
+            if force_download and tar_path.exists():
+                tar_path.unlink()
             download_single_file(url, tar_path)
             if tar_path.exists():
                 unpack_tar(tar_path, cohort_dir)
