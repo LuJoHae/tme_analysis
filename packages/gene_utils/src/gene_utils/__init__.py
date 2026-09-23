@@ -6,6 +6,8 @@ __version__ = "0.1.0"
 
 from gene_utils._gene_utils import (
     norm_genes,
+    normalize_genes_to_ensembl,
+    ensure_ensembl_release_installed,
     download,
     ssgsea_score,
     ssgsea_formula,
@@ -22,6 +24,8 @@ from gene_utils._gene_utils import (
 __all__ = [
     "__version__",
     "norm_genes",
+    "normalize_genes_to_ensembl",
+    "ensure_ensembl_release_installed",
     "download",
     "ssgsea_score",
     "ssgsea_formula",

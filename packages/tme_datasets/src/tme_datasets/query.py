@@ -95,12 +95,16 @@ def load_dataset(
     force_recompute: bool = False,
     force_download: bool = False,
     cache_h5ad: bool = True,
+    normalize_ensembl: bool = True,
+    ensembl_release: int | None = None,
+    drop_unmapped: bool = True,
 ) -> Result[ad.AnnData, str]:
     """Load an individual single-cell or bulk dataset by its registered identifier.
 
     Prioritizes loading directly from cached H5AD in <0.5s. If no H5AD exists (or
-    force_recompute=True), auto-downloads raw files, parses them, serializes to
-    an H5AD cache file, and returns the AnnData object.
+    force_recompute=True), auto-downloads raw files, parses them, normalizes gene IDs
+    to canonical Ensembl IDs (Release 111 by default), enriches .var attributes,
+    serializes to an H5AD cache file, and returns the AnnData object.
 
     Args:
         dataset_id: Registered dataset identifier (e.g. 'GSE120575', 'Hugo-iAtlas').
@@ -109,16 +113,20 @@ def load_dataset(
         force_recompute: Overwrite cached H5AD and re-parse from raw files.
         force_download: Force re-downloading raw vendor files from network.
         cache_h5ad: Write parsed AnnData to canonical H5AD cache upon completion.
+        normalize_ensembl: Normalize gene IDs to canonical Ensembl identifiers and enrich .var.
+        ensembl_release: Specific Ensembl release version (defaults to config release, e.g. 111).
+        drop_unmapped: Drop unmapped non-gene features (saving them to adata.uns['unmapped_genes']).
 
     Returns:
         Success(adata) or Failure(error_message).
     """
     logger.info(
-        "Loading dataset '%s' (auto_download=%s, force_recompute=%s, force_download=%s)...",
+        "Loading dataset '%s' (auto_download=%s, force_recompute=%s, force_download=%s, normalize_ensembl=%s)...",
         dataset_id,
         auto_download,
         force_recompute,
         force_download,
+        normalize_ensembl,
     )
     start_time = time.time()
 
@@ -163,9 +171,26 @@ def load_dataset(
     # Step 2: Ingestion path - dispatch to provider loader
     res = _dispatch_load(dataset_id, root, auto_download=auto_download, force_download=force_download)
 
-    # Step 3: Serialize to H5AD cache
+    # Step 3: Ensembl Normalization and H5AD Serialization
     match res:
         case Success(adata):
+            if normalize_ensembl:
+                from .preprocessing.gene_normalization import normalize_dataset_to_ensembl
+
+                norm_res = normalize_dataset_to_ensembl(
+                    adata,
+                    release=ensembl_release,
+                    drop_unmapped=drop_unmapped,
+                )
+                match norm_res:
+                    case Success(norm_adata):
+                        adata = norm_adata
+                    case Failure(norm_err):
+                        logger.warning(
+                            "Ensembl gene normalization encountered an error: %s. Proceeding with raw identifiers.",
+                            norm_err,
+                        )
+
             if cache_h5ad:
                 try:
                     target_h5ad = get_preprocessed_h5ad_path(dataset_id, repo_root=root)
@@ -197,11 +222,11 @@ def load_dataset(
                 adata.n_vars,
                 elapsed,
             )
+            return Success(adata)
         case Failure(err):
             elapsed = max(0.01, time.time() - start_time)
             logger.error("Failed to load dataset '%s': %s (took %.2fs)", dataset_id, err, elapsed)
-
-    return res
+            return Failure(err)
 
 def query_datasets(
     dataset_ids: Sequence[str],

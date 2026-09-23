@@ -27,6 +27,9 @@ class DataPathsConfig(BaseModel):
     dataset_papers_dir: Path
     scratch_dir: Path
     reference_h5ad: Path
+    ensembl_dir: Path
+    default_ensembl_release: int = 111
+    default_species: str = "human"
     preprocessed_template: str = "{dataset_id}.h5ad"
     raw_dataset_template: str = "{dataset_id}"
     candidate_patterns: tuple[str, ...] = (
@@ -116,11 +119,20 @@ def get_data_paths(
         dataset_papers_dir=_resolve(paths_sec.get("dataset_papers_dir", "dataset_papers")),
         scratch_dir=_resolve(paths_sec.get("scratch_dir", "scratch")),
         reference_h5ad=_resolve(paths_sec.get("reference_h5ad", "data/reference.h5ad")),
+        ensembl_dir=_resolve(paths_sec.get("ensembl_dir", "data/ensembl")),
+        default_ensembl_release=int(paths_sec.get("default_ensembl_release", 111)),
+        default_species=str(paths_sec.get("default_species", "human")),
         preprocessed_template=paths_sec.get("preprocessed_template", "{dataset_id}.h5ad"),
         raw_dataset_template=paths_sec.get("raw_dataset_template", "{dataset_id}"),
         candidate_patterns=candidate_patterns,
         overrides=overrides,
     )
+
+
+def get_ensembl_dir(repo_root: Path | None = None) -> Path:
+    """Return the canonical local directory for Ensembl GTF files and indexes."""
+    cfg = get_data_paths(repo_root=repo_root)
+    return cfg.ensembl_dir
 
 
 def get_preprocessed_h5ad_path(dataset_id: str, repo_root: Path | None = None) -> Path:

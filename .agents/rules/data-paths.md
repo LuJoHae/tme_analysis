@@ -31,6 +31,9 @@ All paths are backed by `config/data_paths.toml` and adhere to this hierarchy:
 ├── config/
 │   └── data_paths.toml                    # Master data configuration (paths, templates, overrides)
 ├── data/
+│   ├── ensembl/                           # PYENSEMBL LOCAL DATA & GTF DATABASES
+│   │   ├── homo_sapiens/                  # Downloaded GTFs and SQLite indexes
+│   │   └── gene_mapping_cache_release_111.parquet # Fast symbol-to-ENSG persistent cache
 │   ├── raw/
 │   │   ├── <dataset_id>/                  # Isolated directory for raw downloaded archives (tar.gz, txt.gz, csv.gz)
 │   ├── preprocessed/

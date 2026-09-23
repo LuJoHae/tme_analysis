@@ -8,12 +8,14 @@ from .metadata import (
     standardize_timepoint,
 )
 from .normalization import expm1_transform, log1p_transform, normalize_total_counts
+from .gene_normalization import normalize_dataset_to_ensembl
 from .sanity import run_sanity_normalization
 from .sctransform import normalize_sctransform
 
 __all__ = [
     "CONFOUNDING_PATTERNS",
     "filter_confounding_genes",
+    "normalize_dataset_to_ensembl",
     "normalize_total_counts",
     "log1p_transform",
     "expm1_transform",

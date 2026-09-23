@@ -8,6 +8,9 @@ preprocessed_dir = "data/preprocessed"
 dataset_papers_dir = "dataset_papers"
 scratch_dir = "scratch"
 reference_h5ad = "data/reference.h5ad"
+ensembl_dir = "data/ensembl"
+default_ensembl_release = 111
+default_species = "human"
 
 # File name templates
 preprocessed_template = "{dataset_id}.h5ad"
