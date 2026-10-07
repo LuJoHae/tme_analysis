@@ -43,7 +43,11 @@ def simulate_pseudobulk(
         # Cell indices partitioned by type
         type_indices = {ct: np.where(cell_types == ct)[0] for ct in unique_types}
 
-        X = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X)
+        if "counts" in adata.layers:
+            raw_layer = adata.layers["counts"]
+            X = raw_layer.toarray() if sp.issparse(raw_layer) else np.asarray(raw_layer)
+        else:
+            X = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X)
         n_samples = config.n_samples
         n_genes = adata.n_vars
         cells_per_sample = config.cells_per_sample
