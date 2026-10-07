@@ -53,6 +53,9 @@ class BenchmarkConfig(BaseModel):
     n_genes: int = 300
     n_clusters: int = 6
     n_patients: int = 30
+    cluster_width: float = 0.85
+    marker_overlap: float = 0.90
+    bg_lambda: float = 0.80
     match_prob: float = 0.85
     random_seed: int = 42
     out_dir: Path = Path("output/synthetic_benchmark")
@@ -75,6 +78,9 @@ def parse_args() -> BenchmarkConfig:
     parser.add_argument("--n-genes", type=int, default=300, help="Total number of genes")
     parser.add_argument("--n-clusters", type=int, default=6, help="Number of ground-truth clusters")
     parser.add_argument("--n-patients", type=int, default=30, help="Number of patients (half R, half NR)")
+    parser.add_argument("--cluster-width", type=float, default=0.85, help="Cluster spatial width / dispersion (controls overlap)")
+    parser.add_argument("--marker-overlap", type=float, default=0.90, help="Bandwidth for cross-cluster marker expression overlap")
+    parser.add_argument("--bg-lambda", type=float, default=0.80, help="Ambient baseline expression rate")
     parser.add_argument("--match-prob", type=float, default=0.85, help="Default match probability if not variable")
     parser.add_argument("--variable-ratios", action="store_true", help="Assign variable True:False percentages across clusters")
     parser.add_argument("--min-prob", type=float, default=0.05, help="Minimum percentage of True for variable ratios")
@@ -93,6 +99,9 @@ def parse_args() -> BenchmarkConfig:
         n_genes=args.n_genes,
         n_clusters=args.n_clusters,
         n_patients=args.n_patients,
+        cluster_width=args.cluster_width,
+        marker_overlap=args.marker_overlap,
+        bg_lambda=args.bg_lambda,
         match_prob=args.match_prob,
         random_seed=args.seed,
         out_dir=args.out_dir,
@@ -116,7 +125,7 @@ def generate_synthetic_scrna(
     config: BenchmarkConfig,
     rng: np.random.Generator,
 ) -> ad.AnnData:
-    """Pure function generating synthetic single-cell expression matrix with cluster markers."""
+    """Pure function generating synthetic single-cell expression matrix with wide, overlapping clusters."""
     n_cells = config.n_cells
     n_genes = config.n_genes
     k = config.n_clusters
@@ -133,20 +142,33 @@ def generate_synthetic_scrna(
             rng.choice(k, size=remainder).astype(np.int32),
         ])
 
-    genes_per_cluster_marker = max(10, n_genes // (k + 1))
-    
-    # Base background expression: Poisson with lambda = 0.4
-    raw_counts = rng.poisson(lam=0.4, size=(n_cells, n_genes)).astype(np.float32)
+    # Cluster positions on a circular manifold
+    cluster_angles = np.linspace(0, 2 * np.pi, k, endpoint=False)
+    cluster_centers = np.column_stack([np.cos(cluster_angles), np.sin(cluster_angles)])
 
-    # Upregulate distinct marker genes per cluster
+    # Drastically disperse cell latent positions (large cluster_width -> wide, overlapping clouds)
+    cell_latent = np.zeros((n_cells, 2), dtype=np.float32)
     for i in range(k):
-        start_g = i * genes_per_cluster_marker
-        end_g = min(n_genes, (i + 1) * genes_per_cluster_marker)
-        mask_i = (cluster_assignments == i)
-        n_cluster_cells = int(np.sum(mask_i))
-        if n_cluster_cells > 0 and end_g > start_g:
-            marker_counts = rng.negative_binomial(n=5, p=0.35, size=(n_cluster_cells, end_g - start_g))
-            raw_counts[mask_i, start_g:end_g] += marker_counts.astype(np.float32)
+        mask = (cluster_assignments == i)
+        cell_latent[mask] = cluster_centers[i] + rng.normal(0, config.cluster_width, size=(int(mask.sum()), 2))
+
+    # Continuous marker activation kernel: cells near cluster boundaries express shared markers
+    dists = np.linalg.norm(cell_latent[:, None, :] - cluster_centers[None, :, :], axis=2)
+    weights = np.exp(-0.5 * (dists / config.marker_overlap) ** 2)
+    weights /= weights.sum(axis=1, keepdims=True)
+
+    # Base background: Poisson expression
+    raw_counts = rng.poisson(lam=config.bg_lambda, size=(n_cells, n_genes)).astype(np.float32)
+
+    # Expression of marker programs with continuous cross-cluster gradients
+    genes_per_marker = max(10, n_genes // k)
+    for j in range(k):
+        start_g = j * genes_per_marker
+        end_g = min(n_genes, (j + 1) * genes_per_marker)
+        if end_g > start_g:
+            marker_strength = weights[:, j][:, None] * 7.5
+            noise = rng.negative_binomial(n=4, p=0.35, size=(n_cells, end_g - start_g))
+            raw_counts[:, start_g:end_g] += (marker_strength * (noise + 1.0)).astype(np.float32)
 
     x_sparse = sp.csr_matrix(raw_counts)
     obs_names = [f"cell_{i:05d}" for i in range(n_cells)]

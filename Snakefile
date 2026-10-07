@@ -1,7 +1,8 @@
 # Snakefile
 # Orchestrates data processing on the remote server
 
-DATA_DIR = "/storage/halu/data"
+DATA_DIR = "/storage/halu/data-test"
+
 RESULTS_DIR = f"{DATA_DIR}/results"
 GSE_DIR = f"{DATA_DIR}/GSE120575"
 GSE123139_DIR = f"{DATA_DIR}/GSE123139"
@@ -1087,10 +1088,270 @@ rule integrate_combined_cohorts:
         python {input.script} --base-dir {params.base_dir} --mode all
         """
 
+rule visualize_cohort_umaps:
+    input:
+        script="scripts/milopy_analysis/visualize_cohort_umaps.py"
+    output:
+        completed=f"{DATA_DIR}/results/milopy_response_analysis/visualize_cohort_umaps_completed.txt"
+    params:
+        base_dir=DATA_DIR,
+        results_dir=f"{DATA_DIR}/results/milopy_response_analysis",
+        reports_dir=f"{DATA_DIR}/reports"
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --base-dir {params.base_dir} \
+            --results-dir {params.results_dir} \
+            --reports-dir {params.reports_dir}
+        """
+
+rule generate_combined_milopy_figures:
+    input:
+        script="scripts/milopy_analysis/generate_combined_figures.py",
+        umaps_done=f"{DATA_DIR}/results/milopy_response_analysis/visualize_cohort_umaps_completed.txt"
+    output:
+        volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid.svg",
+        umap_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc.svg",
+        volcano_png=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid.png",
+        umap_png=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc.png"
+    params:
+        results_dir=f"{DATA_DIR}/results/milopy_response_analysis",
+        reports_dir=f"{DATA_DIR}/reports"
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --results-dir {params.results_dir} \
+            --reports-dir {params.reports_dir} \
+            --timepoint all
+        """
+
+rule generate_combined_milopy_figures_pre:
+    input:
+        script="scripts/milopy_analysis/generate_combined_figures.py"
+    output:
+        volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_pre.svg",
+        umap_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_pre.svg",
+        volcano_png=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_pre.png",
+        umap_png=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_pre.png"
+    params:
+        results_dir=f"{DATA_DIR}/results/milopy_response_analysis_pre",
+        reports_dir=f"{DATA_DIR}/reports"
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --results-dir {params.results_dir} \
+            --reports-dir {params.reports_dir} \
+            --timepoint pre
+        """
+
+rule generate_combined_milopy_figures_post:
+    input:
+        script="scripts/milopy_analysis/generate_combined_figures.py"
+    output:
+        volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_post.svg",
+        umap_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_post.svg",
+        volcano_png=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_post.png",
+        umap_png=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_post.png"
+    params:
+        results_dir=f"{DATA_DIR}/results/milopy_response_analysis_post",
+        reports_dir=f"{DATA_DIR}/reports"
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --results-dir {params.results_dir} \
+            --reports-dir {params.reports_dir} \
+            --timepoint post
+        """
+
+rule combine_and_run_melanoma_milopy:
+    input:
+        script="scripts/milopy_analysis/combine_cohorts_and_analyze.py"
+    output:
+        da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/melanoma/da_results.parquet",
+        cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/melanoma/cell_level_scores.parquet",
+        volcano_svg=f"{DATA_DIR}/reports/milopy_combined_melanoma_volcano.svg",
+        umap_svg=f"{DATA_DIR}/reports/milopy_combined_melanoma_umap_logfc.svg",
+        volcano_png=f"{DATA_DIR}/reports/milopy_combined_melanoma_volcano.png",
+        umap_png=f"{DATA_DIR}/reports/milopy_combined_melanoma_umap_logfc.png"
+    params:
+        group="melanoma",
+        base_dir=DATA_DIR,
+        out_dir=f"{DATA_DIR}/results/milopy_combined_analysis",
+        reports_dir=f"{DATA_DIR}/reports",
+        max_cells=25000
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --group {params.group} \
+            --base-dir {params.base_dir} \
+            --out-dir {params.out_dir} \
+            --reports-dir {params.reports_dir} \
+            --max-cells-per-cohort {params.max_cells}
+        """
+
+rule combine_and_run_nsclc_milopy:
+    input:
+        script="scripts/milopy_analysis/combine_cohorts_and_analyze.py"
+    output:
+        da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/nsclc/da_results.parquet",
+        cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/nsclc/cell_level_scores.parquet",
+        volcano_svg=f"{DATA_DIR}/reports/milopy_combined_nsclc_volcano.svg",
+        umap_svg=f"{DATA_DIR}/reports/milopy_combined_nsclc_umap_logfc.svg",
+        volcano_png=f"{DATA_DIR}/reports/milopy_combined_nsclc_volcano.png",
+        umap_png=f"{DATA_DIR}/reports/milopy_combined_nsclc_umap_logfc.png"
+    params:
+        group="nsclc",
+        base_dir=DATA_DIR,
+        out_dir=f"{DATA_DIR}/results/milopy_combined_analysis",
+        reports_dir=f"{DATA_DIR}/reports",
+        max_cells=20000
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --group {params.group} \
+            --base-dir {params.base_dir} \
+            --out-dir {params.out_dir} \
+            --reports-dir {params.reports_dir} \
+            --max-cells-per-cohort {params.max_cells}
+        """
+
+rule combine_and_run_solid_tumors_milopy:
+    input:
+        script="scripts/milopy_analysis/combine_cohorts_and_analyze.py"
+    output:
+        da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/solid_tumors/da_results.parquet",
+        cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/solid_tumors/cell_level_scores.parquet",
+        volcano_svg=f"{DATA_DIR}/reports/milopy_combined_solid_tumors_volcano.svg",
+        umap_svg=f"{DATA_DIR}/reports/milopy_combined_solid_tumors_umap_logfc.svg",
+        volcano_png=f"{DATA_DIR}/reports/milopy_combined_solid_tumors_volcano.png",
+        umap_png=f"{DATA_DIR}/reports/milopy_combined_solid_tumors_umap_logfc.png"
+    params:
+        group="solid_tumors",
+        base_dir=DATA_DIR,
+        out_dir=f"{DATA_DIR}/results/milopy_combined_analysis",
+        reports_dir=f"{DATA_DIR}/reports",
+        max_cells=20000
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --group {params.group} \
+            --base-dir {params.base_dir} \
+            --out-dir {params.out_dir} \
+            --reports-dir {params.reports_dir} \
+            --max-cells-per-cohort {params.max_cells}
+        """
+
+rule combine_and_run_pancancer_milopy:
+    input:
+        script="scripts/milopy_analysis/combine_cohorts_and_analyze.py"
+    output:
+        da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/pancancer/da_results.parquet",
+        cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/pancancer/cell_level_scores.parquet",
+        volcano_svg=f"{DATA_DIR}/reports/milopy_combined_pancancer_volcano.svg",
+        umap_svg=f"{DATA_DIR}/reports/milopy_combined_pancancer_umap_logfc.svg",
+        volcano_png=f"{DATA_DIR}/reports/milopy_combined_pancancer_volcano.png",
+        umap_png=f"{DATA_DIR}/reports/milopy_combined_pancancer_umap_logfc.png"
+    params:
+        group="pancancer",
+        base_dir=DATA_DIR,
+        out_dir=f"{DATA_DIR}/results/milopy_combined_analysis",
+        reports_dir=f"{DATA_DIR}/reports",
+        max_cells=10000
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --group {params.group} \
+            --base-dir {params.base_dir} \
+            --out-dir {params.out_dir} \
+            --reports-dir {params.reports_dir} \
+            --max-cells-per-cohort {params.max_cells}
+        """
+
+rule combine_and_run_all_milopy:
+    input:
+        rules.combine_and_run_melanoma_milopy.output.volcano_svg,
+        rules.combine_and_run_nsclc_milopy.output.volcano_svg,
+        rules.combine_and_run_solid_tumors_milopy.output.volcano_svg,
+        rules.combine_and_run_pancancer_milopy.output.volcano_svg
+
+rule visualize_synthetic_umaps:
+    input:
+        script="scripts/milopy_analysis/visualize_synthetic_umaps.py"
+    output:
+        parquet="output/synthetic_benchmark/synthetic_cells_umap.parquet",
+        composite_svg="results/synthetic_benchmark/synthetic_milo_umaps_composite.svg",
+        clusters_svg="results/synthetic_benchmark/synthetic_umap_clusters.svg",
+        response_svg="results/synthetic_benchmark/synthetic_umap_response.svg",
+        logfc_svg="results/synthetic_benchmark/synthetic_umap_milopy_logfc.svg",
+        sig_svg="results/synthetic_benchmark/synthetic_umap_significance.svg"
+    params:
+        n_cells=3000,
+        n_genes=300,
+        n_clusters=6,
+        n_patients=30,
+        fdr=0.10,
+        out_dir="output/synthetic_benchmark",
+        results_dir="results/synthetic_benchmark"
+    shell:
+        """
+        set -euo pipefail
+        python {input.script} \
+            --n-cells {params.n_cells} \
+            --n-genes {params.n_genes} \
+            --n-clusters {params.n_clusters} \
+            --n-patients {params.n_patients} \
+            --fdr-threshold {params.fdr} \
+            --out-dir {params.out_dir} \
+            --results-dir {params.results_dir}
+        """
+
+rule generate_dataset_tabular_figure:
+    input:
+        script="scripts/figures/generate_dataset_tabular_figure.py"
+    output:
+        svg_article="article/figures/dataset_overview/figure_datasets_tabular_compendium.svg",
+        png_article="article/figures/dataset_overview/figure_datasets_tabular_compendium.png",
+        svg_reports="output/reports/figure_datasets_tabular_compendium.svg",
+        png_reports="output/reports/figure_datasets_tabular_compendium.png"
+    shell:
+        """
+        set -euo pipefail
+        python {input.script}
+        """
+
+rule generate_milopy_method_figure:
+    input:
+        script="scripts/figures/generate_milopy_workflow.py"
+    output:
+        svg_article="article/figures/deconvolution/how_milopy_works.svg",
+        png_article="article/figures/deconvolution/how_milopy_works.png",
+        svg_reports="output/reports/how_milopy_works.svg",
+        png_reports="output/reports/how_milopy_works.png"
+    shell:
+        """
+        set -euo pipefail
+        python {input.script}
+        """
+
 # Single-Cell & Bulk Deconvolution Concordance & Calibration Modules
 # TODO: re-enable when workflow/rules/concordance.smk and calibration.smk exist
 # include: "workflow/rules/concordance.smk"
 # include: "workflow/rules/calibration.smk"
+
+# Multi-Cohort Stability Selection & Publication Figure Module
+include: "workflow/rules/stability_selection.smk"
+
+# Single-Cell Reference Sampling and Classifier HPO Module
+include: "workflow/rules/reference_sampling_hpo.smk"
+
 
 
 
