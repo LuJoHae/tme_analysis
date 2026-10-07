@@ -124,3 +124,29 @@ def main(db_client: DatabaseClient) -> None:
         case Success(chart):
             print("Chart generated successfully.")
 ```
+
+## 7. Publication Figures & Inkscape Vector Graphics
+- **Nature Methods Minimalist Wireframe & Scientific Palette**:
+  - All publication vector figures must adhere to the *Nature Methods* minimalist wireframe standard: pure white canvas (`#FFFFFF`), sharp square corners (`rx="0"`), $0.5\text{–}0.75\text{ pt}$ hairline borders (`#CBD5E1`), and **zero drop shadows** (`feDropShadow` and filter glows are strictly prohibited).
+  - Use the **Okabe-Ito Colorblind-Safe** palette strictly for data marks, curves, scatter points, bar fills, and DAG nodes—never for decorative container fills or pastel card backgrounds.
+- **Formal Mathematical Typesetting**:
+  - Display equations must be formatted in centered serif typography (`"Times New Roman", Times, Georgia, serif`) with italic math variables, upright Roman operators/functions ($\log$, $\Pr$, $\mathbb{E}$), native `<tspan>` sub/superscripts, horizontal division rules, and formal right-aligned numbered tags `(1)`, `(2)`.
+  - Bayesian plate notation: Double circles for observed data, single circles for latent variables/parameters, and labeled rectangular plates.
+  - Coordinate axes: Continuous plots must feature explicit axes with outward tick marks (`stroke="#1E293B"`, `stroke-width="0.75"`), units, and numeric tick values.
+- **Pure Data Compendium vs. Study Overview**:
+  - When asked to illustrate or summarize the "data" or "datasets" used in a study, explicitly distinguish between:
+    1. **Study Design Overview / Graphical Abstract**: Cohorts + Computational Pipelines/Methods + Results/Biomarkers.
+    2. **Pure Dataset Compendium ("Data-Only")**: STRICTLY AND EXCLUSIVELY the data assets (sample sizes, clinical stratifications, RECIST response distributions, multi-omic assay matrix, cellular compartments, genomic burden). When asked to "only summarize the data and show nothing else", never include mathematical formulas, deconvolution equations, simulation curves, or outcome predictions.
+- **Inkscape Native Layer Architecture**:
+  - Every publication SVG must declare Inkscape namespaces (`xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`, `xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"`).
+  - Use explicit layers (`<g inkscape:groupmode="layer" id="layer-XX" inkscape:label="XX_Label">`) for Background, Headers, Panels, and Connectors.
+  - Wrap every card, icon, bar, and sub-block in a semantic group `<g id="..." inkscape:label="...">`.
+- **Editable Typography & Clean Layout**:
+  - All labels must be native `<text>` elements with standard font families (`system-ui, -apple-system, sans-serif`).
+  - Never use combining unicode accents (e.g. `\u0302` for hat accents) which can cause rendering corruption; use clean standalone unicode symbols (`β`, `Δ`, `ρ`, `θ̂`, `∑`, `Φ`).
+  - Connector lines must stay in gutters and never cut across panel cards or plot areas.
+  - Sub-cards within containers must use `<g transform="translate(...)">` to guarantee zero overlapping text.
+- **Verification**:
+  - Validate well-formedness with XML parsers and render 300 DPI rasters using `rsvg-convert` before embedding in Typst/LaTeX.
+
+

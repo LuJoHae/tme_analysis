@@ -55,3 +55,25 @@ All paths are backed by `config/data_paths.toml` and adhere to this hierarchy:
 
 ## 4. Jupyter Notebook Compatibility
 - When writing scripts or notebook cells, use `load_dataset` which flushes logs directly to `sys.stdout` so progress is visible in real-time without buffering delay or stderr warning boxes.
+
+## 5. Manual Downloads, Third-Party Isolation, & Ingestion Standards
+
+### A. Zero Fallback on External Wrapper Packages
+- **Never Fall Back on Wrapper Packages**: AI agents MUST NOT fall back on external data wrapper packages or foreign repositories to fetch core study cohorts.
+- **Controlled & Manual Cohorts**: Datasets that cannot be fetched via standard automated HTTP/FTP/API endpoints (e.g., controlled-access EGA data, proprietary cohorts, or datasets requiring portal login) MUST reside in `data/manual_download/` (resolved via `get_manual_download_dir()`).
+- **Informative Failure Monad**: When a dataset file in `data/manual_download/` is missing, loaders must return an informative `Failure` specifying:
+  1. The exact missing file path;
+  2. Clear instructions or commands to acquire or stage it (e.g. `python scripts/setup_manual_downloads.py`).
+
+### B. Reusable Package Ingestion Functions (No Standalone Scripts)
+- All downloaders (e.g., Google Drive, GEO fetchers), format converters, and AnnData builders MUST be implemented as reusable, tested functions inside `packages/tme_datasets/src/tme_datasets/providers/` and `tme_datasets/src/tme_datasets/download/`.
+- They must be exported at package top-level and registered in `tme_datasets.load_dataset(id, auto_download=True)` and `registry.DATASET_REGISTRY`. Never write one-off conversion scripts in the root or `scratch/`.
+
+### C. AnnData H5AD Serialization Guard (Python 3.14 / h5py)
+- When writing `AnnData` to `.h5ad` (`adata.write_h5ad()`), metadata DataFrames (`adata.obs`, `adata.var`) must be sanitized:
+  1. Drop or rename empty string column headers (`[c for c in df.columns if not c or c == ""]`), as `h5py` crashes with `TypeError` when serializing empty key strings on Python 3.14.
+  2. Sanitize object columns to ensure string serialization without dangling `None` values (`df[col].fillna("").astype(str)`).
+
+### D. Streaming Sparse Ingestion for Large Expression Matrices
+- When parsing multi-gigabyte text matrices (`.csv`, `.tsv`), DO NOT use `pandas.read_csv()` to load a dense matrix into memory.
+- Stream line-by-line using vectorized numpy routines (`np.fromstring(line, sep=",", dtype=np.float32)`, extracting non-zeros via `np.flatnonzero()`), and construct a `scipy.sparse.csr_matrix` directly to prevent memory exhaustion.
