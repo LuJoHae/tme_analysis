@@ -67,14 +67,18 @@ def sample_Z_theta_n(
         prob_sum = torch.where(prob_sum == 0, torch.ones_like(prob_sum), prob_sum)
         prob_mat_norm = (prob_mat / prob_sum).t()  # shape (G, K)
 
-        # Sample Z for each gene g
-        for g in range(G):
-            gene_count = int(X_n[g].item())
-            if gene_count > 0:
-                p = prob_mat_norm[g]
-                Z_n_i[g, :] = torch.distributions.Multinomial(gene_count, probs=p).sample()
-            else:
-                Z_n_i[g, :] = 0.0
+        # Sample Z for each gene g using vectorized batch multinomial
+        X_np = X_n.cpu().numpy().astype(np.int64)
+        prob_np = prob_mat_norm.cpu().numpy().astype(np.float64)
+        p_sums = prob_np.sum(axis=1, keepdims=True)
+        prob_np = np.divide(prob_np, p_sums, out=np.zeros_like(prob_np), where=p_sums > 0)
+        prob_np[:, -1] = np.clip(1.0 - prob_np[:, :-1].sum(axis=1), 0.0, 1.0)
+
+        nonzero = X_np > 0
+        Z_np = np.zeros((G, K), dtype=np.float32)
+        if np.any(nonzero):
+            Z_np[nonzero] = np.random.default_rng().multinomial(X_np[nonzero], prob_np[nonzero])
+        Z_n_i = torch.from_numpy(Z_np).to(device=device)
 
         # Sample theta for sample n
         Z_nk_i = Z_n_i.sum(dim=0)
