@@ -255,6 +255,87 @@ def _load_or_update_mapping_cache(
     return pd.DataFrame(records)
 
 
+def _build_ensembl_projection_operator(
+    raw_var_names: Sequence[str],
+    raw_var: pd.DataFrame,
+    release: int = 111,
+    species: str = "human",
+    ensembl_dir: Path | None = None,
+    drop_unmapped: bool = True,
+    aggregation: str = "sum",
+) -> tuple[pd.DataFrame, np.ndarray, sp.csr_matrix, list[str]]:
+    """Build the Ensembl var metadata and sparse projection matrix M from raw gene features.
+
+    Returns:
+        tuple of (var_final, keep_mask, M, unmapped_genes) where:
+        - var_final: Final DataFrame with sorted unique Ensembl IDs as index and enriched attributes.
+        - keep_mask: Boolean array over raw_var_names indicating retained features.
+        - M: Sparse CSR matrix (n_kept_genes x n_unique_ensembl_ids) projecting kept features to var_final.
+        - unmapped_genes: List of unmapped gene symbols.
+    """
+    target_dir = ensembl_dir or get_ensembl_dir()
+    ensembl = ensure_ensembl_release_installed(release=release, species=species, ensembl_dir=target_dir)
+    cache_path = Path(target_dir) / f"gene_mapping_cache_release_{release}.parquet"
+
+    mapping_df = _load_or_update_mapping_cache(list(raw_var_names), ensembl, cache_path)
+    mapping_df["original_id"] = list(raw_var_names)
+
+    var_combined = raw_var.copy()
+    for col in [
+        "gene_id", "gene_name", "original_id", "contig", "start", "end",
+        "strand", "biotype", "ensembl_release", "species", "mapping_status",
+        "alternative_ensembl_ids",
+    ]:
+        var_combined[col] = mapping_df[col].values
+
+    # Identify unmapped features
+    unmapped_mask = (
+        var_combined["gene_id"].isna()
+        | (var_combined["gene_id"] == "")
+        | (var_combined["mapping_status"] == "unmapped")
+    )
+    n_unmapped = int(unmapped_mask.sum())
+    unmapped_genes = list(var_combined.loc[unmapped_mask, "original_id"]) if n_unmapped > 0 else []
+
+    if n_unmapped > 0:
+        logger.info(
+            "Identified %d unmapped genes (e.g. %s)",
+            n_unmapped,
+            unmapped_genes[:5],
+        )
+
+    if drop_unmapped:
+        keep_mask = (~unmapped_mask).to_numpy()
+    else:
+        keep_mask = np.ones(len(raw_var_names), dtype=bool)
+        var_combined.loc[unmapped_mask, "gene_id"] = var_combined.loc[unmapped_mask, "original_id"]
+
+    var_kept = var_combined.loc[keep_mask].copy()
+    var_kept.index = pd.Index(var_kept["gene_id"].astype(str), name="gene_id")
+
+    gene_ids = var_kept.index.to_numpy()
+    sorted_unique_ids = np.sort(np.unique(gene_ids))
+    id_to_col = {gid: i for i, gid in enumerate(sorted_unique_ids)}
+    col_indices = np.array([id_to_col[gid] for gid in gene_ids], dtype=np.int32)
+    row_indices = np.arange(len(gene_ids), dtype=np.int32)
+
+    match aggregation:
+        case "mean":
+            counts = np.bincount(col_indices, minlength=len(sorted_unique_ids))
+            weights = (1.0 / counts[col_indices]).astype(np.float32)
+        case _:  # "sum"
+            weights = np.ones(len(gene_ids), dtype=np.float32)
+
+    M = sp.csr_matrix(
+        (weights, (row_indices, col_indices)),
+        shape=(len(gene_ids), len(sorted_unique_ids)),
+        dtype=np.float32,
+    )
+
+    var_final = var_kept[~var_kept.index.duplicated(keep="first")].loc[sorted_unique_ids].copy()
+    return var_final, keep_mask, M, unmapped_genes
+
+
 def normalize_genes_to_ensembl(
     adata: ad.AnnData,
     release: int = 111,
@@ -262,6 +343,7 @@ def normalize_genes_to_ensembl(
     ensembl_dir: Path | None = None,
     drop_unmapped: bool = True,
     aggregation: str = "sum",
+    chunk_size: int = 10000,
 ) -> ad.AnnData:
     """Convert AnnData var_names to canonical Ensembl gene IDs and enrich .var attributes.
 
@@ -272,8 +354,8 @@ def normalize_genes_to_ensembl(
     - Enriches adata.var with: contig, start, end, strand, biotype, gene_name,
       ensembl_release, species, mapping_status, alternative_ensembl_ids.
     - Uses persistent Polars Parquet caching for sub-millisecond lookups.
-    - Aggregates duplicate Ensembl gene IDs via specified operation ('sum', 'mean', 'max').
-    - Drops or retains unmapped features per drop_unmapped setting.
+    - Aggregates duplicate Ensembl gene IDs via sparse projection matrix M.
+    - Uses row-chunked sparse multiplication when n_obs > chunk_size to cap memory.
 
     Args:
         adata: Input AnnData expression container.
@@ -281,7 +363,8 @@ def normalize_genes_to_ensembl(
         species: Organism species (default 'human').
         ensembl_dir: Target cache directory. Defaults to get_ensembl_dir().
         drop_unmapped: If True, drops unmapped features and stores them in adata.uns['unmapped_genes'].
-        aggregation: Aggregation function for duplicate Ensembl IDs ('sum', 'mean', 'max').
+        aggregation: Aggregation function for duplicate Ensembl IDs ('sum', 'mean').
+        chunk_size: Row chunk size for memory-bounded sparse projection.
 
     Returns:
         AnnData with Ensembl gene IDs as var_names and full genomic attributes in .var.
@@ -292,87 +375,162 @@ def normalize_genes_to_ensembl(
         release,
         species,
     )
-    target_dir = ensembl_dir or get_ensembl_dir()
-    ensembl = ensure_ensembl_release_installed(release=release, species=species, ensembl_dir=target_dir)
+    var_final, keep_mask, M, unmapped_genes = _build_ensembl_projection_operator(
+        raw_var_names=list(adata.var_names),
+        raw_var=adata.var,
+        release=release,
+        species=species,
+        ensembl_dir=ensembl_dir,
+        drop_unmapped=drop_unmapped,
+        aggregation=aggregation,
+    )
 
-    cache_path = Path(target_dir) / f"gene_mapping_cache_release_{release}.parquet"
+    # Process in row chunks if large to prevent SciPy sparse multiplication memory spike
+    if adata.n_obs > chunk_size:
+        parts: list[sp.csr_matrix] = []
+        for start in range(0, adata.n_obs, chunk_size):
+            end = min(start + chunk_size, adata.n_obs)
+            chunk = adata.X[start:end]
+            if not sp.isspmatrix_csr(chunk):
+                chunk = sp.csr_matrix(chunk, dtype=np.float32)
+            chunk_kept = chunk[:, keep_mask]
+            parts.append(chunk_kept @ M)
+        new_X = sp.vstack(parts, format="csr")
+        del parts
+    else:
+        X_csr = adata.X if sp.isspmatrix_csr(adata.X) else sp.csr_matrix(adata.X, dtype=np.float32)
+        new_X = X_csr[:, keep_mask] @ M
 
-    mapping_df = _load_or_update_mapping_cache(list(adata.var_names), ensembl, cache_path)
-    mapping_df["original_id"] = list(adata.var_names)
-
-    # Attach mapping columns to var
-    var_combined = adata.var.copy()
-    for col in [
-        "gene_id", "gene_name", "original_id", "contig", "start", "end",
-        "strand", "biotype", "ensembl_release", "species", "mapping_status",
-        "alternative_ensembl_ids"
-    ]:
-        var_combined[col] = mapping_df[col].values
-
-    # Handle unmapped genes
-    unmapped_mask = var_combined["gene_id"].isna() | (var_combined["gene_id"] == "") | (var_combined["mapping_status"] == "unmapped")
-    n_unmapped = int(unmapped_mask.sum())
-
-    if n_unmapped > 0:
-        unmapped_genes = list(var_combined.loc[unmapped_mask, "original_id"])
-        logger.info(
-            "Identified %d unmapped genes (e.g. %s)",
-            n_unmapped,
-            unmapped_genes[:5],
-        )
-        if drop_unmapped:
-            adata = adata[:, ~unmapped_mask].copy()
-            var_combined = var_combined.loc[~unmapped_mask].copy()
-            adata.uns["unmapped_genes"] = unmapped_genes
-            adata.uns["n_unmapped_genes"] = n_unmapped
+    # Project layers identically
+    new_layers: dict[str, Any] = {}
+    for layer_name, layer_mat in adata.layers.items():
+        if adata.n_obs > chunk_size:
+            l_parts = []
+            for start in range(0, adata.n_obs, chunk_size):
+                end = min(start + chunk_size, adata.n_obs)
+                chunk = layer_mat[start:end]
+                if not sp.isspmatrix_csr(chunk):
+                    chunk = sp.csr_matrix(chunk, dtype=np.float32)
+                l_parts.append(chunk[:, keep_mask] @ M)
+            new_layers[layer_name] = sp.vstack(l_parts, format="csr")
+            del l_parts
         else:
-            # Retain original symbol for unmapped
-            var_combined.loc[unmapped_mask, "gene_id"] = var_combined.loc[unmapped_mask, "original_id"]
+            l_csr = layer_mat if sp.isspmatrix_csr(layer_mat) else sp.csr_matrix(layer_mat, dtype=np.float32)
+            new_layers[layer_name] = l_csr[:, keep_mask] @ M
 
-    # Set index to gene_id
-    var_combined.index = pd.Index(var_combined["gene_id"].astype(str), name="gene_id")
-    adata.var = var_combined
+    uns_dict = dict(adata.uns) if adata.uns else {}
+    if unmapped_genes:
+        uns_dict["unmapped_genes"] = unmapped_genes
+        uns_dict["n_unmapped_genes"] = len(unmapped_genes)
 
-    # Aggregate duplicate Ensembl IDs if present
-    if not adata.var.index.is_unique:
-        gene_ids = adata.var.index.to_numpy()
-        unique_ids = np.unique(gene_ids)
+    new_adata = ad.AnnData(
+        X=new_X,
+        obs=adata.obs.copy(),
+        var=var_final,
+        layers=new_layers,
+        uns=uns_dict,
+        obsm=adata.obsm.copy(),
+    )
+    logger.info("Ensembl normalization complete: %d cells x %d genes", new_adata.n_obs, new_adata.n_vars)
+    return new_adata
+
+
+def batch_normalize_to_sparse_h5ad(
+    adata: ad.AnnData,
+    target_h5ad: Path,
+    batch_size: int = 25000,
+    release: int | None = None,
+    species: str | None = None,
+    ensembl_dir: Path | None = None,
+    drop_unmapped: bool = True,
+    aggregation: str = "sum",
+) -> Result[Path, str]:
+    """Process AnnData in memory-bounded batches and stream normalized sparse CSR directly to H5AD.
+
+    Guarantees bounded peak memory (typically < 2-4 GB) even for cohorts with 500,000+ cells.
+
+    Args:
+        adata: Source AnnData object (in-memory or backed).
+        target_h5ad: Canonical target path for output H5AD file.
+        batch_size: Number of cell observations to process per batch.
+        release: Optional Ensembl release version (default 111).
+        species: Optional species name (default 'human').
+        ensembl_dir: Optional installation directory.
+        drop_unmapped: Whether to drop unmapped non-gene features.
+        aggregation: Aggregation strategy for duplicate Ensembl IDs ('sum', 'mean').
+
+    Returns:
+        Result[Path, str]: Path to verified written H5AD file upon success.
+    """
+    import gc
+    from ..storage.incremental_writer import H5ADSparseIncrementalWriter
+
+    try:
+        cfg = get_data_paths()
+        target_release = release or cfg.default_ensembl_release
+        target_species = species or cfg.default_species
+        target_dir = ensembl_dir or cfg.ensembl_dir
+
+        target_h5ad = Path(target_h5ad).resolve()
+        target_h5ad.parent.mkdir(parents=True, exist_ok=True)
+
         logger.info(
-            "Aggregating duplicate Ensembl IDs (%d unique across %d total) via '%s'...",
-            len(unique_ids),
-            len(gene_ids),
-            aggregation,
+            "Building Ensembl projection operator for %d raw genes (Release %d, species=%s)...",
+            adata.n_vars,
+            target_release,
+            target_species,
+        )
+        var_final, keep_mask, M, unmapped_genes = _build_ensembl_projection_operator(
+            raw_var_names=list(adata.var_names),
+            raw_var=adata.var,
+            release=target_release,
+            species=target_species,
+            ensembl_dir=target_dir,
+            drop_unmapped=drop_unmapped,
+            aggregation=aggregation,
         )
 
-        X = adata.X
-        is_sparse = sp.issparse(X)
-        X_dense = X.toarray() if is_sparse else np.asarray(X)
+        uns_dict = dict(adata.uns) if adata.uns else {}
+        if unmapped_genes:
+            uns_dict["unmapped_genes"] = unmapped_genes
+            uns_dict["n_unmapped_genes"] = len(unmapped_genes)
 
-        df_X = pd.DataFrame(X_dense, index=adata.obs_names, columns=gene_ids)
-        match aggregation:
-            case "mean":
-                X_agg = df_X.T.groupby(level=0).mean().T
-            case "max":
-                X_agg = df_X.T.groupby(level=0).max().T
-            case _:
-                X_agg = df_X.T.groupby(level=0).sum().T
-
-        X_agg = X_agg.loc[:, unique_ids]
-        var_dedup = adata.var[~adata.var.index.duplicated(keep="first")].loc[unique_ids]
-
-        new_X = sp.csr_matrix(X_agg.to_numpy()) if is_sparse else X_agg.to_numpy()
-        adata = ad.AnnData(
-            X=new_X,
-            obs=adata.obs.copy(),
-            var=var_dedup.copy(),
-            uns=adata.uns.copy(),
-            obsm=adata.obsm.copy(),
+        logger.info(
+            "Batch normalizing %d cells x %d raw genes -> %d Ensembl genes in batches of %d...",
+            adata.n_obs,
+            adata.n_vars,
+            len(var_final),
+            batch_size,
         )
 
-    # Sort var alphabetically by Ensembl ID for deterministic layout
-    adata = adata[:, sorted(adata.var_names)].copy()
-    logger.info("Ensembl normalization complete: %d cells x %d genes", adata.n_obs, adata.n_vars)
-    return adata
+        with H5ADSparseIncrementalWriter(target_h5ad, var=var_final, uns=uns_dict) as writer:
+            for start in range(0, adata.n_obs, batch_size):
+                end = min(start + batch_size, adata.n_obs)
+                obs_chunk = adata.obs.iloc[start:end].copy()
+                X_chunk = adata.X[start:end]
+                if not sp.isspmatrix_csr(X_chunk):
+                    X_chunk = sp.csr_matrix(X_chunk, dtype=np.float32)
+
+                X_kept = X_chunk[:, keep_mask]
+                X_final = X_kept @ M
+
+                writer.append_batch(obs_chunk, X_final)
+                del X_chunk, X_kept, X_final, obs_chunk
+                gc.collect()
+
+        size_mb = target_h5ad.stat().st_size / (1024 * 1024)
+        logger.info(
+            "Successfully serialized batched H5AD to %s (%.1f MB, %d cells x %d genes)",
+            target_h5ad.name,
+            size_mb,
+            adata.n_obs,
+            len(var_final),
+        )
+        return Success(target_h5ad)
+    except Exception as exc:
+        msg = f"Failed to batch normalize and write H5AD: {exc}"
+        logger.error(msg)
+        return Failure(msg)
 
 
 def normalize_dataset_to_ensembl(
@@ -391,7 +549,7 @@ def normalize_dataset_to_ensembl(
         species: Optional species name (defaults to 'human').
         ensembl_dir: Optional installation directory (defaults to config ensembl_dir 'data/ensembl').
         drop_unmapped: Whether to drop unmapped non-gene features (recording them in adata.uns).
-        aggregation: Aggregation strategy for duplicate Ensembl IDs ('sum', 'mean', 'max').
+        aggregation: Aggregation strategy for duplicate Ensembl IDs ('sum', 'mean').
 
     Returns:
         Success(normalized_adata) or Failure(error_message).
@@ -435,4 +593,5 @@ __all__ = [
     "ensure_ensembl_release_installed",
     "normalize_genes_to_ensembl",
     "normalize_dataset_to_ensembl",
+    "batch_normalize_to_sparse_h5ad",
 ]

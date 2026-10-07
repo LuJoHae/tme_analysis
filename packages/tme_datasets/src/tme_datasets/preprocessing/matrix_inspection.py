@@ -89,8 +89,8 @@ def inspect_expression_type(adata: ad.AnnData) -> ExpressionInspectionResult:
     cv_depth = float(std_depth / mean_depth) if mean_depth > 0 else 0.0
 
     # Classification logic
-    if is_integer and cv_depth > 0.05:
-        # Raw integer UMI counts with naturally variable cell depths
+    if is_integer:
+        # All non-negative integers -> raw UMI counts
         expr_type = ExpressionType.RAW_COUNTS
         is_raw = True
     elif not is_integer and max_val <= 30.0:

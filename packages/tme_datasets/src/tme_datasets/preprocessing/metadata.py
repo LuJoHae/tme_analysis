@@ -8,10 +8,12 @@ import polars as pl
 from returns.result import Failure, Result, Success
 
 RESPONDER_TOKENS = frozenset({
-    "CR", "PR", "RESPONDER", "RESPONSE", "YES", "TRUE", "1", "DCB", "R"
+    "CR", "PR", "RESPONDER", "RESPONSE", "YES", "TRUE", "1", "1.0", "DCB", "R",
+    "COMPLETE RESPONSE", "PARTIAL RESPONSE",
 })
 NON_RESPONDER_TOKENS = frozenset({
-    "PD", "SD", "NON-RESPONDER", "NON_RESPONDER", "NR", "NO", "FALSE", "0", "NDB"
+    "PD", "SD", "NON-RESPONDER", "NON_RESPONDER", "NR", "NO", "FALSE", "0", "0.0", "NDB",
+    "PROGRESSIVE DISEASE", "STABLE DISEASE", "PROGRESSION",
 })
 
 
@@ -19,6 +21,13 @@ def binarize_response(val: object) -> float:
     """Standardize heterogeneous clinical annotations into binary 1.0 (Responder) vs 0.0 (Non-Responder)."""
     if val is None:
         return np.nan
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        if np.isnan(val):
+            return np.nan
+        if val == 1.0:
+            return 1.0
+        if val == 0.0:
+            return 0.0
     clean = str(val).strip().upper()
     if clean in RESPONDER_TOKENS:
         return 1.0

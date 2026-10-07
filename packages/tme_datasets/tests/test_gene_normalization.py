@@ -10,6 +10,7 @@ import pandas as pd
 import polars as pl
 import pytest
 from returns.result import Success
+import scipy.sparse as sp
 
 from tme_datasets.paths import get_ensembl_dir
 from tme_datasets.preprocessing.gene_normalization import (
@@ -97,10 +98,12 @@ class MockEnsemblRelease:
 
 def test_get_ensembl_dir() -> None:
     """Verify get_ensembl_dir returns configured data/ensembl directory."""
-    dir_path = get_ensembl_dir()
+    from tme_datasets.paths import find_repo_root
+    root = find_repo_root()
+    dir_path = get_ensembl_dir(repo_root=root)
     assert isinstance(dir_path, Path)
     assert dir_path.name == "ensembl"
-    assert dir_path.parent.name == "data"
+    assert dir_path == (root / "data/ensembl").resolve()
 
 
 def test_normalize_genes_exact_and_conflict_resolution(tmp_path: Path) -> None:
@@ -153,7 +156,7 @@ def test_normalize_genes_alias_resolution(tmp_path: Path) -> None:
     mock_mg = MagicMock()
     mock_mg.querymany.return_value = [{"query": "OCT4", "symbol": "POU5F1"}]
 
-    with patch("gene_utils._gene_utils.ensure_ensembl_release_installed", return_value=mock_ens), \
+    with patch("tme_datasets.preprocessing.gene_normalization.ensure_ensembl_release_installed", return_value=mock_ens), \
          patch("mygene.MyGeneInfo", return_value=mock_mg):
         norm = normalize_genes_to_ensembl(
             adata,
@@ -182,6 +185,7 @@ def test_normalize_genes_duplicate_aggregation(tmp_path: Path) -> None:
     genes = ["CD8A_probe1", "CD8A_probe2"]
     counts = np.array([[10.0, 20.0], [5.0, 15.0]], dtype=np.float32)
     adata = ad.AnnData(X=counts, obs=pd.DataFrame(index=["c1", "c2"]), var=pd.DataFrame(index=genes))
+    adata.layers["counts"] = counts.copy()
 
     with patch("tme_datasets.preprocessing.gene_normalization.ensure_ensembl_release_installed", return_value=mock_ens):
         # 1. Sum aggregation
@@ -194,7 +198,11 @@ def test_normalize_genes_duplicate_aggregation(tmp_path: Path) -> None:
         assert norm_sum.n_vars == 1
         assert norm_sum.var_names[0] == "ENSG00000153563"
         # 10 + 20 = 30, 5 + 15 = 20
-        np.testing.assert_allclose(norm_sum.X.flatten(), [30.0, 20.0])
+        mat_sum = norm_sum.X.toarray() if sp.issparse(norm_sum.X) else norm_sum.X
+        np.testing.assert_allclose(mat_sum.flatten(), [30.0, 20.0])
+        assert "counts" in norm_sum.layers
+        layer_sum = norm_sum.layers["counts"].toarray() if sp.issparse(norm_sum.layers["counts"]) else norm_sum.layers["counts"]
+        np.testing.assert_allclose(layer_sum.flatten(), [30.0, 20.0])
 
         # 2. Mean aggregation
         norm_mean = normalize_genes_to_ensembl(
@@ -204,7 +212,8 @@ def test_normalize_genes_duplicate_aggregation(tmp_path: Path) -> None:
             aggregation="mean",
         )
         # (10 + 20) / 2 = 15, (5 + 15) / 2 = 10
-        np.testing.assert_allclose(norm_mean.X.flatten(), [15.0, 10.0])
+        mat_mean = norm_mean.X.toarray() if sp.issparse(norm_mean.X) else norm_mean.X
+        np.testing.assert_allclose(mat_mean.flatten(), [15.0, 10.0])
 
 
 def test_persistent_parquet_caching(tmp_path: Path) -> None:
@@ -258,8 +267,6 @@ def test_tme_datasets_wrapper_success(tmp_path: Path) -> None:
 
 def test_ensure_ensembl_release_installed_handles_readonly_cache_property(tmp_path: Path) -> None:
     """Verify ensure_ensembl_release_installed works with pyensembl's read-only cache_directory_path."""
-    from gene_utils import ensure_ensembl_release_installed
-
     mock_ens = MockEnsemblRelease(111)
     with patch("pyensembl.EnsemblRelease", return_value=mock_ens):
         ens = ensure_ensembl_release_installed(release=111, species="human", ensembl_dir=tmp_path)

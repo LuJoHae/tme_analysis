@@ -25,8 +25,13 @@ def filter_confounding_genes(
     """Filter out confounding, technical, and lineage-specific artifact genes from AnnData."""
     try:
         combined_regex = re.compile("|".join(patterns), flags=re.IGNORECASE)
-        var_names = [str(g) for g in adata.var_names]
-        keep_mask = [not bool(combined_regex.search(g)) for g in var_names]
+        if "gene_name" in adata.var.columns:
+            names_to_check = [str(g) for g in adata.var["gene_name"]]
+        elif "gene_symbol" in adata.var.columns:
+            names_to_check = [str(g) for g in adata.var["gene_symbol"]]
+        else:
+            names_to_check = [str(g) for g in adata.var_names]
+        keep_mask = [not bool(combined_regex.search(g)) for g in names_to_check]
 
         filtered = adata[:, keep_mask].copy()
         return Success(filtered)
