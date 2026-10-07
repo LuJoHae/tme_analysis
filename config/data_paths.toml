@@ -17,26 +17,9 @@ default_species = "human"
 preprocessed_template = "{dataset_id}.h5ad"
 raw_dataset_template = "{dataset_id}"
 
-# Candidate locations to search when resolving existing H5AD files (in order of priority)
-[paths.candidate_h5ad_search_patterns]
-patterns = [
-    "data/preprocessed/{dataset_id}.h5ad",
-    "data/preprocessed/{dataset_id}_processed.h5ad",
-    "data/manual_download/{dataset_id}.h5ad",
-    "/storage/halu/data/preprocessed/{dataset_id}.h5ad",
-    "/storage/halu/data/preprocessed/{dataset_id}_processed.h5ad",
-    "/storage/halu/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
-    "dataset_papers/{dataset_id}.h5ad",
-    "data/{dataset_id}.h5ad",
-    "jupyter/data/{dataset_id}.h5ad",
-    "scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
-    "scratch/lair/CBioPortalDataset-{dataset_id}/{dataset_id}.h5ad",
-    "scratch/{dataset_id}/{dataset_id}.h5ad",
-    "data/raw/{dataset_id}/{dataset_id}.h5ad",
-]
-
 # Custom path overrides for specific cohorts if needed
 [paths.overrides]
 EGAD00001006631 = "data/manual_download/EGAD00001006631-align"
 Maynard_NSCLC = "data/manual_download/Maynard_NSCLC.h5ad"
+
 

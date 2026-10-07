@@ -24,6 +24,7 @@ dependencies = [
     "ici_datasets",
     "single_cell_immuno_datasets",
     "tme_datasets",
+    "tme_response",
     "references",
     "ml_pipelines",
     "tables>=3.11.1",
@@ -47,7 +48,9 @@ dependencies = [
     "pertpy>=1.1.1",
     "milopy>=0.3.0",
     "harmonypy>=0.0.10",
+    "fast-matrix-market>=1.7.0",
     "jax[cuda12]; sys_platform == 'linux'",
+    "plotting-utils",
 ]
 
 [tool.uv.workspace]
@@ -55,6 +58,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 tme_datasets = { workspace = true }
+tme_response = { workspace = true }
 bayesprism = { workspace = true }
 icir = { git = "https://github.com/LuJoHae/ICI-Response.git" }
 tcga = { git = "https://github.com/LuJoHae/TCGA.git" }
@@ -73,3 +77,9 @@ ml_pipelines = { workspace = true }
 selective-inference = { workspace = true }
 single_cell_immuno_datasets = { workspace = true }
 milopy = { workspace = true }
+plotting-utils = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.168.3",
+]
