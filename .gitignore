@@ -15,6 +15,8 @@ results/
 # Figures and images
 figures/
 **/figures/**
+!scripts/figures/
+!scripts/figures/*.py
 *.png
 *.jpg
 *.jpeg
@@ -34,3 +36,18 @@ dist/
 
 # Archive files
 *.zip
+
+# Environment and sensitive credentials
+.env
+.env.*
+
+# Logs and PID files
+logs/
+*.log
+*.pid
+
+# Test and coverage caches
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+htmlcov/
