@@ -22,11 +22,12 @@
   #include "chapters/06_results_subclonal_vaf.typ"
   #include "chapters/07_results_tcell_myeloid.typ"
   #include "chapters/08_results_milo_vs_deconv.typ"
-  #include "chapters/09_discussion.typ"
+  #include "chapters/09_results_stability_selection.typ"
+  #include "chapters/10_discussion.typ"
 
   #v(1.5em)
   #bibliography("references.bib", style: "nature")
 ]
 
 #pagebreak()
-#include "chapters/10_extended_data.typ"
+#include "chapters/11_extended_data.typ"
