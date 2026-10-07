@@ -565,3 +565,14 @@ def qq_plot(data: np.ndarray, dist=uniform, params=()):
     )
     
     return points + line
+
+
+from selective_inference.stability_selection import (
+    StabilitySelector,
+    StabilityParameters,
+    StabilityResult,
+    run_stability_selection,
+    resolve_stability_parameters,
+    plot_stability_paths,
+    plot_stability_scores,
+)
