@@ -6,9 +6,30 @@ __version__ = "0.1.0"
 
 # High-level query API
 from .query import (
+    IATLAS_COMBINED_GROUPS,
+    build_deconvolution_reference,
+    get_dataset_metadata,
+    list_datasets,
+    list_preprocessed_datasets,
+    load_combined_iatlas_cohorts,
+    load_iatlas_cohort_or_combined,
     load_dataset,
     load_geneset_collection,
     query_datasets,
+    query_preprocessed_datasets,
+    sample_single_cell_cohorts,
+    run_sampling_hpo,
+    filter_candidate_cohorts,
+    HPOSearchSpace,
+    HPOTrialConfig,
+    HPORunResult,
+    TrialEvaluationResult,
+    MalignantStrategy,
+    MalignantSamplingConfig,
+)
+from .genesets.collections import (
+    IMMUNE_CHECKPOINT_GENES,
+    IMMUNOTHERAPY_GENE_PANEL,
 )
 
 # Logging
@@ -20,9 +41,13 @@ from .logging import (
 
 # Registry
 from .registry import (
+    DATASET_ALIASES,
     DATASET_REGISTRY,
     get_dataset_spec,
+    list_preprocessed_datasets,
     list_registered_datasets,
+    query_preprocessed_datasets,
+    resolve_dataset_id,
 )
 
 # Config-driven Paths API
@@ -41,6 +66,7 @@ from .paths import (
 
 # Core types & models
 from .types import (
+    CohortSamplingMode,
     DatasetProvider,
     GeneIDType,
     HarmonizeMode,
@@ -52,31 +78,65 @@ from .types import (
 )
 from .models import (
     ChecksumSpec,
+    ClusterAnalysisSpec,
     DatasetSpec,
     GeneReconcileConfig,
     HarmonizeConfig,
     IntegrationMetricsResult,
     NegativeBinomialConfig,
     PerturbationConfig,
+    PreprocessedDatasetSpec,
+    PreprocessedDatasets,
     PseudobulkConfig,
     QualityControlSpec,
     RegisteredDatasets,
+    SampledSingleCellResult,
     SanityConfig,
     SCTransformConfig,
+    SingleCellProcessingResult,
+    SingleCellProcessingSpec,
+    SingleCellSamplingSpec,
     SubsampleSpec,
 )
 
 # Preprocessing & Normalization
 from .preprocessing import (
+    ExpressionInspectionResult,
+    ExpressionType,
+    apply_quality_control,
+    batch_normalize_to_sparse_h5ad,
     binarize_response,
+    build_qc_dashboard,
+    calculate_adaptive_thresholds,
+    compute_qc_covariates,
+    compute_tpm_matrix,
+    display_qc_plots_inline,
+    export_qc_plots,
+    extract_qc_metrics_dataframe,
     filter_confounding_genes,
     harmonize_obs_metadata,
+    inspect_expression_type,
     normalize_dataset_to_ensembl,
     normalize_sctransform,
+    normalize_to_tpm,
     normalize_total_counts,
+    process_single_cell_dataset,
     run_sanity_normalization,
+    standardize_processed_layers,
     standardize_recist,
     standardize_timepoint,
+    tag_expression_metadata,
+)
+
+# Deconvolution Reference Building
+from .deconvolution import (
+    DeconvolutionReferenceConfig,
+    DeconvolutionReferenceResult,
+    build_deconvolution_reference,
+    calculate_cnv_proxy_scores,
+    detect_malignant_cells,
+    export_to_bayesprism,
+    export_to_instaprism,
 )
 
 # Transforms & perturbations
@@ -130,6 +190,7 @@ from .torch import (
 
 # Out-of-core storage
 from .storage import (
+    H5ADSparseIncrementalWriter,
     convert_to_zarr,
     load_backed,
     slice_backed_dataset,
@@ -143,18 +204,55 @@ from .genes import (
     strip_gene_version,
 )
 
-# Cryptographic verification
+# Providers
+from .providers import (
+    download_and_build_maynard_full,
+    load_maynard,
+)
+
+# Download & Verification
 from .download import (
     compute_file_hash,
+    download_gdrive_file,
     verify_checksum,
+)
+
+# Multi-Cohort Sampling & Clustering
+from .sampling import (
+    compute_cohort_cell_allocations,
+    generate_random_cluster_spec,
+    generate_random_sampling_spec,
+    resolve_sampled_cohorts,
+    run_pca_knn_leiden,
+    sample_and_harmonize_cohorts,
+    sample_single_cell_cohorts,
 )
 
 __all__ = [
     "__version__",
     # Query
     "load_dataset",
+    "load_combined_iatlas_cohorts",
+    "load_iatlas_cohort_or_combined",
+    "IATLAS_COMBINED_GROUPS",
+    "IMMUNE_CHECKPOINT_GENES",
+    "IMMUNOTHERAPY_GENE_PANEL",
     "query_datasets",
+    "list_preprocessed_datasets",
+    "query_preprocessed_datasets",
     "load_geneset_collection",
+    "sample_single_cell_cohorts",
+    "generate_random_sampling_spec",
+    "generate_random_cluster_spec",
+    "build_deconvolution_reference",
+    "run_sampling_hpo",
+    "filter_candidate_cohorts",
+    "HPOSearchSpace",
+    "HPOTrialConfig",
+    "HPORunResult",
+    "TrialEvaluationResult",
+    "MalignantStrategy",
+    "MalignantSamplingConfig",
     # Registry
     "DATASET_REGISTRY",
     "get_dataset_spec",
@@ -173,6 +271,7 @@ __all__ = [
     # Types & Models
     "Modality",
     "HarmonizeMode",
+    "CohortSamplingMode",
     "GeneIDType",
     "StorageBackend",
     "NBEstimationMethod",
@@ -181,8 +280,17 @@ __all__ = [
     "PerturbationTransform",
     "ChecksumSpec",
     "DatasetSpec",
+    "PreprocessedDatasetSpec",
     "RegisteredDatasets",
+    "PreprocessedDatasets",
+    "DeconvolutionReferenceConfig",
+    "DeconvolutionReferenceResult",
     "QualityControlSpec",
+    "SingleCellProcessingSpec",
+    "SingleCellProcessingResult",
+    "SingleCellSamplingSpec",
+    "ClusterAnalysisSpec",
+    "SampledSingleCellResult",
     "SubsampleSpec",
     "NegativeBinomialConfig",
     "SanityConfig",
@@ -192,9 +300,35 @@ __all__ = [
     "PseudobulkConfig",
     "HarmonizeConfig",
     "IntegrationMetricsResult",
+    # Sampling & Graph Clustering
+    "compute_cohort_cell_allocations",
+    "generate_random_cluster_spec",
+    "generate_random_sampling_spec",
+    "resolve_sampled_cohorts",
+    "run_pca_knn_leiden",
+    "sample_and_harmonize_cohorts",
+    # Registry
+    "DATASET_REGISTRY",
+    "DATASET_ALIASES",
+    "resolve_dataset_id",
+    "get_dataset_spec",
+    "list_registered_datasets",
+    "list_preprocessed_datasets",
+    "query_preprocessed_datasets",
     # Preprocessing
+    "apply_quality_control",
+    "calculate_adaptive_thresholds",
+    "compute_qc_covariates",
+    "extract_qc_metrics_dataframe",
+    "build_qc_dashboard",
+    "display_qc_plots_inline",
+    "export_qc_plots",
+    "process_single_cell_dataset",
+    "normalize_to_tpm",
+    "standardize_processed_layers",
     "normalize_total_counts",
     "normalize_dataset_to_ensembl",
+    "batch_normalize_to_sparse_h5ad",
     "filter_confounding_genes",
     "binarize_response",
     "standardize_recist",
@@ -202,6 +336,15 @@ __all__ = [
     "harmonize_obs_metadata",
     "run_sanity_normalization",
     "normalize_sctransform",
+    "inspect_expression_type",
+    "tag_expression_metadata",
+    "ExpressionType",
+    "ExpressionInspectionResult",
+    # Deconvolution Reference Building
+    "detect_malignant_cells",
+    "calculate_cnv_proxy_scores",
+    "export_to_bayesprism",
+    "export_to_instaprism",
     # Transforms
     "subsample_cells",
     "supersample_cells",
@@ -242,14 +385,19 @@ __all__ = [
     "load_backed",
     "slice_backed_dataset",
     "convert_to_zarr",
+    "H5ADSparseIncrementalWriter",
     # Gene reconciliation
     "detect_gene_id_type",
     "map_gene_identifier",
     "reconcile_genes",
     "strip_gene_version",
-    # Verification
+    # Verification & Download
     "compute_file_hash",
     "verify_checksum",
+    "download_gdrive_file",
+    # Providers
+    "load_maynard",
+    "download_and_build_maynard_full",
     # Logging
     "configure_logging",
     "get_logger",

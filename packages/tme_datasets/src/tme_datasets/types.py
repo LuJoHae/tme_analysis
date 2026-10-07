@@ -60,6 +60,16 @@ class SCTransformFlavor(str, Enum):
     REGULARIZED_GLM = "regularized_glm"
 
 
+class CohortSamplingMode(str, Enum):
+    """Supported cell allocation strategies across multi-cohort single-cell sampling."""
+
+    FIXED_PER_COHORT = "fixed_per_cohort"
+    FRACTION_PER_COHORT = "fraction_per_cohort"
+    EXPLICIT_COUNTS = "explicit_counts"
+    EXPLICIT_FRACTIONS = "explicit_fractions"
+    GLOBAL_BUDGET = "global_budget"
+
+
 @runtime_checkable
 class DatasetProvider(Protocol):
     """Typeclass protocol for dataset loading and processing."""

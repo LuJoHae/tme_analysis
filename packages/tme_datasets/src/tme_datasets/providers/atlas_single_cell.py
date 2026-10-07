@@ -26,12 +26,33 @@ import scipy.io as sio
 import scipy.sparse as sp
 from returns.result import Failure, Result, Success
 
-from ..download.fetcher import unpack_tar
+from ..download.fetcher import download_single_file, unpack_tar
 from ..download.geo import download_arrayexpress_files, download_geo_supplementary
 from ..logging import get_logger
 from ..preprocessing.matrix_inspection import tag_expression_metadata
 
 logger = get_logger("providers.atlas_single_cell")
+
+
+def _is_dir_empty(p: Path) -> bool:
+    """Return True if path does not exist or contains no files/directories."""
+    return not p.exists() or not any(p.iterdir())
+
+
+def _resolve_10x_file(directory: Path, prefix: str, candidate_suffixes: Sequence[str]) -> Path | None:
+    """Find the first existing candidate file matching prefix + suffix."""
+    for sfx in candidate_suffixes:
+        candidate = directory / f"{prefix}{sfx}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _to_csr(mat: object) -> sp.csr_matrix:
+    """Converts a sparse or dense matrix (genes x cells) into cells x genes CSR matrix."""
+    if sp.issparse(mat):
+        return mat.T.tocsr()  # type: ignore[attr-defined]
+    return sp.csr_matrix(np.asarray(mat).T)
 
 
 def _standardize_obs(
@@ -135,6 +156,7 @@ def load_pelka_crc(
             adata.var["gene_name"] = adata.var_names
             clean_ids = [gid.split(".")[0] for gid in adata.var["gene_ids"].astype(str)]
             adata.var_names = clean_ids
+            adata.var_names_make_unique()
 
         adata = _standardize_obs(
             adata,
@@ -169,25 +191,25 @@ def load_azizi_brca(
                 return Failure(f"Failed to download Azizi archive: {err}")
 
     extract_dir = raw_dir / "extracted_azizi"
-    if not extract_dir.exists() and tar_path.exists():
+    if _is_dir_empty(extract_dir) and tar_path.exists():
         match unpack_tar(tar_path, extract_dir):
             case Failure(err):
                 return Failure(f"Failed to unpack Azizi archive: {err}")
 
     try:
-        mtx_files = sorted(list(extract_dir.glob("*matrix.mtx.gz")))
+        mtx_files = sorted(list(extract_dir.glob("*matrix.mtx*")))
         adatas: list[ad.AnnData] = []
 
         for mtx_p in mtx_files:
-            prefix = mtx_p.name.replace("_matrix.mtx.gz", "")
-            bc_p = extract_dir / f"{prefix}_barcodes.tsv.gz"
-            genes_p = extract_dir / f"{prefix}_genes.tsv.gz"
+            prefix = mtx_p.name.replace("_matrix.mtx.gz", "").replace("_matrix.mtx", "")
+            bc_p = _resolve_10x_file(extract_dir, prefix, ["_barcodes.tsv.gz", "_barcodes.tsv"])
+            genes_p = _resolve_10x_file(extract_dir, prefix, ["_genes.tsv.gz", "_genes.tsv", "_features.tsv.gz", "_features.tsv"])
 
-            if not (bc_p.exists() and genes_p.exists()):
+            if bc_p is None or genes_p is None:
                 continue
 
-            mat = sio.mmread(mtx_p).T.tocsr()
-            barcodes = pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()
+            mat = _to_csr(sio.mmread(mtx_p))
+            barcodes = [f"{prefix}_{b}" for b in pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()]
             genes_df = pd.read_csv(genes_p, header=None, sep="\t")
             ensembl_ids = genes_df[0].astype(str).tolist()
             gene_symbols = genes_df[1].astype(str).tolist() if len(genes_df.columns) > 1 else ensembl_ids
@@ -317,24 +339,62 @@ def load_cheng_pancancer(
         return Failure(f"Cheng expression files not found in {raw_dir}")
 
     try:
-        adatas: list[ad.AnnData] = []
+        valid_pairs: list[tuple[Path, Path, str]] = []
         for ef in expr_files:
             meta_f = Path(str(ef).replace("normalized_expression.csv.gz", "metadata.csv.gz"))
-            if not meta_f.exists():
-                continue
+            if meta_f.exists():
+                cancer_tag = ef.name.split("_")[1] if len(ef.name.split("_")) > 1 else "Pan"
+                valid_pairs.append((ef, meta_f, cancer_tag))
 
-            cancer_tag = ef.name.split("_")[1] if len(ef.name.split("_")) > 1 else "Pan"
-            # Read metadata and expression
+        if not valid_pairs:
+            return Failure(f"No valid expression/metadata pairs found in {raw_dir}")
+
+        # Determine unified gene space from CSV headers without loading full files
+        gene_set: set[str] = set()
+        for ef, _, _ in valid_pairs:
+            header_df = pd.read_csv(ef, index_col=0, nrows=0)
+            gene_set.update(header_df.columns)
+
+        all_genes = sorted(list(gene_set))
+        gene_to_col = {g: i for i, g in enumerate(all_genes)}
+        n_all_genes = len(all_genes)
+
+        obs_dfs: list[pd.DataFrame] = []
+        csr_matrices: list[sp.csr_matrix] = []
+        import gc
+
+        for ef, meta_f, cancer_tag in valid_pairs:
             meta_df = pd.read_csv(meta_f, index_col=0)
+            meta_df["cancer_type_study"] = cancer_tag
+            obs_dfs.append(meta_df)
+
+            # Read expression CSV
             df_expr = pd.read_csv(ef, index_col=0)
+            col_indices = np.array([gene_to_col[g] for g in df_expr.columns], dtype=np.int32)
+            raw_csr = sp.csr_matrix(df_expr.to_numpy(dtype=np.float32))
+            del df_expr
+            gc.collect()
 
-            mat = sp.csr_matrix(df_expr.values.astype(np.float32))
-            sub_adata = ad.AnnData(X=mat, obs=meta_df, var=pd.DataFrame(index=df_expr.columns))
-            sub_adata.var["gene_name"] = sub_adata.var_names
-            sub_adata.obs["cancer_type_study"] = cancer_tag
-            adatas.append(sub_adata)
+            # Align sparse columns directly to unified gene space
+            aligned_indices = col_indices[raw_csr.indices]
+            aligned_csr = sp.csr_matrix(
+                (raw_csr.data, aligned_indices, raw_csr.indptr),
+                shape=(raw_csr.shape[0], n_all_genes),
+                dtype=np.float32,
+            )
+            del raw_csr
+            csr_matrices.append(aligned_csr)
 
-        combined = ad.concat(adatas, axis=0, join="outer")
+        combined_X = sp.vstack(csr_matrices, format="csr")
+        del csr_matrices
+        combined_obs = pd.concat(obs_dfs, axis=0)
+        del obs_dfs
+        gc.collect()
+
+        var_df = pd.DataFrame(index=all_genes)
+        var_df["gene_name"] = all_genes
+        combined = ad.AnnData(X=combined_X, obs=combined_obs, var=var_df)
+
         combined = _standardize_obs(
             combined,
             dataset="Cheng2021",
@@ -360,39 +420,168 @@ def load_leader_nsclc(
     subset: Mapping[str, str] | None = None,
     subsample_n: int | None = None,
 ) -> Result[ad.AnnData, str]:
-    """Load Leader et al. 2021 NSCLC atlas (GSE154826, ~35k cells)."""
+    """Load Leader et al. 2021 NSCLC atlas (GSE154826, ~360k cells)."""
+    meta_p = raw_dir / "leader_cell_metadata.csv"
+    annots_p = raw_dir / "leader_annots_list.csv"
+
     if auto_download:
         match download_geo_supplementary("GSE154826", raw_dir):
             case Failure(err):
                 pass
+        if not meta_p.exists():
+            download_single_file(
+                "https://raw.githubusercontent.com/effiken/Leader_et_al/master/input_tables/cell_metadata.csv",
+                meta_p,
+            )
+        if not annots_p.exists():
+            download_single_file(
+                "https://raw.githubusercontent.com/effiken/Leader_et_al/master/input_tables/annots_list.csv",
+                annots_p,
+            )
 
-    tar_files = sorted(list(raw_dir.glob("*.tar*")))
+    tar_files = sorted([f for f in raw_dir.glob("*.tar*") if f.is_file() and not f.name.endswith(".part")])
     if not tar_files:
         return Failure(f"Leader tar archives not found in {raw_dir}")
 
     extract_dir = raw_dir / "extracted_leader"
-    if not extract_dir.exists():
+    if _is_dir_empty(extract_dir):
         for tf in tar_files:
             unpack_tar(tf, extract_dir)
 
     try:
+        # Load author cell annotations if available
+        has_cell_meta = meta_p.is_file() and annots_p.is_file()
+        df_cells = pd.read_csv(meta_p) if has_cell_meta else None
+        df_annots = pd.read_csv(annots_p) if has_cell_meta else None
+
+        cluster_map: dict[int, dict[str, str]] = {}
+        if df_annots is not None:
+            cluster_map = df_annots.set_index("cluster")[["lineage", "sub_lineage"]].to_dict("index")
+
+        def _resolve_cell_type(cluster_id: int) -> str:
+            info = cluster_map.get(cluster_id, {})
+            sub = info.get("sub_lineage")
+            lin = info.get("lineage")
+            if pd.notna(sub) and str(sub).strip():
+                return str(sub).strip()
+            if pd.notna(lin) and str(lin).strip():
+                return str(lin).strip()
+            return f"Cluster_{cluster_id}"
+
+        if df_cells is not None:
+            df_cells["cell_type_author"] = [
+                _resolve_cell_type(int(c)) for c in df_cells["cluster_ID"]
+            ]
+            df_cells["barcode"] = [
+                cid.split("_", 1)[1] if "_" in str(cid) else str(cid)
+                for cid in df_cells["cell_ID"]
+            ]
+
+        # Load sample metadata if available
+        samp_p = raw_dir / "GSE154826_sample_annots.csv.gz"
+        if not samp_p.exists():
+            samp_p = raw_dir / "GSE154826_sample_annots.csv"
+        df_samp = pd.read_csv(samp_p) if samp_p.is_file() else None
+
+        batch_to_samples: dict[int, list[dict[str, object]]] = {}
+        if df_samp is not None:
+            for _, r in df_samp.iterrows():
+                bid = int(r["amp_batch_ID"])
+                batch_to_samples.setdefault(bid, []).append(r.to_dict())
+
         mtx_files = sorted(list(extract_dir.glob("*matrix.mtx*")))
+        if not mtx_files:
+            return Failure(f"No matrix files found in {extract_dir}")
+
         adatas: list[ad.AnnData] = []
         for mp in mtx_files:
-            sub_dir = mp.parent
-            bc_p = list(sub_dir.glob("*barcodes.tsv*"))[0]
-            feat_p = list(sub_dir.glob("*features.tsv*"))[0]
+            prefix = mp.name.replace("_matrix.mtx.gz", "").replace("_matrix.mtx", "")
+            bc_p = _resolve_10x_file(extract_dir, prefix, ["_barcodes.tsv.gz", "_barcodes.tsv"])
+            feat_p = _resolve_10x_file(extract_dir, prefix, ["_features.tsv.gz", "_features.tsv", "_genes.tsv.gz", "_genes.tsv"])
+            if bc_p is None or feat_p is None:
+                continue
 
-            mat = sio.mmread(mp).T.tocsr()
             bcs = pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()
             feats = pd.read_csv(feat_p, header=None, sep="\t")
+            var_df = pd.DataFrame(index=feats[0].astype(str).tolist())
+            var_df["gene_name"] = (feats[1] if len(feats.columns) > 1 else feats[0]).astype(str).values
 
-            var_df = pd.DataFrame(index=feats[0].astype(str))
-            var_df["gene_name"] = feats[1].astype(str) if len(feats.columns) > 1 else feats[0].astype(str)
+            mat = sio.mmread(mp)  # genes x cells
 
-            sub_adata = ad.AnnData(X=mat.astype(np.float32), obs=pd.DataFrame(index=bcs), var=var_df)
-            sub_adata.obs["batch"] = sub_dir.name
-            adatas.append(sub_adata)
+            batch_prefix_num: int | None = None
+            try:
+                batch_prefix_num = int(prefix.split("_")[0])
+            except ValueError:
+                batch_prefix_num = None
+
+            samp_records = batch_to_samples.get(batch_prefix_num, []) if batch_prefix_num is not None else []
+
+            if df_cells is not None and samp_records:
+                samp_ids = [r["sample_ID"] for r in samp_records]
+                sub_cells = df_cells[df_cells["sample_ID"].isin(samp_ids)]
+                if sub_cells.empty:
+                    continue
+
+                bc_to_idx = {b: i for i, b in enumerate(bcs)}
+                matched_indices: list[int] = []
+                matched_cell_ids: list[str] = []
+                matched_types: list[str] = []
+                matched_patients: list[str] = []
+                matched_samples: list[str] = []
+
+                sample_map = {r["sample_ID"]: r for r in samp_records}
+
+                for _, crow in sub_cells.iterrows():
+                    b = str(crow["barcode"])
+                    if b in bc_to_idx:
+                        matched_indices.append(bc_to_idx[b])
+                        matched_cell_ids.append(f"{prefix}_{b}")
+                        matched_types.append(str(crow["cell_type_author"]))
+                        s_info = sample_map.get(crow["sample_ID"], {})
+                        matched_patients.append(str(s_info.get("patient_ID", "Unknown")))
+                        matched_samples.append(str(s_info.get("sample_ID", prefix)))
+
+                if not matched_indices:
+                    continue
+
+                sub_mat = mat.tocsc()[:, matched_indices].T.tocsr()
+                obs_df = pd.DataFrame(
+                    {
+                        "patient": matched_patients,
+                        "sample": matched_samples,
+                        "cell_type_author": matched_types,
+                        "batch": prefix,
+                    },
+                    index=matched_cell_ids,
+                )
+                sub_adata = ad.AnnData(X=sub_mat.astype(np.float32), obs=obs_df, var=var_df)
+                adatas.append(sub_adata)
+            else:
+                # Fallback: transpose and filter out zero-count cells to avoid millions of empty droplets
+                sub_mat = _to_csr(mat)
+                counts = np.asarray(sub_mat.sum(axis=1)).ravel()
+                valid_mask = counts > 0
+                if not np.any(valid_mask):
+                    continue
+                sub_mat = sub_mat[valid_mask]
+                valid_bcs = [f"{prefix}_{b}" for b in np.array(bcs)[valid_mask]]
+
+                parts = prefix.split("_")
+                patient = parts[1] if len(parts) > 1 else "Unknown"
+                obs_df = pd.DataFrame(
+                    {
+                        "patient": patient,
+                        "sample": prefix,
+                        "batch": prefix,
+                        "cell_type_author": "Unknown",
+                    },
+                    index=valid_bcs,
+                )
+                sub_adata = ad.AnnData(X=sub_mat.astype(np.float32), obs=obs_df, var=var_df)
+                adatas.append(sub_adata)
+
+        if not adatas:
+            return Failure(f"No valid AnnData objects could be created from {extract_dir}")
 
         combined = ad.concat(adatas, axis=0, join="outer")
         combined = _standardize_obs(
@@ -401,7 +590,9 @@ def load_leader_nsclc(
             organ="Lung",
             cancer_type="Non-Small Cell Lung",
             cancer_code="NSCLC",
-            sample_col="batch",
+            patient_col="patient",
+            sample_col="sample",
+            cell_type_col="cell_type_author",
         )
         combined = tag_expression_metadata(combined)
         return Success(_apply_subset_and_subsample(combined, subset, subsample_n))
@@ -468,6 +659,38 @@ def load_kim_luad(
         return Failure(f"Failed to parse Kim et al. dataset: {exc}")
 
 
+def _download_becker_files(extract_dir: Path) -> Result[Path, str]:
+    """Download Becker et al. 2022 RNA expression files directly from GEO GSM suppl."""
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    fl_path = extract_dir.parent / "filelist.txt"
+    if not fl_path.exists():
+        fl_url = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE201nnn/GSE201349/suppl/filelist.txt"
+        match download_single_file(fl_url, fl_path):
+            case Failure(err):
+                return Failure(f"Failed to download Becker filelist: {err}")
+
+    rna_files: list[str] = []
+    with open(fl_path) as f:
+        for line in f:
+            parts = line.strip().split("\t")
+            if len(parts) >= 2:
+                name = parts[1]
+                if name.endswith("_matrix.mtx.gz") or name.endswith("_barcodes.tsv.gz") or name.endswith("_features.tsv.gz"):
+                    rna_files.append(name)
+
+    logger.info("Checking %d Becker RNA matrix files from NCBI GEO...", len(rna_files))
+    for fname in rna_files:
+        dest = extract_dir / fname
+        if dest.exists() and dest.stat().st_size > 0:
+            continue
+        gsm = fname.split("_")[0]
+        bucket = f"{gsm[:7]}nnn"
+        url = f"https://ftp.ncbi.nlm.nih.gov/geo/samples/{bucket}/{gsm}/suppl/{fname}"
+        download_single_file(url, dest)
+
+    return Success(extract_dir)
+
+
 # =========================================================================
 # 7. Becker et al. 2022 (GSE201349) - Colorectal Cancer
 # =========================================================================
@@ -479,38 +702,40 @@ def load_becker_coad(
 ) -> Result[ad.AnnData, str]:
     """Load Becker et al. 2022 Colorectal Cancer continuum (GSE201349, ~30k cells)."""
     tar_path = raw_dir / "GSE201349_RAW.tar"
-    if auto_download and not tar_path.exists():
-        match download_geo_supplementary("GSE201349", raw_dir, expected_files=["GSE201349_RAW.tar"]):
-            case Failure(err):
-                pass
-
     extract_dir = raw_dir / "extracted_becker"
-    if not extract_dir.exists() and tar_path.exists():
-        match unpack_tar(tar_path, extract_dir):
-            case Failure(err):
-                pass
+
+    if _is_dir_empty(extract_dir):
+        if tar_path.exists():
+            match unpack_tar(tar_path, extract_dir):
+                case Failure(err):
+                    pass
+        if _is_dir_empty(extract_dir) and auto_download:
+            _download_becker_files(extract_dir)
 
     try:
-        files = sorted(list(extract_dir.glob("*_matrix.mtx.gz")))
+        files = sorted(list(extract_dir.glob("*matrix.mtx*")))
         adatas: list[ad.AnnData] = []
         for mtx_p in files:
-            prefix = mtx_p.name.replace("_matrix.mtx.gz", "")
-            bc_p = extract_dir / f"{prefix}_barcodes.tsv.gz"
-            feat_p = extract_dir / f"{prefix}_features.tsv.gz"
-            if not (bc_p.exists() and feat_p.exists()):
+            prefix = mtx_p.name.replace("_matrix.mtx.gz", "").replace("_matrix.mtx", "")
+            bc_p = _resolve_10x_file(extract_dir, prefix, ["_barcodes.tsv.gz", "_barcodes.tsv"])
+            feat_p = _resolve_10x_file(extract_dir, prefix, ["_features.tsv.gz", "_features.tsv", "_genes.tsv.gz", "_genes.tsv"])
+            if bc_p is None or feat_p is None:
                 continue
 
-            mat = sio.mmread(mtx_p).T.tocsr()
-            bcs = pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()
+            mat = _to_csr(sio.mmread(mtx_p))
+            bcs = [f"{prefix}_{b}" for b in pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()]
             feats = pd.read_csv(feat_p, header=None, sep="\t")
 
-            var_df = pd.DataFrame(index=feats[0].astype(str))
-            var_df["gene_name"] = feats[1].astype(str) if len(feats.columns) > 1 else feats[0].astype(str)
+            var_df = pd.DataFrame(index=feats[0].astype(str).tolist())
+            var_df["gene_name"] = (feats[1] if len(feats.columns) > 1 else feats[0]).astype(str).values
 
             sub_adata = ad.AnnData(X=mat.astype(np.float32), obs=pd.DataFrame(index=bcs), var=var_df)
             sub_adata.obs["sample"] = prefix
             sub_adata.obs["geo_id"] = prefix.split("_")[0]
             adatas.append(sub_adata)
+
+        if not adatas:
+            return Failure(f"No valid single-cell matrices extracted from {extract_dir}")
 
         combined = ad.concat(adatas, axis=0, join="outer")
         combined = _standardize_obs(
@@ -598,7 +823,7 @@ def load_borcherding_ccrcc(
                 pass
 
     extract_dir = raw_dir / "extracted_borcherding"
-    if not extract_dir.exists() and tar_path.exists():
+    if _is_dir_empty(extract_dir) and tar_path.exists():
         match unpack_tar(tar_path, extract_dir):
             case Failure(err):
                 pass
@@ -608,21 +833,27 @@ def load_borcherding_ccrcc(
         adatas: list[ad.AnnData] = []
         for mp in mtx_files:
             prefix = mp.name.replace("_matrix.mtx.gz", "").replace("_matrix.mtx", "")
-            gene_p = extract_dir / f"{prefix}_genes.tsv.gz"
-            bc_p = extract_dir / f"{prefix}_barcodes.tsv.gz"
-            if not (gene_p.exists() and bc_p.exists()):
+            gene_p = _resolve_10x_file(extract_dir, prefix, ["_genes.tsv.gz", "_genes.tsv", "_features.tsv.gz", "_features.tsv"])
+            bc_p = _resolve_10x_file(extract_dir, prefix, ["_barcodes.tsv.gz", "_barcodes.tsv"])
+            if gene_p is None or bc_p is None:
                 continue
 
-            mat = sio.mmread(mp).T.tocsr()
-            bcs = pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()
+            mat = _to_csr(sio.mmread(mp))
+            bcs = [f"{prefix}_{b}" for b in pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()]
             genes_df = pd.read_csv(gene_p, header=None, sep="\t")
 
-            var_df = pd.DataFrame(index=genes_df[0].astype(str))
-            var_df["gene_name"] = genes_df[1].astype(str) if len(genes_df.columns) > 1 else genes_df[0].astype(str)
+            var_df = pd.DataFrame(index=genes_df[0].astype(str).tolist())
+            var_df["gene_name"] = (genes_df[1] if len(genes_df.columns) > 1 else genes_df[0]).astype(str).values
 
             sub_adata = ad.AnnData(X=mat.astype(np.float32), obs=pd.DataFrame(index=bcs), var=var_df)
             sub_adata.obs["sample"] = prefix
+            parts = prefix.split("_")
+            sub_adata.obs["geo_id"] = parts[0] if len(parts) > 0 else "Unknown"
+            sub_adata.obs["patient"] = parts[1] if len(parts) > 1 else "Unknown"
             adatas.append(sub_adata)
+
+        if not adatas:
+            return Failure(f"No valid single-cell matrices extracted from {extract_dir}")
 
         combined = ad.concat(adatas, axis=0, join="outer")
         combined = _standardize_obs(
@@ -631,6 +862,7 @@ def load_borcherding_ccrcc(
             organ="Kidney",
             cancer_type="Clear Cell Renal Cell",
             cancer_code="KIRC",
+            patient_col="patient",
             sample_col="sample",
         )
         combined = tag_expression_metadata(combined)
@@ -667,12 +899,12 @@ def load_sharma_hcc(
         return Failure(f"Sharma HCC matrix not found at {mat_p}")
 
     try:
-        mat = sio.mmread(mat_p).T.tocsr()
+        mat = _to_csr(sio.mmread(mat_p))
         bcs = pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()
         genes_df = pd.read_csv(gene_p, header=None, sep="\t")
 
-        var_df = pd.DataFrame(index=genes_df[0].astype(str))
-        var_df["gene_name"] = genes_df[1].astype(str) if len(genes_df.columns) > 1 else genes_df[0].astype(str)
+        var_df = pd.DataFrame(index=genes_df[0].astype(str).tolist())
+        var_df["gene_name"] = (genes_df[1] if len(genes_df.columns) > 1 else genes_df[0]).astype(str).values
 
         adata = ad.AnnData(X=mat.astype(np.float32), obs=pd.DataFrame(index=bcs), var=var_df)
         adata = _standardize_obs(
@@ -787,34 +1019,38 @@ def load_pu_ptc(
                 pass
 
     extract_dir = raw_dir / "extracted_pu"
-    if not extract_dir.exists() and tar_path.exists():
+    if _is_dir_empty(extract_dir) and tar_path.exists():
         match unpack_tar(tar_path, extract_dir):
             case Failure(err):
                 pass
 
     try:
-        mtx_files = sorted(list(extract_dir.glob("*matrix.mtx.gz")))
+        mtx_files = sorted(list(extract_dir.glob("*matrix.mtx*")))
         adatas: list[ad.AnnData] = []
         for mp in mtx_files:
-            prefix = mp.name.replace("_matrix.mtx.gz", "")
-            bc_p = extract_dir / f"{prefix}_barcodes.tsv.gz"
-            feat_p = extract_dir / f"{prefix}_features.tsv.gz"
-            if not (bc_p.exists() and feat_p.exists()):
+            prefix = mp.name.replace("_matrix.mtx.gz", "").replace("_matrix.mtx", "")
+            bc_p = _resolve_10x_file(extract_dir, prefix, ["_barcodes.tsv.gz", "_barcodes.tsv"])
+            feat_p = _resolve_10x_file(extract_dir, prefix, ["_features.tsv.gz", "_features.tsv", "_genes.tsv.gz", "_genes.tsv"])
+            if bc_p is None or feat_p is None:
                 continue
 
-            mat = sio.mmread(mp).T.tocsr()
-            bcs = pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()
+            mat = _to_csr(sio.mmread(mp))
+            bcs = [f"{prefix}_{b}" for b in pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()]
             feats = pd.read_csv(feat_p, header=None, sep="\t")
 
-            var_df = pd.DataFrame(index=feats[0].astype(str))
-            var_df["gene_name"] = feats[1].astype(str) if len(feats.columns) > 1 else feats[0].astype(str)
+            var_df = pd.DataFrame(index=feats[0].astype(str).tolist())
+            var_df["gene_name"] = (feats[1] if len(feats.columns) > 1 else feats[0]).astype(str).values
 
             sub_adata = ad.AnnData(X=mat.astype(np.float32), obs=pd.DataFrame(index=bcs), var=var_df)
             parts = prefix.split("_")
             sub_adata.obs["geo_id"] = parts[0] if len(parts) > 0 else "Unknown"
             sub_adata.obs["patient"] = parts[1] if len(parts) > 1 else "Unknown"
             sub_adata.obs["biopsy_site"] = parts[2] if len(parts) > 2 else "Unknown"
+            sub_adata.obs["sample"] = prefix
             adatas.append(sub_adata)
+
+        if not adatas:
+            return Failure(f"No valid single-cell matrices extracted from {extract_dir}")
 
         combined = ad.concat(adatas, axis=0, join="outer")
         combined = _standardize_obs(
@@ -824,7 +1060,7 @@ def load_pu_ptc(
             cancer_type="Papillary Thyroid Carcinoma",
             cancer_code="THCA",
             patient_col="patient",
-            sample_col="geo_id",
+            sample_col="sample",
         )
         combined = tag_expression_metadata(combined)
         return Success(_apply_subset_and_subsample(combined, subset, subsample_n))
@@ -849,32 +1085,35 @@ def load_durante_uvm(
                 pass
 
     extract_dir = raw_dir / "extracted_durante"
-    if not extract_dir.exists() and tar_path.exists():
+    if _is_dir_empty(extract_dir) and tar_path.exists():
         match unpack_tar(tar_path, extract_dir):
             case Failure(err):
                 pass
 
     try:
-        mtx_files = sorted(list(extract_dir.glob("*matrix.mtx.gz")))
+        mtx_files = sorted(list(extract_dir.glob("*matrix.mtx*")))
         adatas: list[ad.AnnData] = []
         for mp in mtx_files:
-            prefix = mp.name.replace("_matrix.mtx.gz", "")
-            bc_p = extract_dir / f"{prefix}_barcodes.tsv.gz"
-            gene_p = extract_dir / f"{prefix}_genes.tsv.gz"
-            if not (bc_p.exists() and gene_p.exists()):
+            prefix = mp.name.replace("_matrix.mtx.gz", "").replace("_matrix.mtx", "")
+            bc_p = _resolve_10x_file(extract_dir, prefix, ["_barcodes.tsv.gz", "_barcodes.tsv"])
+            gene_p = _resolve_10x_file(extract_dir, prefix, ["_genes.tsv.gz", "_genes.tsv", "_features.tsv.gz", "_features.tsv"])
+            if bc_p is None or gene_p is None:
                 continue
 
-            mat = sio.mmread(mp).T.tocsr()
-            bcs = pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()
+            mat = _to_csr(sio.mmread(mp))
+            bcs = [f"{prefix}_{b}" for b in pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()]
             genes = pd.read_csv(gene_p, header=None, sep="\t")
 
-            var_df = pd.DataFrame(index=genes[0].astype(str))
-            var_df["gene_name"] = genes[1].astype(str) if len(genes.columns) > 1 else genes[0].astype(str)
+            var_df = pd.DataFrame(index=genes[0].astype(str).tolist())
+            var_df["gene_name"] = (genes[1] if len(genes.columns) > 1 else genes[0]).astype(str).values
 
             sub_adata = ad.AnnData(X=mat.astype(np.float32), obs=pd.DataFrame(index=bcs), var=var_df)
             sub_adata.obs["sample"] = prefix
             sub_adata.obs["geo_id"] = prefix.split("_")[0]
             adatas.append(sub_adata)
+
+        if not adatas:
+            return Failure(f"No valid single-cell matrices extracted from {extract_dir}")
 
         combined = ad.concat(adatas, axis=0, join="outer")
         combined = _standardize_obs(
@@ -919,7 +1158,7 @@ def load_biermann_brainmet(
         return Failure(f"Biermann counts matrix not found at {cnt_p}")
 
     try:
-        mat = sio.mmread(cnt_p).T.tocsr()
+        mat = _to_csr(sio.mmread(cnt_p))
         genes_df = pd.read_csv(gene_p, index_col=0)
         # Exclude Excel date conversion artifacts
         mask = (genes_df.index != "1-Mar") & (genes_df.index != "2-Mar")
@@ -1026,13 +1265,13 @@ def load_zhang_tnbc(
         return Failure(f"Zhang TNBC counts matrix not found at {cnt_p}")
 
     try:
-        mat = sio.mmread(cnt_p).T.tocsr()
+        mat = _to_csr(sio.mmread(cnt_p))
         bcs = pd.read_csv(bc_p, header=None, sep="\t")[0].astype(str).tolist()
         feats_df = pd.read_csv(feat_p, header=None, sep="\t", index_col=0)
         genes = feats_df.index.astype(str).tolist()
 
         var_df = pd.DataFrame(index=genes)
-        var_df["gene_name"] = feats_df[1].astype(str) if len(feats_df.columns) > 0 else genes
+        var_df["gene_name"] = feats_df[1].astype(str).values if len(feats_df.columns) > 0 else genes
 
         adata = ad.AnnData(X=mat.astype(np.float32), obs=pd.DataFrame(index=bcs), var=var_df)
         adata = _standardize_obs(
@@ -1065,7 +1304,7 @@ def load_zhang_myeloid(
                 pass
 
     extract_dir = raw_dir / "extracted_zhang2022"
-    if not extract_dir.exists() and tar_path.exists():
+    if _is_dir_empty(extract_dir) and tar_path.exists():
         match unpack_tar(tar_path, extract_dir):
             case Failure(err):
                 pass
@@ -1083,6 +1322,7 @@ def load_zhang_myeloid(
                 sub_adata.var["gene_name"] = sub_adata.var_names
                 sub_adata.var_names = sub_adata.var["gene_ids"].astype(str)
 
+            sub_adata.obs_names = [f"{hp.stem}_{b}" for b in sub_adata.obs_names]
             parts = hp.stem.split("_")
             sub_adata.obs["geo_id"] = parts[0] if len(parts) > 0 else "Unknown"
             sub_adata.obs["patient_id"] = parts[1] if len(parts) > 1 else "Unknown"

@@ -9,6 +9,7 @@ from returns.maybe import Some
 from returns.result import Failure, Result, Success
 
 from ..models import GeneReconcileConfig
+from ..types import GeneIDType
 from .mapper import detect_gene_id_type, map_gene_identifier
 
 
@@ -25,13 +26,29 @@ def reconcile_genes(adata: ad.AnnData, config: GeneReconcileConfig) -> Result[ad
                 for g in current_names
             ]
         else:
-            mapped = []
-            for g in current_names:
-                match map_gene_identifier(g, config.target_type, config.strip_version_suffix):
-                    case Some(mapped_name):
-                        mapped.append(mapped_name)
-                    case _:
-                        mapped.append(g)
+            if config.target_type == GeneIDType.HUGO_SYMBOL and "gene_name" in adata.var.columns:
+                hugo_col = adata.var["gene_name"].astype(str).tolist()
+                mapped = [
+                    h if (h and h != "None" and h != "nan" and not h.startswith("ENSG")) else g
+                    for g, h in zip(current_names, hugo_col)
+                ]
+            elif config.target_type == GeneIDType.ENSEMBL_ID and "gene_id" in adata.var.columns:
+                ens_col = adata.var["gene_id"].astype(str).tolist()
+                mapped = [
+                    e.split(".")[0] if (config.strip_version_suffix and e.startswith("ENSG")) else e
+                    for g, e in zip(current_names, ens_col)
+                ]
+            elif config.target_type == GeneIDType.ENSEMBL_ID:
+                from ..preprocessing.gene_normalization import normalize_dataset_to_ensembl
+                return normalize_dataset_to_ensembl(adata, drop_unmapped=False)
+            else:
+                mapped = []
+                for g in current_names:
+                    match map_gene_identifier(g, config.target_type, config.strip_version_suffix):
+                        case Some(mapped_name):
+                            mapped.append(mapped_name)
+                        case _:
+                            mapped.append(g)
             new_names = mapped
 
         # Handle potential duplicates in target names

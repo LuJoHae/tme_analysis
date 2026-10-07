@@ -150,3 +150,47 @@ def get_bagaev_core_collection() -> GeneSetCollection:
         description="Functional gene expression signatures defining the 4 TME subtypes",
         gene_sets=BAGAEV_CORE_SIGNATURES,
     )
+
+# Immune Checkpoint Hallmark Markers (13 genes)
+IMMUNE_CHECKPOINT_GENES: tuple[str, ...] = (
+    "CD274",   # PD-L1
+    "PDCD1",   # PD-1
+    "CTLA4",   # CTLA-4
+    "LAG3",    # LAG-3
+    "TIGIT",   # TIGIT
+    "HAVCR2",  # TIM-3
+    "IFNG",    # Interferon gamma
+    "CXCL9",   # CXCL9
+    "CXCL10",  # CXCL10
+    "IDO1",    # IDO1
+    "FOXP3",   # FOXP3
+    "GZMB",    # Granzyme B
+    "PRF1",    # Perforin 1
+)
+
+# Comprehensive Curated Immunotherapy Gene Panel (68 genes)
+IMMUNOTHERAPY_GENE_PANEL: tuple[str, ...] = (
+    # Checkpoints & Co-inhibitory Receptors / Ligands
+    "CD274", "PDCD1", "PDCD1LG2", "CTLA4", "LAG3", "HAVCR2", "TIGIT", "BTLA",
+    "CD160", "KLRG1", "LAIR1", "CD276", "VTCN1", "LGALS9", "PVR", "CD80", "CD86",
+    "HHLA2", "VSIR",
+    # Co-stimulatory Receptors & Ligands
+    "CD28", "ICOS", "ICOSLG", "CD27", "CD70", "CD40", "CD40LG", "TNFRSF4",
+    "TNFSF4", "TNFRSF9", "TNFSF9", "TNFRSF18", "TNFSF18", "TNFRSF14",
+    # Cytolytic Effectors & T Cell Activation
+    "IFNG", "GZMA", "GZMB", "GZMK", "GZMH", "PRF1", "NKG7", "GNLY", "FASLG",
+    "TNF", "IL2", "STAT1",
+    # Chemokines & Homing Receptors
+    "CXCL9", "CXCL10", "CXCL11", "CXCL13", "CCL5", "CCL4", "CCL3", "CXCR3",
+    "CXCR6", "CCR5", "CCR7",
+    # Antigen Presentation Machinery & MHC
+    "B2M", "HLA-A", "HLA-B", "HLA-C", "TAP1", "TAP2", "TAPBP", "PSMB8", "PSMB9",
+    "NLRC5", "HLA-DRA", "HLA-DRB1", "HLA-DQA1", "HLA-DQB1", "HLA-E", "CIITA",
+    # Immunosuppression, Metabolic Enzymes, & Stroma
+    "IDO1", "ARG1", "NOS2", "ENTPD1", "NT5E", "PTGS2", "TGFB1", "IL10", "VEGFA",
+    "ANGPT2", "IL6", "AXL", "FAP", "COL1A1", "COL3A1",
+    # Exhaustion & Differentiation Regulators
+    "FOXP3", "TOX", "PRDM1", "EOMES", "TBX21", "BATF", "IKZF2", "TCF7",
+    # Lineage Co-receptors
+    "CD8A", "CD8B", "CD4", "CD3D", "CD3E", "CD3G",
+)

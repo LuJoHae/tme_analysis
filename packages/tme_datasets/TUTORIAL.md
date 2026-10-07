@@ -444,7 +444,7 @@ for batch_x, batch_labels in loader:
 
 Heterogeneous datasets often arrive with varied identifier conventions: official HUGO gene symbols, previous symbols or synonyms, or Ensembl IDs with dot-version numbers (`ENSG00000133703.12`).
 
-`tme_datasets` and `gene_utils` provide an industrial-strength, config-driven normalization engine that maps gene identifiers to canonical Ensembl gene IDs (defaulting to Ensembl Release 111, GRCh38), enriches `adata.var` with comprehensive genomic attributes, and resolves mapping conflicts deterministically.
+`tme_datasets` provides an industrial-strength, config-driven normalization engine that maps gene identifiers to canonical Ensembl gene IDs (defaulting to Ensembl Release 111, GRCh38), enriches `adata.var` with comprehensive genomic attributes, and resolves mapping conflicts deterministically.
 
 ### Key Capabilities:
 - **PyEnsembl Auto-Installation**: Automatically downloads and indexes the required Ensembl release directly into `data/ensembl/` (never modifying user home directories).
@@ -488,10 +488,13 @@ match normalize_dataset_to_ensembl(adata, release=111, drop_unmapped=True, aggre
         print(f"Normalization failed: {err}")
 ```
 
-### Low-Level `gene_utils` Usage:
+### Low-Level Ensembl Normalization Usage:
 
 ```python
-from gene_utils import normalize_genes_to_ensembl, ensure_ensembl_release_installed
+from tme_datasets.preprocessing.gene_normalization import (
+    normalize_genes_to_ensembl,
+    ensure_ensembl_release_installed,
+)
 from tme_datasets.paths import get_ensembl_dir
 
 # 1. Auto-install and index Ensembl release into data/ensembl/

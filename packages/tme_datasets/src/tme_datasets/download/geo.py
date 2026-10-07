@@ -70,36 +70,92 @@ def download_geo_supplementary(
                     return Success(tuple(existing))
                 return Failure(f"Cannot determine supplementary files for {gse_id}: {err}")
 
-    downloaded: list[Path] = []
-    prefix = gse_id[:-3]
+def download_single_geo_file(
+    gse_id: str,
+    fname: str,
+    dest_dir: Path,
+) -> Result[Path, str]:
+    """Download a single GEO supplementary file with HTTPS and FTP fallback."""
+    dest_file = dest_dir / fname
+    if dest_file.exists() and dest_file.stat().st_size > 0:
+        logger.debug("File already exists: %s", dest_file.name)
+        return Success(dest_file)
 
+    https_url = get_geo_suppl_url(gse_id, fname)
+    match download_single_file(https_url, dest_file):
+        case Success(p):
+            return Success(p)
+        case Failure(https_err):
+            logger.warning("HTTPS download failed for %s (%s). Attempting FTP fallback...", fname, https_err)
+            prefix = gse_id[:-3]
+            try:
+                ftp = FTP(NCBI_GEO_FTP_HOST, timeout=60)
+                ftp.login()
+                ftp.cwd(f"/geo/series/{prefix}nnn/{gse_id}/suppl")
+                with open(dest_file, "wb") as f_out:
+                    ftp.retrbinary(f"RETR {fname}", f_out.write)
+                ftp.quit()
+                return Success(dest_file)
+            except Exception as ftp_err:
+                msg = f"Failed to download {fname} via both HTTPS and FTP: {ftp_err}"
+                logger.error(msg)
+                return Failure(msg)
+
+
+def download_geo_supplementary(
+    gse_id: str,
+    dest_dir: Path,
+    expected_files: Sequence[str] | None = None,
+    max_workers: int = 4,
+) -> Result[tuple[Path, ...], str]:
+    """Download supplementary files for a given NCBI GEO GSE ID in parallel.
+
+    Tries HTTPS download for specified or listed files first, with FTP fallback.
+    """
+    import concurrent.futures
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine files to download
+    target_files: tuple[str, ...]
+    if expected_files is not None and len(expected_files) > 0:
+        target_files = tuple(expected_files)
+    else:
+        list_res = list_geo_supplementary_files(gse_id)
+        match list_res:
+            case Success(files):
+                target_files = files
+            case Failure(err):
+                existing = [p for p in dest_dir.iterdir() if p.is_file() and p.stat().st_size > 0]
+                if existing:
+                    logger.info("Found %d existing files in %s, skipping download.", len(existing), dest_dir)
+                    return Success(tuple(existing))
+                return Failure(f"Cannot determine supplementary files for {gse_id}: {err}")
+
+    workers = min(max_workers, len(target_files)) if target_files else 1
+    if workers > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_file = {
+                executor.submit(download_single_geo_file, gse_id, fname, dest_dir): fname
+                for fname in target_files
+            }
+            downloaded: list[Path] = []
+            for future in concurrent.futures.as_completed(future_to_file):
+                match future.result():
+                    case Success(p):
+                        downloaded.append(p)
+                    case Failure(err):
+                        return Failure(err)
+            return Success(tuple(downloaded))
+
+    downloaded_seq: list[Path] = []
     for fname in target_files:
-        dest_file = dest_dir / fname
-        if dest_file.exists() and dest_file.stat().st_size > 0:
-            logger.debug("File already exists: %s", dest_file.name)
-            downloaded.append(dest_file)
-            continue
-
-        https_url = get_geo_suppl_url(gse_id, fname)
-        match download_single_file(https_url, dest_file):
+        match download_single_geo_file(gse_id, fname, dest_dir):
             case Success(p):
-                downloaded.append(p)
-            case Failure(https_err):
-                logger.warning("HTTPS download failed for %s (%s). Attempting FTP fallback...", fname, https_err)
-                try:
-                    ftp = FTP(NCBI_GEO_FTP_HOST, timeout=60)
-                    ftp.login()
-                    ftp.cwd(f"/geo/series/{prefix}nnn/{gse_id}/suppl")
-                    with open(dest_file, "wb") as f_out:
-                        ftp.retrbinary(f"RETR {fname}", f_out.write)
-                    ftp.quit()
-                    downloaded.append(dest_file)
-                except Exception as ftp_err:
-                    msg = f"Failed to download {fname} via both HTTPS and FTP: {ftp_err}"
-                    logger.error(msg)
-                    return Failure(msg)
-
-    return Success(tuple(downloaded))
+                downloaded_seq.append(p)
+            case Failure(err):
+                return Failure(err)
+    return Success(tuple(downloaded_seq))
 
 
 def download_arrayexpress_files(

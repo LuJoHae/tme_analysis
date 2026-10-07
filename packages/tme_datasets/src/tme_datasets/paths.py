@@ -33,21 +33,6 @@ class DataPathsConfig(BaseModel):
     default_species: str = "human"
     preprocessed_template: str = "{dataset_id}.h5ad"
     raw_dataset_template: str = "{dataset_id}"
-    candidate_patterns: tuple[str, ...] = (
-        "data/preprocessed/{dataset_id}.h5ad",
-        "data/preprocessed/{dataset_id}_processed.h5ad",
-        "data/manual_download/{dataset_id}.h5ad",
-        "/storage/halu/data/preprocessed/{dataset_id}.h5ad",
-        "/storage/halu/data/preprocessed/{dataset_id}_processed.h5ad",
-        "/storage/halu/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
-        "dataset_papers/{dataset_id}.h5ad",
-        "data/{dataset_id}.h5ad",
-        "jupyter/data/{dataset_id}.h5ad",
-        "scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
-        "scratch/lair/CBioPortalDataset-{dataset_id}/{dataset_id}.h5ad",
-        "scratch/{dataset_id}/{dataset_id}.h5ad",
-        "data/raw/{dataset_id}/{dataset_id}.h5ad",
-    )
     overrides: Mapping[str, str] = Field(default_factory=dict)
 
 
@@ -62,6 +47,15 @@ def find_repo_root(start_dir: Path | None = None) -> Path:
             return parent
         if (parent / ".git").exists():
             return parent
+
+    # Fallback to package location relative to repository root
+    try:
+        pkg_root = Path(__file__).resolve().parents[4]
+        if (pkg_root / "config/data_paths.toml").exists():
+            return pkg_root
+    except IndexError:
+        pass
+
     return current
 
 
@@ -102,23 +96,6 @@ def get_data_paths(
             logger.warning("Failed to parse %s: %s. Using default paths.", cfg_file, exc)
 
     paths_sec = raw_cfg.get("paths", {})
-    patterns_sec = paths_sec.get("candidate_h5ad_search_patterns", {})
-    candidate_patterns = tuple(patterns_sec.get("patterns", [
-        "data/preprocessed/{dataset_id}.h5ad",
-        "data/preprocessed/{dataset_id}_processed.h5ad",
-        "data/manual_download/{dataset_id}.h5ad",
-        "/storage/halu/data/preprocessed/{dataset_id}.h5ad",
-        "/storage/halu/data/preprocessed/{dataset_id}_processed.h5ad",
-        "/storage/halu/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
-        "dataset_papers/{dataset_id}.h5ad",
-        "data/{dataset_id}.h5ad",
-        "jupyter/data/{dataset_id}.h5ad",
-        "scratch/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized/{dataset_id}.h5ad",
-        "scratch/lair/CBioPortalDataset-{dataset_id}/{dataset_id}.h5ad",
-        "scratch/{dataset_id}/{dataset_id}.h5ad",
-        "data/raw/{dataset_id}/{dataset_id}.h5ad",
-    ]))
-
     overrides = dict(paths_sec.get("overrides", {}))
 
     def _resolve(rel_or_abs: str) -> Path:
@@ -139,7 +116,6 @@ def get_data_paths(
         default_species=str(paths_sec.get("default_species", "human")),
         preprocessed_template=paths_sec.get("preprocessed_template", "{dataset_id}.h5ad"),
         raw_dataset_template=paths_sec.get("raw_dataset_template", "{dataset_id}"),
-        candidate_patterns=candidate_patterns,
         overrides=overrides,
     )
 
@@ -188,10 +164,11 @@ def get_reference_h5ad_path(repo_root: Path | None = None) -> Path:
 
 
 def find_dataset_h5ad(dataset_id: str, repo_root: Path | None = None) -> Maybe[Path]:
-    """Find an existing H5AD file across configured candidate directories.
+    """Find an existing H5AD file strictly at the canonical preprocessed path.
 
     Returns:
-        Some(path) if a valid non-empty H5AD file exists, else Nothing.
+        Some(path) if a valid non-empty H5AD file exists at {preprocessed_dir}/{dataset_id}.h5ad
+        (or configured override), else Nothing.
     """
     cfg = get_data_paths(repo_root=repo_root)
 
@@ -202,13 +179,16 @@ def find_dataset_h5ad(dataset_id: str, repo_root: Path | None = None) -> Maybe[P
         resolved = override_path if override_path.is_absolute() else (cfg.repo_root / override_path).resolve()
         if resolved.exists() and resolved.is_file() and resolved.stat().st_size > 0:
             return Some(resolved)
+        return Nothing
 
-    # 2. Check candidate search patterns in priority order
-    for pattern in cfg.candidate_patterns:
-        formatted = pattern.format(dataset_id=dataset_id)
-        p = Path(formatted)
-        candidate = p.resolve() if p.is_absolute() else (cfg.repo_root / p).resolve()
-        if candidate.exists() and candidate.is_file() and candidate.stat().st_size > 0:
-            return Some(candidate)
+    # 2. Check strict preprocessed destination
+    canonical_target = get_preprocessed_h5ad_path(dataset_id, repo_root=repo_root)
+    if canonical_target.exists() and canonical_target.is_file() and canonical_target.stat().st_size > 0:
+        return Some(canonical_target)
+
+    # 3. Check cluster storage directory directly if available
+    cluster_target = Path("/storage/halu/data-test/preprocessed") / f"{dataset_id}.h5ad"
+    if cluster_target.exists() and cluster_target.is_file() and cluster_target.stat().st_size > 0:
+        return Some(cluster_target)
 
     return Nothing

@@ -10,7 +10,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
-from returns.maybe import Some
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Success
 
 from tme_datasets import (
@@ -59,11 +59,50 @@ def test_missing_egad_returns_informative_failure(tmp_path: Path) -> None:
 
 def test_missing_maynard_returns_informative_failure(tmp_path: Path) -> None:
     """Verify missing Maynard dataset returns structured Failure."""
-    res = load_maynard(tmp_path)
+    from returns.maybe import Nothing
+    with patch("tme_datasets.paths.find_dataset_h5ad", return_value=Nothing):
+        res = load_maynard(tmp_path, auto_download=False)
     assert isinstance(res, Failure)
     err = res.failure()
     assert "Maynard NSCLC dataset not found" in err
     assert "Maynard_NSCLC.h5ad" in err
+
+
+def test_download_and_build_maynard_full_with_mock_data(tmp_path: Path) -> None:
+    """Verify download_and_build_maynard_full parses expression CSV and metadata."""
+    from tme_datasets.providers.single_cell import download_and_build_maynard_full
+
+    raw_dir = tmp_path / "Maynard_NSCLC"
+    raw_dir.mkdir(parents=True)
+
+    # 1. Mock metacells CSV
+    meta_csv = raw_dir / "S01_metacells.csv"
+    meta_csv.write_text(
+        ",cell_id,patient_id,sample_name,biopsy_time_status\n"
+        "0,c1,P01,S01,PR\n"
+        "1,c2,P02,S02,PD\n"
+    )
+
+    # 2. Mock expression CSV (2 genes x 2 cells)
+    data_csv = raw_dir / "S01_datafinal.csv"
+    data_csv.write_text(
+        '"","c1","c2"\n'
+        '"CD8A",5.0,0.0\n'
+        '"PDCD1",2.5,8.0\n'
+    )
+
+    out_h5ad = tmp_path / "Maynard_NSCLC.h5ad"
+    res = download_and_build_maynard_full(raw_dir=raw_dir, output_h5ad=out_h5ad, force_download=False)
+    assert isinstance(res, Success)
+    adata = res.unwrap()
+    assert adata.n_obs == 2
+    assert adata.n_vars == 2
+    assert list(adata.obs_names) == ["c1", "c2"]
+    assert list(adata.var_names) == ["ENSG00000153563", "ENSG00000188389"]
+    assert list(adata.var["gene_name"]) == ["CD8A", "PDCD1"]
+    assert adata.obs.loc["c1", "response_binary"] == 1.0
+    assert adata.obs.loc["c2", "response_binary"] == 0.0
+    assert out_h5ad.exists()
 
 
 def test_load_ma_liver_with_mock_files(tmp_path: Path) -> None:
@@ -149,12 +188,21 @@ def test_load_gse179994_with_mock_rds(tmp_path: Path) -> None:
 
 
 def test_find_dataset_h5ad_finds_manual_download(tmp_path: Path) -> None:
-    """Verify find_dataset_h5ad discovers files placed in data/manual_download."""
+    """Verify find_dataset_h5ad strictly looks in preprocessed_dir and does not hunt through manual_download."""
     manual_dir = tmp_path / "data/manual_download"
     manual_dir.mkdir(parents=True)
     fake_h5ad = manual_dir / "Auslander.h5ad"
     fake_h5ad.write_bytes(b"mock_h5ad_data")
 
+    # Under strict single-path lookup, searching in manual_download is disabled
     found = find_dataset_h5ad("Auslander", repo_root=tmp_path)
-    assert isinstance(found, (Success, Some))
-    assert found.unwrap() == fake_h5ad
+    assert found is Nothing
+
+    # When placed in the exact preprocessed path, it is discovered
+    preprocessed_dir = tmp_path / "data/preprocessed"
+    preprocessed_dir.mkdir(parents=True)
+    target_h5ad = preprocessed_dir / "Auslander.h5ad"
+    target_h5ad.write_bytes(b"mock_h5ad_data")
+    found_prep = find_dataset_h5ad("Auslander", repo_root=tmp_path)
+    assert isinstance(found_prep, Some)
+    assert found_prep.unwrap() == target_h5ad

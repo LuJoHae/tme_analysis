@@ -123,8 +123,54 @@ def load_iatlas_cohort(
             # Skip comment lines beginning with '#'
             df_raw_clin = pd.read_csv(clinical_sample_file, sep="\t", comment="#")
             id_col = next((c for c in df_raw_clin.columns if any(k in c.upper() for k in ("SAMPLE_ID", "SAMPLEID"))), df_raw_clin.columns[0])
+            df_raw_clin[id_col] = df_raw_clin[id_col].astype(str).str.strip()
+
+            # Merge data_clinical_patient.txt if present (adds OS, PFS, and drug target metadata)
+            clinical_patient_file = next(
+                (p for p in (target_dir / "data_clinical_patient.txt", cohort_dir / "data_clinical_patient.txt") if p.exists()),
+                None,
+            )
+            if not clinical_patient_file:
+                pat_matches = list(cohort_dir.rglob("data_clinical_patient.txt"))
+                clinical_patient_file = pat_matches[0] if pat_matches else None
+
+            if clinical_patient_file and clinical_patient_file.exists():
+                logger.info("Parsing patient annotations from %s...", clinical_patient_file.name)
+                df_raw_pat = pd.read_csv(clinical_patient_file, sep="\t", comment="#")
+                pat_id_col = next(
+                    (c for c in df_raw_pat.columns if any(k in c.upper() for k in ("PATIENT_ID", "PATIENTID"))),
+                    df_raw_pat.columns[0],
+                )
+                df_raw_pat[pat_id_col] = df_raw_pat[pat_id_col].astype(str).str.strip()
+
+                clin_pat_col = next(
+                    (c for c in df_raw_clin.columns if any(k in c.upper() for k in ("PATIENT_ID", "PATIENTID"))),
+                    None,
+                )
+                if clin_pat_col:
+                    df_raw_clin[clin_pat_col] = df_raw_clin[clin_pat_col].astype(str).str.strip()
+                    df_raw_pat[pat_id_col] = df_raw_pat[pat_id_col].astype(str).str.strip()
+                    df_raw_clin = df_raw_clin.merge(
+                        df_raw_pat,
+                        left_on=clin_pat_col,
+                        right_on=pat_id_col,
+                        how="left",
+                        suffixes=("", "_patient"),
+                    )
+                else:
+                    df_raw_clin[id_col] = df_raw_clin[id_col].astype(str).str.strip()
+                    df_raw_pat[pat_id_col] = df_raw_pat[pat_id_col].astype(str).str.strip()
+                    df_raw_clin = df_raw_clin.merge(
+                        df_raw_pat,
+                        left_on=id_col,
+                        right_on=pat_id_col,
+                        how="left",
+                        suffixes=("", "_patient"),
+                    )
+
             df_raw_clin = df_raw_clin.set_index(id_col)
             # Reindex to match expression samples
+            df_clinical.index = df_clinical.index.astype(str).str.strip()
             common_samples = df_clinical.index.intersection(df_raw_clin.index)
             df_clinical.loc[common_samples, df_raw_clin.columns] = df_raw_clin.loc[common_samples]
 
@@ -133,6 +179,45 @@ def load_iatlas_cohort(
         if resp_col:
             df_clinical["response_binary"] = df_clinical[resp_col].apply(binarize_response)
             df_clinical["response_recist"] = df_clinical[resp_col].apply(standardize_recist)
+
+        # 4. Standardize survival endpoints (OS & PFS)
+        if "OS_STATUS" in df_clinical.columns:
+            def _parse_os_status(val: object) -> float:
+                if pd.isna(val):
+                    return np.nan
+                s = str(val).upper().strip()
+                if "DECEASED" in s or "DEAD" in s or s.startswith("1:"):
+                    return 1.0
+                if "LIVING" in s or "ALIVE" in s or s.startswith("0:"):
+                    return 0.0
+                return np.nan
+            df_clinical["os_event"] = df_clinical["OS_STATUS"].apply(_parse_os_status)
+
+        if "OS_MONTHS" in df_clinical.columns:
+            df_clinical["os_months"] = pd.to_numeric(df_clinical["OS_MONTHS"], errors="coerce")
+
+        if "PFS_STATUS" in df_clinical.columns:
+            def _parse_pfs_status(val: object) -> float:
+                if pd.isna(val):
+                    return np.nan
+                s = str(val).upper().strip()
+                if "PROGRESSED" in s or s.startswith("1:"):
+                    return 1.0
+                if "NOT_PROGRESSED" in s or "CENSORED" in s or "LIVING" in s or s.startswith("0:"):
+                    return 0.0
+                return np.nan
+            df_clinical["pfs_event"] = df_clinical["PFS_STATUS"].apply(_parse_pfs_status)
+
+        if "PFS_MONTHS" in df_clinical.columns:
+            df_clinical["pfs_months"] = pd.to_numeric(df_clinical["PFS_MONTHS"], errors="coerce")
+
+        # 5. Sanitize object columns for robust H5AD serialization
+        for col in df_clinical.columns:
+            if df_clinical[col].dtype == object:
+                if any(isinstance(v, bool) for v in df_clinical[col].dropna()):
+                    df_clinical[col] = df_clinical[col].astype("boolean")
+                else:
+                    df_clinical[col] = df_clinical[col].astype(str)
 
         X_mat = df_expr.values.T.astype(np.float32)
         adata = ad.AnnData(
