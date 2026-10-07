@@ -25,8 +25,9 @@ from scipy.sparse import issparse, spmatrix  # type: ignore
 
 class ReferenceConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    adata_path: Path
-    tpm_path: Path | None
+    cohort: str = "GSE120575"
+    adata_path: Path | None = None
+    tpm_path: Path | None = None
     out_dir: Path
     resolutions: tuple[float, ...] = (0.5, 1.0, 1.5, 2.0)
     cluster_prefix: str = "celltypist_leiden_"
@@ -34,15 +35,16 @@ class ReferenceConfig(BaseModel):
     min_cluster_size: int = 10
 
 
-def load_anndata(path: Path) -> Result[ad.AnnData, str]:
-    """Pure boundary to safely load AnnData from disk."""
-    try:
-        if not path.exists():
-            return Failure(f"AnnData file not found at: {path}")
-        adata = ad.read_h5ad(path)
-        return Success(adata)
-    except Exception as exc:
-        return Failure(f"Failed to read AnnData: {exc}")
+def load_reference_adata(config: ReferenceConfig) -> Result[ad.AnnData, str]:
+    """Pure boundary to load AnnData via unified tme_datasets or explicit path."""
+    if config.adata_path is not None and config.adata_path.exists():
+        try:
+            return Success(ad.read_h5ad(config.adata_path))
+        except Exception as exc:
+            return Failure(f"Failed to read AnnData from {config.adata_path}: {exc}")
+
+    from tme_datasets import load_dataset
+    return load_dataset(config.cohort)
 
 
 def filter_confounding_genes(genes: list[str]) -> tuple[list[int], list[str]]:
@@ -142,7 +144,7 @@ def select_top_markers(
 
 def run_reference_pipeline(config: ReferenceConfig) -> Result[Path, str]:
     """Execute reference preparation steps functionally."""
-    adata_res = load_anndata(config.adata_path)
+    adata_res = load_reference_adata(config)
     match adata_res:
         case Failure(err):
             return Failure(err)
@@ -152,43 +154,60 @@ def run_reference_pipeline(config: ReferenceConfig) -> Result[Path, str]:
     cells: list[str] = adata.obs_names.tolist()
     print(f"Loaded AnnData with {adata.n_obs} cells.")
 
-    # Determine if raw TPM parquet is provided / exists
-    tpm_file = config.tpm_path if config.tpm_path and config.tpm_path.exists() else None
-    if tpm_file is None:
-        candidate_tpm = config.adata_path.parent / "gse120575_tpm.parquet"
-        if candidate_tpm.exists():
-            tpm_file = candidate_tpm
-
-    if tpm_file is not None:
-        print(f"Loading raw TPM parquet from {tpm_file}...")
-        tpm_df = pl.read_parquet(tpm_file)
-        raw_genes = [str(g).upper() for g in tpm_df["gene"].to_list()]
-
-        # Filter confounding gene families
-        valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
-        print(f"Retained {len(filtered_genes)} protein-coding genes after confounding gene exclusion.")
-
-        # Intersect cells
-        common_cells = [c for c in cells if c in tpm_df.columns]
-        cell_mask = [c in set(common_cells) for c in cells]
-
-        print(f"Aligning {len(common_cells)} single cells with TPM data...")
-        sub_tpm = tpm_df.select(common_cells).to_numpy()[valid_gene_idx, :]  # (genes, cells)
-
-        # Invert log2(TPM + 1) to linear TPM: 2^x - 1
-        print("Inverting log2(TPM + 1) to linear TPM scale (2^x - 1)...")
-        lin_matrix = np.power(2.0, sub_tpm) - 1.0
-    else:
-        print("Warning: TPM parquet not found. Falling back to linearizing adata.X...")
+    # Determine linear TPM matrix
+    if "tpm" in adata.layers:
+        print("Extracting linear TPM directly from AnnData.layers['tpm']...")
         raw_genes = [str(g).upper() for g in adata.var_names]
         valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
-
-        if issparse(adata.X):
-            lin_matrix = adata.X[:, valid_gene_idx].expm1().toarray().T  # (genes, cells)
+        print(f"Retained {len(filtered_genes)} protein-coding genes after confounding gene exclusion.")
+        tpm_mat = adata.layers["tpm"]
+        if issparse(tpm_mat):
+            lin_matrix = tpm_mat[:, valid_gene_idx].toarray().T
         else:
-            lin_matrix = np.expm1(adata.X[:, valid_gene_idx]).T
+            lin_matrix = np.asarray(tpm_mat[:, valid_gene_idx]).T
         common_cells = cells
         cell_mask = [True] * len(cells)
+    elif adata.uns.get("expression_type") == "tpm":
+        print("Extracting linear TPM directly from AnnData.X (expression_type=tpm)...")
+        raw_genes = [str(g).upper() for g in adata.var_names]
+        valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
+        print(f"Retained {len(filtered_genes)} protein-coding genes after confounding gene exclusion.")
+        if issparse(adata.X):
+            lin_matrix = adata.X[:, valid_gene_idx].toarray().T
+        else:
+            lin_matrix = np.asarray(adata.X[:, valid_gene_idx]).T
+        common_cells = cells
+        cell_mask = [True] * len(cells)
+    else:
+        # Determine if raw TPM parquet is provided / exists
+        tpm_file = config.tpm_path if config.tpm_path and config.tpm_path.exists() else None
+        if tpm_file is None and config.adata_path is not None:
+            candidate_tpm = config.adata_path.parent / "gse120575_tpm.parquet"
+            if candidate_tpm.exists():
+                tpm_file = candidate_tpm
+
+        if tpm_file is not None:
+            print(f"Loading raw TPM parquet from {tpm_file}...")
+            tpm_df = pl.read_parquet(tpm_file)
+            raw_genes = [str(g).upper() for g in tpm_df["gene"].to_list()]
+            valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
+            print(f"Retained {len(filtered_genes)} protein-coding genes after confounding gene exclusion.")
+            common_cells = [c for c in cells if c in tpm_df.columns]
+            cell_mask = [c in set(common_cells) for c in cells]
+            print(f"Aligning {len(common_cells)} single cells with TPM data...")
+            sub_tpm = tpm_df.select(common_cells).to_numpy()[valid_gene_idx, :]  # (genes, cells)
+            print("Inverting log2(TPM + 1) to linear TPM scale (2^x - 1)...")
+            lin_matrix = np.power(2.0, sub_tpm) - 1.0
+        else:
+            print("Warning: TPM layer or parquet not found. Falling back to linearizing adata.X...")
+            raw_genes = [str(g).upper() for g in adata.var_names]
+            valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
+            if issparse(adata.X):
+                lin_matrix = adata.X[:, valid_gene_idx].expm1().toarray().T  # (genes, cells)
+            else:
+                lin_matrix = np.expm1(adata.X[:, valid_gene_idx]).T
+            common_cells = cells
+            cell_mask = [True] * len(cells)
 
     config.out_dir.mkdir(parents=True, exist_ok=True)
     resolution_records: list[dict[str, object]] = []
@@ -301,16 +320,22 @@ def main() -> None:
         description="Step 1: Build multi-resolution deconvolution references from Sade-Feldman single cell dataset."
     )
     parser.add_argument(
+        "--cohort",
+        type=str,
+        default="GSE120575",
+        help="Cohort ID in tme_datasets registry (default: GSE120575)",
+    )
+    parser.add_argument(
         "--adata",
         type=str,
-        default="/storage/halu/data/GSE120575/gse120575_processed.h5ad",
-        help="Path to gse120575_processed.h5ad",
+        default="",
+        help="Optional explicit path to preprocessed AnnData file",
     )
     parser.add_argument(
         "--tpm",
         type=str,
-        default="/storage/halu/data/GSE120575/gse120575_tpm.parquet",
-        help="Path to gse120575_tpm.parquet",
+        default="",
+        help="Optional explicit path to legacy TPM parquet file",
     )
     parser.add_argument(
         "--resolutions",
@@ -341,7 +366,8 @@ def main() -> None:
     res_list = tuple(float(r.strip()) for r in args.resolutions.split(",") if r.strip())
 
     config = ReferenceConfig(
-        adata_path=Path(args.adata),
+        cohort=args.cohort,
+        adata_path=Path(args.adata) if args.adata else None,
         tpm_path=Path(args.tpm) if args.tpm else None,
         resolutions=res_list,
         cluster_prefix=args.cluster_prefix,
