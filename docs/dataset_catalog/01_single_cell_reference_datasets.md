@@ -1,5 +1,9 @@
 # Single-Cell Reference Datasets Catalog
 
+> [!IMPORTANT]
+> For agents seeking the complete list and programmatic guide for **single-cell datasets with clinical immunotherapy response labels** queried via `tme_datasets`, refer to:
+> [`docs/single_cell_response_datasets_guide_for_agents.md`](file:///Users/halu/Code/tme_analysis/docs/single_cell_response_datasets_guide_for_agents.md).
+
 This document provides extensive details on all single-cell RNA-sequencing reference datasets in the repository, both those with clinical response labels and those without.
 
 ---
@@ -78,16 +82,17 @@ These 5 datasets are downloaded, unpacked, and fully ready in the repository wor
 
 ### E. Maynard et al. 2020 (NSCLC)
 * **Study**: *Therapy-Induced Evolution of Human Lung Cancer Revealed by Single-Cell RNA-Seq* (*Cell*, 2020).
-* **Tissue**: Advanced Non-Small Cell Lung Cancer (targeted therapy / ICB).
-* **Sequencing Platform**: 10x Genomics Chromium.
-* **Cell Count**: **3,000 single cells** (benchmark-filtered subset of CD45+ TME cells).
-* **Response Labels**: None in reference signature.
+* **Tissue**: Advanced Non-Small Cell Lung Cancer (targeted therapy / ICB longitudinal cohort across 45 patients).
+* **Sequencing Platform**: Smart-seq2 (plate-based full-length single-cell RNA-seq).
+* **Cell Count**: **27,489 single cells** across 49 biopsies (67.1M non-zero measurements).
+* **Response Labels**: Longitudinal biopsy timepoints (`biopsy_time_status`: treatment-naive TN, residual disease RD, progressive disease PD), annotated response status, and patient metadata.
 * **Disk Location**:
-  - H5AD file: `jupyter/data/maynard2020_3k.h5ad`
+  - H5AD file: `data/manual_download/Maynard_NSCLC.h5ad` (or preprocessed cache `data/preprocessed/Maynard_NSCLC.h5ad`)
+  - Raw source files: `data/raw/Maynard_NSCLC/S01_datafinal.csv` (1.47 GB), `data/raw/Maynard_NSCLC/S01_metacells.csv` (10.6 MB)
 * **Code Implementation**:
-  - Ingestion: [`scripts/sade_feldman_deconv_validation/01c_build_dataset_reference.py`](file:///Users/halu/Code/tme_analysis/scripts/sade_feldman_deconv_validation/01c_build_dataset_reference.py#L194-L224)
-  - Function: `load_maynard(repo_root: Path)`
-  - Processing: Extracts linear expression $\text{expm1}(X)$, subsets shared gene space, clusters across 8 resolutions.
+  - Ingestion & Builder: [`packages/tme_datasets/src/tme_datasets/providers/single_cell.py`](file:///Users/halu/Code/tme_analysis/packages/tme_datasets/src/tme_datasets/providers/single_cell.py)
+  - Function: `download_and_build_maynard_full(raw_dir, output_h5ad)` / `load_maynard(repo_root)`
+  - Processing: Memory-efficient streaming parsing into sparse CSR AnnData, standardized clinical metadata (`patient`, `sample`, `timepoint`, `response_binary`), and TME lineage scoring.
 
 ### F. Tietscher et al. (`GSE179994`)
 * **Study**: Pan-cancer tumor-infiltrating T-cell atlas across multiple cancer types.
