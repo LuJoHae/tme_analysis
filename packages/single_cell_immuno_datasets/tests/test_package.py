@@ -16,9 +16,10 @@ def test_tier1_datasets_config() -> None:
 
 def test_data_directories_default() -> None:
     dirs = DataDirectories()
-    assert str(dirs.base_dir) == "/storage/halu/data"
-    assert str(dirs.raw_dir) == "/storage/halu/data/raw"
-    assert str(dirs.preprocessed_dir) == "/storage/halu/data/preprocessed"
+    assert str(dirs.base_dir) == "/storage/halu/data-test"
+    assert str(dirs.raw_dir) == "/storage/halu/data-test/raw"
+    assert str(dirs.preprocessed_dir) == "/storage/halu/data-test/preprocessed"
+
 
 
 def test_generate_summary_report(tmp_path: Path) -> None:

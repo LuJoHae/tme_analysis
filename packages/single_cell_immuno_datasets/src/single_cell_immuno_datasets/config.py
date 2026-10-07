@@ -45,10 +45,11 @@ class DataDirectories(BaseModel):
     """Immutable target directory configuration defaulting to remote server storage."""
     model_config = ConfigDict(frozen=True)
     
-    base_dir: Path = Path("/storage/halu/data")
-    raw_dir: Path = Path("/storage/halu/data/raw")
-    preprocessed_dir: Path = Path("/storage/halu/data/preprocessed")
-    reports_dir: Path = Path("/storage/halu/data/reports")
+    base_dir: Path = Path("/storage/halu/data-test")
+    raw_dir: Path = Path("/storage/halu/data-test/raw")
+    preprocessed_dir: Path = Path("/storage/halu/data-test/preprocessed")
+    reports_dir: Path = Path("/storage/halu/data-test/reports")
+
 
     @classmethod
     def with_base(cls, custom_base: Path) -> "DataDirectories":
