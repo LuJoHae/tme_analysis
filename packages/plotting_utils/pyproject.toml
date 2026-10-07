@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "plotting_utils"
+version = "0.1.0"
+description = "Publication-grade declarative plotting utilities and Nature Methods styling"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "altair>=5.0.0",
+    "polars",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
