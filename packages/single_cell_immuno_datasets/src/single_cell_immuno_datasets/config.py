@@ -1,8 +1,11 @@
 """Configuration specifications for ICB single-cell and spatial transcriptomics datasets."""
 
+import os
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 from returns.maybe import Maybe, Some, Nothing
+
+_DEFAULT_BASE_DIR = Path(os.environ.get("TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test"))
 
 
 class DatasetSpec(BaseModel):
@@ -45,10 +48,10 @@ class DataDirectories(BaseModel):
     """Immutable target directory configuration defaulting to remote server storage."""
     model_config = ConfigDict(frozen=True)
     
-    base_dir: Path = Path("/storage/halu/data-test")
-    raw_dir: Path = Path("/storage/halu/data-test/raw")
-    preprocessed_dir: Path = Path("/storage/halu/data-test/preprocessed")
-    reports_dir: Path = Path("/storage/halu/data-test/reports")
+    base_dir: Path = _DEFAULT_BASE_DIR
+    raw_dir: Path = _DEFAULT_BASE_DIR / "raw"
+    preprocessed_dir: Path = _DEFAULT_BASE_DIR / "preprocessed"
+    reports_dir: Path = _DEFAULT_BASE_DIR / "reports"
 
 
     @classmethod

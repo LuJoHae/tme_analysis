@@ -11,9 +11,18 @@ requires-python = ">=3.9"
 dependencies = [
     "altair>=5.0.0",
     "polars",
+    "pydantic>=2.0.0",
+    "returns",
+    "vl-convert-python",
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest",
+    "hypothesis",
 ]
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+

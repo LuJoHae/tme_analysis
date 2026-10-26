@@ -19,7 +19,7 @@ class ReferenceSingleCell(datalair.Dataset):
 
 
 class SingleCellReference(ReferenceSingleCell):
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -192,7 +192,7 @@ class SingleCellClustered(ReferenceSingleCell):
     """
     Datalair Dataset class for Clustered, Subsampled, and Automatically Annotated scRNA-seq reference.
     """
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -330,7 +330,7 @@ class SingleCellSubclustered(ReferenceSingleCell):
     Runs cluster-specific PCA and K-means sub-clustering on all major cluster resolutions,
     evaluating clustering metrics and calculating Daniela Witten's selective inference p-values.
     """
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -443,7 +443,7 @@ class SingleCellClusterMeans(ReferenceSingleCell):
     Computes average expression profiles for each cluster across all Leiden resolutions and K-means sub-clusterings.
     Exports separate h5ad files for each clustering.
     """
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -524,7 +524,7 @@ class SingleCellDeconvolution(ReferenceSingleCell):
     Deconvolutes bulk expression from iAtlas datasets using cluster mean profiles from 8 clusterings as reference.
     Uses instaprism with 50 iterations.
     """
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True
@@ -756,7 +756,7 @@ class SingleCellBagaevDeconvolution(ReferenceSingleCell):
     constraining the gene space to BostonGene Bagaev signatures.
     Uses instaprism with 50 iterations.
     """
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         ad.settings.allow_write_nullable_strings = True

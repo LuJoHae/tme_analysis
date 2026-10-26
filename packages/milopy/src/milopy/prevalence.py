@@ -200,10 +200,14 @@ def evaluate_replicate_prevalence(
                     hit_type_list.append("Cohort-Private Replicated Hit")
             else:
                 hit_type_list.append("Replicated Hit")
-        elif fdr_ok and (not prev_ok or not perm_ok):
-            # Candidate hit that collapsed due to single-donor spike or permutation test
+        elif fdr_ok and not prev_ok:
+            # Candidate hit that collapsed due to single-donor spike
             status_list.append("Private Clonal Spike")
             hit_type_list.append("Private Clonal Spike")
+        elif fdr_ok and prev_ok and not perm_ok:
+            # Replicated across donors, but did not reach permutation FDR threshold
+            status_list.append("Uncalibrated Replicated Candidate")
+            hit_type_list.append("Uncalibrated Replicated Candidate")
         else:
             status_list.append("Not Significant")
             hit_type_list.append("Not Significant")

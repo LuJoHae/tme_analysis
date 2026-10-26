@@ -3,6 +3,7 @@
 Please use `from tme_datasets import load_dataset` instead.
 """
 
+import os
 import datalair
 from pathlib import Path
 import pandas as pd
@@ -17,7 +18,7 @@ class DatasetGenentechAlign(datalair.Dataset):
 
 
 class EGAD00001006631(DatasetGenentechAlign):
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path(os.environ.get("TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test")).resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         output_dir = lair.get_path(self)

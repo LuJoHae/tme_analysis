@@ -75,7 +75,7 @@ def _standard_read(ds, lair):
 
 
 class SingleCellDataProcessStep01(DatasetSingleCell):
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         output_dir = lair.get_path(self)

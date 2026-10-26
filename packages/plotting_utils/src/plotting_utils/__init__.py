@@ -51,9 +51,18 @@ from .palettes import (
     DECONV_METHOD_ORDER,
     DECONV_COLOR_MAP,
 )
-from .theme import apply_nature_methods_theme, create_nature_axis, export_altair_figure
-from .cohorts import COHORT_METADATA, COHORT_PANELS
+from .theme import (
+    apply_nature_methods_theme,
+    chart_to_svg,
+    create_nature_axis,
+    export_altair_figure,
+)
+from .cohorts import COHORT_METADATA, COHORT_PANELS, get_single_cell_cohort_display_label
 from .svg import (
+    BoundingBox,
+    SvgRasterizationConfig,
+    count_svg_datapoints,
+    rasterize_svg_datapoints,
     svg_badge,
     svg_chip,
     svg_circle,
@@ -113,6 +122,7 @@ __all__ = [
     "create_nature_axis",
     "COHORT_METADATA",
     "COHORT_PANELS",
+    "get_single_cell_cohort_display_label",
     "wrap_inkscape_svg",
     "svg_rect",
     "svg_text",
@@ -124,4 +134,9 @@ __all__ = [
     "DECONV_METHOD_ORDER",
     "DECONV_COLOR_MAP",
     "export_altair_figure",
+    "chart_to_svg",
+    "BoundingBox",
+    "SvgRasterizationConfig",
+    "count_svg_datapoints",
+    "rasterize_svg_datapoints",
 ]

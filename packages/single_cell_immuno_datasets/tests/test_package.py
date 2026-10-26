@@ -16,9 +16,9 @@ def test_tier1_datasets_config() -> None:
 
 def test_data_directories_default() -> None:
     dirs = DataDirectories()
-    assert str(dirs.base_dir) == "/storage/halu/data-test"
-    assert str(dirs.raw_dir) == "/storage/halu/data-test/raw"
-    assert str(dirs.preprocessed_dir) == "/storage/halu/data-test/preprocessed"
+    assert str(dirs.base_dir) == "/ritom/scratch/cscs/lhaeuser/data-test"
+    assert str(dirs.raw_dir) == "/ritom/scratch/cscs/lhaeuser/data-test/raw"
+    assert str(dirs.preprocessed_dir) == "/ritom/scratch/cscs/lhaeuser/data-test/preprocessed"
 
 
 

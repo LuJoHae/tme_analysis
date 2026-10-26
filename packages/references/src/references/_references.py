@@ -1,3 +1,4 @@
+import os
 import datalair
 from pathlib import Path
 import pandas as pd
@@ -12,7 +13,7 @@ class DatasetReferences(datalair.Dataset):
 
 
 class Reference(DatasetReferences):
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path(os.environ.get("TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test")).resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         output_dir = lair.get_path(self)

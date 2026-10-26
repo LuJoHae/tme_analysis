@@ -8,10 +8,16 @@ from .config import DatasetSpec, DataDirectories, TIER_1_DATASETS
 
 
 from tme_datasets.download import download_single_file
+from tme_datasets.paths import is_cscs_environment
 
 
 def download_dataset(spec: DatasetSpec, raw_dir: Path) -> Result[tuple[Path, ...], str]:
     """Downloads all raw files associated with a DatasetSpec into raw_dir / spec.accession and unpacks tar archives."""
+    if is_cscs_environment():
+        return Failure(
+            f"Internet downloads are disabled on CSCS Eiger (dataset '{spec.accession}'). "
+            "Download raw data on 'olm' and transfer to /capstor/store/cscs/empa/em25/halu/data-test via Globus."
+        )
     dataset_dir = raw_dir / spec.accession
     downloaded: list[Path] = []
 
