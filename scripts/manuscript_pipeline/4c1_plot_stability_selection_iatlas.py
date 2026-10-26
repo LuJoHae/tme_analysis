@@ -274,14 +274,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--input-dir",
         type=Path,
-        default=None,
-        help="Directory containing stability_paths.parquet and cohort_summary.parquet (default: auto-detected)",
+        default=Path("output/manuscript_pipeline/2b_run_stability_selection_iatlas"),
+        help="Directory containing stability_paths.parquet and cohort_summary.parquet",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=None,
-        help="Directory to export SVG vector figures (default: <input-dir>/figures)",
+        default=Path("output/manuscript_pipeline/4c1_plot_stability_selection_iatlas"),
+        help="Directory to export SVG vector figures",
     )
     parser.add_argument(
         "--cohorts",
@@ -300,17 +300,8 @@ def parse_arguments() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_arguments()
-    input_dir: Path
-    if args.input_dir is not None:
-        input_dir = args.input_dir
-    elif Path("output/stability_selection_fitters_benchmark").exists():
-        input_dir = Path("output/stability_selection_fitters_benchmark")
-    elif Path("output/stability_selection_iatlas_immunotherapy").exists():
-        input_dir = Path("output/stability_selection_iatlas_immunotherapy")
-    else:
-        input_dir = Path("output/stability_selection_iatlas")
-
-    output_dir: Path = args.output_dir if args.output_dir is not None else (input_dir / "figures")
+    input_dir: Path = args.input_dir
+    output_dir: Path = args.output_dir
 
     paths_file = input_dir / "stability_paths.parquet"
     summary_file = (

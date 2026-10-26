@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from typing import cast
 import xml.etree.ElementTree as ET
 
 from hypothesis import given, settings, strategies as st
@@ -104,11 +105,11 @@ def test_leave_one_cohort_out_reference_isolation() -> None:
 
 def test_unified_benchmark_outputs_and_concordance() -> None:
     """Verify exported unified benchmark parquets and SVG/PNG figure properties."""
-    out_dir = Path("output/results/pseudobulk_deconv_benchmark/unified_pan_cohort")
+    out_dir = Path("output/manuscript_pipeline/3b_pan_cohort_unified_deconv_benchmark")
     summary_path = out_dir / "unified_per_cohort_concordance_summary.parquet"
     meta_path = out_dir / "unified_meta_state_concordance.parquet"
-    svg_path = Path("results/pseudobulk_deconv_benchmark/pan_cohort_unified_reference_comparison.svg")
-    png_path = Path("results/pseudobulk_deconv_benchmark/pan_cohort_unified_reference_comparison.png")
+    svg_path = out_dir / "pan_cohort_unified_reference_comparison.svg"
+    png_path = out_dir / "pan_cohort_unified_reference_comparison.png"
 
     assert summary_path.exists()
     assert meta_path.exists()
@@ -117,8 +118,8 @@ def test_unified_benchmark_outputs_and_concordance() -> None:
 
     summary_df = pl.read_parquet(summary_path)
     assert summary_df.height == 9
-    assert float(summary_df["rho_unified_all9"].mean() or 0.0) > 0.50
-    assert float(summary_df["rho_unified_loco"].mean() or 0.0) > 0.40
+    assert float(cast(float, summary_df["rho_unified_all9"].mean())) > 0.50
+    assert float(cast(float, summary_df["rho_unified_loco"].mean())) > 0.40
 
     # Validate XML well-formedness of SVG
     tree = ET.parse(svg_path)

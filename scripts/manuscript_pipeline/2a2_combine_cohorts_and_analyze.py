@@ -148,13 +148,13 @@ def parse_args() -> CombinedRunConfig:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("output/results/milopy_combined_analysis"),
+        default=Path("output/manuscript_pipeline/2a2_combine_cohorts_and_analyze"),
         help="Output directory for combined analysis results",
     )
     parser.add_argument(
         "--reports-dir",
         type=Path,
-        default=Path("output/reports"),
+        default=Path("output/manuscript_pipeline/2a2_combine_cohorts_and_analyze"),
         help="Directory to save publication figures",
     )
     parser.add_argument(

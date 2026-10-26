@@ -155,8 +155,8 @@ class FigurePlotConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    data_dir: Path = Path("output/results/iatlas_instaprism_benchmark")
-    results_dir: Path = Path("results/iatlas_instaprism_benchmark")
+    data_dir: Path = Path("output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark")
+    results_dir: Path = Path("output/manuscript_pipeline/4b_plot_iatlas_instaprism_milopy_figures")
     article_dir: Path = Path("article/figures/milo-deconv")
 
 
@@ -3181,13 +3181,13 @@ def parse_args(argv: Sequence[str] | None = None) -> FigurePlotConfig:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=Path("output/results/iatlas_instaprism_benchmark"),
+        default=Path("output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark"),
         help="Directory containing benchmark parquet outputs",
     )
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/iatlas_instaprism_benchmark"),
+        default=Path("output/manuscript_pipeline/4b_plot_iatlas_instaprism_milopy_figures"),
         help="Directory to write publication SVG and PNG figures",
     )
     parser.add_argument(

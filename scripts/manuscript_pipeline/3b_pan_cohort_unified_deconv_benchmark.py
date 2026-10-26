@@ -85,9 +85,9 @@ class UnifiedBenchmarkConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    benchmark_dir: Path = Path("output/results/pseudobulk_deconv_benchmark")
-    out_dir: Path = Path("output/results/pseudobulk_deconv_benchmark/unified_pan_cohort")
-    results_dir: Path = Path("results/pseudobulk_deconv_benchmark")
+    benchmark_dir: Path = Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
+    out_dir: Path = Path("output/manuscript_pipeline/3b_pan_cohort_unified_deconv_benchmark")
+    results_dir: Path = Path("output/manuscript_pipeline/3b_pan_cohort_unified_deconv_benchmark")
     n_meta_states: int = 42
     softmax_temp: float = 12.0
     deconv_iters: int = 100
@@ -1111,19 +1111,19 @@ def parse_args(argv: Sequence[str] | None = None) -> UnifiedBenchmarkConfig:
     parser.add_argument(
         "--benchmark-dir",
         type=Path,
-        default=Path("output/results/pseudobulk_deconv_benchmark"),
+        default=Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"),
         help="Directory containing the 9 cohort pseudobulk and reference parquets",
     )
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("output/results/pseudobulk_deconv_benchmark/unified_pan_cohort"),
+        default=Path("output/manuscript_pipeline/3b_pan_cohort_unified_deconv_benchmark"),
         help="Directory to write unified reference benchmark parquet tables",
     )
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark"),
+        default=Path("output/manuscript_pipeline/3b_pan_cohort_unified_deconv_benchmark"),
         help="Directory to export publication SVG and 300 DPI PNG figures",
     )
     parser.add_argument(

@@ -4,11 +4,11 @@
 # Runs strictly via Slurm on CSCS Alps Eiger (internet downloads disabled).
 #
 # Commands:
-#   bash scripts/run_remote_preprocess.sh start   # Submit Slurm batch job
-#   bash scripts/run_remote_preprocess.sh status  # Inspect Slurm job state & progress
-#   bash scripts/run_remote_preprocess.sh logs    # Display recent log output (-f to follow)
-#   bash scripts/run_remote_preprocess.sh attach  # Show Slurm queue status
-#   bash scripts/run_remote_preprocess.sh stop    # Cancel Slurm job
+#   bash scripts/cluster_ops/run_remote_preprocess.sh start   # Submit Slurm batch job
+#   bash scripts/cluster_ops/run_remote_preprocess.sh status  # Inspect Slurm job state & progress
+#   bash scripts/cluster_ops/run_remote_preprocess.sh logs    # Display recent log output (-f to follow)
+#   bash scripts/cluster_ops/run_remote_preprocess.sh attach  # Show Slurm queue status
+#   bash scripts/cluster_ops/run_remote_preprocess.sh stop    # Cancel Slurm job
 # ==============================================================================
 
 set -euo pipefail
@@ -30,7 +30,7 @@ TMP_DIR="${TMPDIR:-$SCRATCH_BASE/tmp}"
 LOG_DIR="$SCRATCH_BASE/slurm_logs"
 OUTPUT_DIR="$WORK_DIR/output"
 LOG_FILE="$LOG_DIR/tme_preprocess.log"
-PROGRESS_FILE="$OUTPUT_DIR/preprocessing_progress.json"
+PROGRESS_FILE="$OUTPUT_DIR/manuscript_pipeline/1a_download_and_preprocess_all/preprocessing_progress.json"
 
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR" "$TMP_DIR"
 

@@ -17,6 +17,7 @@ Strict functional Python adhering to immutability, returns Result, Polars, and A
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 from typing import Any, Mapping, Sequence
@@ -58,9 +59,9 @@ from plotting_utils import (
 
 class VisualizerConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    base_dir: Path = Path("/ritom/scratch/cscs/lhaeuser/data-test")
-    results_dir: Path = Path("/ritom/scratch/cscs/lhaeuser/data-test/results/milopy_response_analysis")
-    reports_dir: Path = Path("/ritom/scratch/cscs/lhaeuser/data-test/reports")
+    base_dir: Path = Path(os.environ.get("TME_DATA_DIR", "."))
+    results_dir: Path = Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts")
+    reports_dir: Path = Path("output/manuscript_pipeline/4a1_visualize_cohort_umaps")
     min_dist: float = 0.30
     spread: float = 1.00
     fdr_threshold: float = 0.10
@@ -74,17 +75,22 @@ def parse_args() -> VisualizerConfig:
     parser = argparse.ArgumentParser(
         description="Generates publication-grade UMAP visualizations of Milopy differential abundance."
     )
-    parser.add_argument("--base-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test"), help="Base data directory")
+    parser.add_argument(
+        "--base-dir",
+        type=Path,
+        default=Path(os.environ.get("TME_DATA_DIR", ".")),
+        help="Base data directory",
+    )
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("/ritom/scratch/cscs/lhaeuser/data-test/results/milopy_response_analysis"),
+        default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"),
         help="Directory containing cohort milopy outputs",
     )
     parser.add_argument(
         "--reports-dir",
         type=Path,
-        default=Path("/ritom/scratch/cscs/lhaeuser/data-test/reports"),
+        default=Path("output/manuscript_pipeline/4a1_visualize_cohort_umaps"),
         help="Directory to save master reports and SVGs",
     )
     parser.add_argument("--min-dist", type=float, default=0.30, help="UMAP min_dist parameter")
@@ -452,16 +458,19 @@ def main() -> None:
                 cohort_dfs[acc] = df
                 meta = COHORT_METADATA.get(acc, {})
 
+                out_cohort_dir = config.reports_dir / acc
+                out_cohort_dir.mkdir(parents=True, exist_ok=True)
+
                 # 1. Render and export single logFC UMAP
                 chart_logfc = build_cohort_logfc_umap(df, acc, meta)
-                svg_logfc_path = cdir / "milopy_umap_logfc.svg"
+                svg_logfc_path = out_cohort_dir / "milopy_umap_logfc.svg"
                 svg_str = vlc.vegalite_to_svg(chart_logfc.to_json())
                 svg_logfc_path.write_text(svg_str, encoding="utf-8")
                 print(f"[{acc}] [EXPORTED] {svg_logfc_path} ({svg_logfc_path.stat().st_size / 1e6:.2f} MB)")
 
                 # 2. Render and export 2x2 composite panel
                 chart_composite = build_cohort_composite_umap(df, acc, meta)
-                svg_comp_path = cdir / "milopy_umap_composite.svg"
+                svg_comp_path = out_cohort_dir / "milopy_umap_composite.svg"
                 svg_comp_str = vlc.vegalite_to_svg(chart_composite.to_json())
                 svg_comp_path.write_text(svg_comp_str, encoding="utf-8")
                 print(f"[{acc}] [EXPORTED] {svg_comp_path} ({svg_comp_path.stat().st_size / 1e6:.2f} MB)")
@@ -470,7 +479,7 @@ def main() -> None:
                 print(f"[{acc}] Error: {err}", file=sys.stderr)
 
     # Write completion sentinel
-    sentinel_path = config.results_dir / "visualize_cohort_umaps_completed.txt"
+    sentinel_path = config.reports_dir / "visualize_cohort_umaps_completed.txt"
     sentinel_path.write_text(f"Completed {len(cohort_dfs)} cohorts\n", encoding="utf-8")
     print(f"[SENTINEL] Wrote {sentinel_path}")
 

@@ -169,10 +169,10 @@ class IAtlasBenchmarkConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    sc_benchmark_dir: Path = Path("output/results/pseudobulk_deconv_benchmark")
+    sc_benchmark_dir: Path = Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
     preprocessed_dir: Path = Path("data/preprocessed")
-    out_dir: Path = Path("output/results/iatlas_instaprism_benchmark")
-    results_dir: Path = Path("results/iatlas_instaprism_benchmark")
+    out_dir: Path = Path("output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark")
+    results_dir: Path = Path("output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark")
     n_meta_states: int = 42
     deconv_iters: int = 80
     n_cv_splits: int = 5
@@ -2668,7 +2668,7 @@ def parse_args(argv: Sequence[str] | None = None) -> IAtlasBenchmarkConfig:
     parser.add_argument(
         "--sc-benchmark-dir",
         type=Path,
-        default=Path("output/results/pseudobulk_deconv_benchmark"),
+        default=Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"),
         help="Directory containing the 9 single-cell cohort reference and Milopy parquets",
     )
     parser.add_argument(
@@ -2680,13 +2680,13 @@ def parse_args(argv: Sequence[str] | None = None) -> IAtlasBenchmarkConfig:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("output/results/iatlas_instaprism_benchmark"),
+        default=Path("output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark"),
         help="Directory to write output parquet tables and deconvoluted fractions",
     )
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/iatlas_instaprism_benchmark"),
+        default=Path("output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark"),
         help="Directory to write publication vector SVG and PNG figures",
     )
     parser.add_argument(

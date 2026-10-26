@@ -229,7 +229,9 @@ def generate_summary_reports(
 
     md_lines.append("\n## Diagnostic Plot Locations\n")
     for r in records:
-        md_lines.append(f"- **`{r['dataset_id']}`**: `output/reports/qc/{r['dataset_id']}/{r['dataset_id']}_qc_dashboard.svg` and `.png`")
+        md_lines.append(
+            f"- **`{r['dataset_id']}`**: `{output_reports_dir}/{r['dataset_id']}/{r['dataset_id']}_qc_dashboard.svg` and `.png`"
+        )
 
     md_content = "\n".join(md_lines) + "\n"
     md_path = output_reports_dir / "single_cell_qc_run_summary.md"
@@ -252,8 +254,8 @@ def main() -> int:
         "--output-dir",
         "-o",
         type=Path,
-        default=Path("output/reports/qc"),
-        help="Output directory for reports and QC plots (default: output/reports/qc).",
+        default=Path("output/manuscript_pipeline/1c_run_qc_pipeline_all_single_cell"),
+        help="Output directory for reports and QC plots (default: output/manuscript_pipeline/1c_run_qc_pipeline_all_single_cell).",
     )
     parser.add_argument(
         "--mads",

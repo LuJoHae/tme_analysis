@@ -60,9 +60,15 @@ MIN_FONT_PX: Final[float] = 13.5  # 10.125 pt at 96 DPI (strictly >= 10pt)
 
 class PlotConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    benchmark_dir: Path = Path("output/results/pseudobulk_deconv_benchmark")
-    out_svg: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.svg")
-    out_png: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.png")
+    benchmark_dir: Path = Path(
+        "output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"
+    )
+    out_svg: Path = Path(
+        "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
+    )
+    out_png: Path = Path(
+        "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.png"
+    )
     article_png: Path = Path("article/figures/milo-deconv/nine_cohorts_deconv_scatter_grid.png")
     panel_width: int = 118
     panel_height: int = 78
@@ -373,19 +379,25 @@ def main() -> None:
     parser.add_argument(
         "--benchmark-dir",
         type=Path,
-        default=Path("output/results/pseudobulk_deconv_benchmark"),
+        default=Path(
+            "output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"
+        ),
         help="Root benchmark output directory containing cohort subfolders",
     )
     parser.add_argument(
         "--out-svg",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.svg"),
+        default=Path(
+            "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
+        ),
         help="Target output SVG path",
     )
     parser.add_argument(
         "--out-png",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.png"),
+        default=Path(
+            "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.png"
+        ),
         help="Target output PNG path",
     )
     parser.add_argument(

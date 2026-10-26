@@ -196,9 +196,8 @@ class TestPipelineEndToEnd:
                 return Success(mock_registry[accession].copy())
             return Failure(f"Unknown mock cohort {accession}")
 
-        # Monkeypatch load_dataset in sample_and_analyze_cohorts
-        import sample_and_analyze_cohorts
-        monkeypatch.setattr(sample_and_analyze_cohorts, "load_dataset", mock_load_dataset)
+        # Monkeypatch load_dataset in 2a1_sample_and_analyze_cohorts
+        monkeypatch.setattr(_stage2a1, "load_dataset", mock_load_dataset)
 
         out_dir = tmp_path / "results"
         reports_dir = tmp_path / "reports"

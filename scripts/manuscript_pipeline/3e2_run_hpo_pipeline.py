@@ -347,13 +347,13 @@ def main() -> None:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("output/reference_sampling_hpo"),
+        default=Path("output/manuscript_pipeline/3e2_run_hpo_pipeline"),
         help="Directory to save Parquet evaluations and reference matrices.",
     )
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/reference_sampling_hpo"),
+        default=Path("output/manuscript_pipeline/3e2_run_hpo_pipeline"),
         help="Directory to save publication Altair SVG figures.",
     )
     parser.add_argument(

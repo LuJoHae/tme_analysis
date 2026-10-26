@@ -416,28 +416,25 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Assemble all 12 cohort stability paths into a single publication-grade composite SVG."
     )
-    default_fig_dir = (
-        Path("output/stability_selection_fitters_benchmark/figures")
-        if (Path("output/stability_selection_fitters_benchmark/figures") / "paths_comparison_pancancer.svg").exists()
-        else Path("output/stability_selection_iatlas_immunotherapy/figures")
-    )
+    default_in_dir = Path("output/manuscript_pipeline/4c1_plot_stability_selection_iatlas")
+    default_out_dir = Path("output/manuscript_pipeline/4c2_combine_all_stability_paths")
 
     parser.add_argument(
         "--input-dir",
         type=Path,
-        default=default_fig_dir,
+        default=default_in_dir,
         help="Directory containing the individual paths_comparison_*.svg files",
     )
     parser.add_argument(
         "--output-svg",
         type=Path,
-        default=default_fig_dir / "all_cohorts_stability_paths_composite.svg",
+        default=default_out_dir / "all_cohorts_stability_paths_composite.svg",
         help="Destination path for composite SVG",
     )
     parser.add_argument(
         "--output-png",
         type=Path,
-        default=default_fig_dir / "all_cohorts_stability_paths_composite.png",
+        default=default_out_dir / "all_cohorts_stability_paths_composite.png",
         help="Destination path for 300 DPI rasterized PNG",
     )
     parser.add_argument(

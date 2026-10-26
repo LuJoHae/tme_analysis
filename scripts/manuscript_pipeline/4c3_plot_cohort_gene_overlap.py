@@ -1148,19 +1148,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate publication-grade figure of cross-cohort gene selection overlap"
     )
-    default_scores = (
-        Path("output/stability_selection_fitters_benchmark/stability_scores.parquet")
-        if Path("output/stability_selection_fitters_benchmark/stability_scores.parquet").exists()
-        else Path("output/stability_selection_iatlas_immunotherapy/stability_scores.parquet")
-    )
+    default_in_dir = Path("output/manuscript_pipeline/2b_run_stability_selection_iatlas")
+    default_out_dir = Path("output/manuscript_pipeline/4c3_plot_cohort_gene_overlap")
+    default_scores = default_in_dir / "stability_scores.parquet"
     default_summary = (
-        Path("output/stability_selection_fitters_benchmark/cohort_fitter_summary.parquet")
-        if Path("output/stability_selection_fitters_benchmark/cohort_fitter_summary.parquet").exists()
-        else (
-            Path("output/stability_selection_fitters_benchmark/cohort_summary.parquet")
-            if Path("output/stability_selection_fitters_benchmark/cohort_summary.parquet").exists()
-            else Path("output/stability_selection_iatlas_immunotherapy/cohort_summary.parquet")
-        )
+        default_in_dir / "cohort_fitter_summary.parquet"
+        if (default_in_dir / "cohort_fitter_summary.parquet").exists()
+        else default_in_dir / "cohort_summary.parquet"
     )
 
     parser.add_argument(
@@ -1178,13 +1172,13 @@ def main() -> int:
     parser.add_argument(
         "--output-svg",
         type=Path,
-        default=Path("output/stability_selection_fitters_benchmark/figures/cohort_gene_overlap_nature.svg"),
+        default=default_out_dir / "cohort_gene_overlap_nature.svg",
         help="Target output SVG path",
     )
     parser.add_argument(
         "--output-png",
         type=Path,
-        default=Path("output/stability_selection_fitters_benchmark/figures/cohort_gene_overlap_nature.png"),
+        default=default_out_dir / "cohort_gene_overlap_nature.png",
         help="Target output PNG path",
     )
     args = parser.parse_args()

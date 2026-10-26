@@ -28,13 +28,15 @@ from tme_datasets import load_iatlas_cohort_or_combined
 # Domain Constants & Taxonomy
 # -----------------------------------------------------------------------------
 
-BENCHMARK_DIR: Final[Path] = Path("output/stability_selection_fitters_benchmark")
-SCORES_FILE: Final[Path] = BENCHMARK_DIR / "stability_scores.parquet"
+INPUT_STABILITY_DIR: Final[Path] = Path("output/manuscript_pipeline/2b_run_stability_selection_iatlas")
+BENCHMARK_DIR: Final[Path] = Path("output/manuscript_pipeline/3d_curate_expert_gene_list")
+SCORES_FILE: Final[Path] = INPUT_STABILITY_DIR / "stability_scores.parquet"
 OUTPUT_PARQUET: Final[Path] = BENCHMARK_DIR / "curated_expert_gene_dossier.parquet"
 OUTPUT_CSV: Final[Path] = BENCHMARK_DIR / "expert_gene_summary_table.csv"
 OUTPUT_CANCER_CSV: Final[Path] = BENCHMARK_DIR / "curated_markers_cancer_associations.csv"
 OUTPUT_CANCER_TSV: Final[Path] = BENCHMARK_DIR / "curated_markers_cancer_associations.tsv"
 OUTPUT_MD: Final[Path] = BENCHMARK_DIR / "expert_gene_dossier.md"
+OUTPUT_PIPELINE_TYP: Final[Path] = BENCHMARK_DIR / "table_expert_gene_dossier.typ"
 OUTPUT_TYP: Final[Path] = Path("article/tables/table_expert_gene_dossier.typ")
 
 COHORT_CANCER_MAP: Final[Mapping[str, str]] = {
@@ -1015,10 +1017,11 @@ def main() -> int:
     OUTPUT_MD.write_text(md_content, encoding="utf-8")
     print(f"[✓] Saved Markdown dossier:{OUTPUT_MD}")
 
-    # 4. Save Typst table
+    # 4. Save Typst table (both in per-script pipeline output dir and article/tables/)
     typ_content = generate_typst_table(df)
+    OUTPUT_PIPELINE_TYP.write_text(typ_content, encoding="utf-8")
     OUTPUT_TYP.write_text(typ_content, encoding="utf-8")
-    print(f"[✓] Saved Typst table:     {OUTPUT_TYP}")
+    print(f"[✓] Saved Typst table:     {OUTPUT_PIPELINE_TYP} (synced to {OUTPUT_TYP})")
 
     # Print summary breakdown
     tiers = df.group_by("evidence_tier").agg(pl.len().alias("count")).sort("evidence_tier")

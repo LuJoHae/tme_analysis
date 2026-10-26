@@ -53,16 +53,32 @@ VIEWBOX_TOTAL_HEIGHT: Final[int] = VIEWBOX_ROW_HEIGHT * 2 + VIEWBOX_GUTTER_HEIGH
 
 class AssemblerConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    panel_a_svg: Path = Path("results/milopy_analysis/nine_cohorts_umaps_logfc_grid.svg")
-    panel_b_svg: Path = Path("results/milopy_analysis/nine_cohorts_da_bars.svg")
-    panel_c_svg: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.svg")
-    panel_d_svg: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.svg")
+    panel_a_svg: Path = Path(
+        "output/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid/nine_cohorts_umaps_logfc_grid.svg"
+    )
+    panel_b_svg: Path = Path(
+        "output/manuscript_pipeline/4a4_plot_cross_cohort_da_bars/nine_cohorts_da_bars.svg"
+    )
+    panel_c_svg: Path = Path(
+        "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
+    )
+    panel_d_svg: Path = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.svg"
+    )
 
-    row1_composite_svg: Path = Path("results/milopy_analysis/nine_cohorts_single_cell_composite.svg")
-    row1_composite_png: Path = Path("results/milopy_analysis/nine_cohorts_single_cell_composite.png")
+    row1_composite_svg: Path = Path(
+        "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/nine_cohorts_single_cell_composite.svg"
+    )
+    row1_composite_png: Path = Path(
+        "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/nine_cohorts_single_cell_composite.png"
+    )
 
-    master_svg: Path = Path("results/milopy_analysis/immunotherapy_response_2x2_master.svg")
-    master_png: Path = Path("results/milopy_analysis/immunotherapy_response_2x2_master.png")
+    master_svg: Path = Path(
+        "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/immunotherapy_response_2x2_master.svg"
+    )
+    master_png: Path = Path(
+        "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/immunotherapy_response_2x2_master.png"
+    )
     article_master_svg: Path = Path("article/figures/milo-deconv/immunotherapy_response_2x2_master.svg")
     article_master_png: Path = Path("article/figures/milo-deconv/immunotherapy_response_2x2_master.png")
 
@@ -260,12 +276,48 @@ def execute_assembly(config: AssemblerConfig) -> Result[Path, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Assemble 2x2 master immunotherapy figure.")
-    parser.add_argument("--panel-a", type=Path, default=Path("results/milopy_analysis/nine_cohorts_umaps_logfc_grid.svg"))
-    parser.add_argument("--panel-b", type=Path, default=Path("results/milopy_analysis/nine_cohorts_da_bars.svg"))
-    parser.add_argument("--panel-c", type=Path, default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.svg"))
-    parser.add_argument("--panel-d", type=Path, default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.svg"))
-    parser.add_argument("--out-svg", type=Path, default=Path("results/milopy_analysis/immunotherapy_response_2x2_master.svg"))
-    parser.add_argument("--out-png", type=Path, default=Path("results/milopy_analysis/immunotherapy_response_2x2_master.png"))
+    parser.add_argument(
+        "--panel-a",
+        type=Path,
+        default=Path(
+            "output/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid/nine_cohorts_umaps_logfc_grid.svg"
+        ),
+    )
+    parser.add_argument(
+        "--panel-b",
+        type=Path,
+        default=Path(
+            "output/manuscript_pipeline/4a4_plot_cross_cohort_da_bars/nine_cohorts_da_bars.svg"
+        ),
+    )
+    parser.add_argument(
+        "--panel-c",
+        type=Path,
+        default=Path(
+            "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
+        ),
+    )
+    parser.add_argument(
+        "--panel-d",
+        type=Path,
+        default=Path(
+            "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.svg"
+        ),
+    )
+    parser.add_argument(
+        "--out-svg",
+        type=Path,
+        default=Path(
+            "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/immunotherapy_response_2x2_master.svg"
+        ),
+    )
+    parser.add_argument(
+        "--out-png",
+        type=Path,
+        default=Path(
+            "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/immunotherapy_response_2x2_master.png"
+        ),
+    )
     args = parser.parse_args()
 
     config = AssemblerConfig(

@@ -84,3 +84,6 @@ plotting-utils = { workspace = true }
 dev = [
     "hypothesis>=6.168.3",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -35,7 +35,7 @@ stitch_composite_grid_and_bars = _stage4a6.stitch_composite_grid_and_bars
 
 @pytest.fixture
 def benchmark_dir() -> Path:
-    return Path("output/results/pseudobulk_deconv_benchmark")
+    return Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
 
 
 @pytest.fixture
@@ -82,7 +82,9 @@ def test_build_correlation_bar_chart(benchmark_dir: Path, bar_config: BarPlotCon
 
 def test_standalone_bar_svg_dimensions_and_fonts() -> None:
     """Verify standalone bar SVG has exact 50.0mm width, 179.75mm height, and font sizes >= 10pt."""
-    svg_path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.svg")
+    svg_path = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.svg"
+    )
     assert svg_path.exists(), f"Missing SVG at {svg_path}"
 
     svg_text = svg_path.read_text(encoding="utf-8")
@@ -98,7 +100,9 @@ def test_standalone_bar_svg_dimensions_and_fonts() -> None:
 
 def test_composite_svg_dimensions_and_fonts() -> None:
     """Verify combined 180mm composite SVG matches required 2-column layout and font sizes."""
-    composite_svg_path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_composite_with_bars.svg")
+    composite_svg_path = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_composite_with_bars.svg"
+    )
     assert composite_svg_path.exists(), f"Missing composite SVG at {composite_svg_path}"
 
     svg_text = composite_svg_path.read_text(encoding="utf-8")
@@ -113,9 +117,13 @@ def test_composite_svg_dimensions_and_fonts() -> None:
 
 def test_output_rasters_exist_and_nonempty() -> None:
     """Verify 300 DPI raster PNGs exist in results and article directories."""
-    bar_png = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.png")
+    bar_png = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.png"
+    )
     bar_art = Path("article/figures/milo-deconv/nine_cohorts_deconv_correlations_bar.png")
-    comp_png = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_composite_with_bars.png")
+    comp_png = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_composite_with_bars.png"
+    )
     comp_art = Path("article/figures/milo-deconv/nine_cohorts_deconv_composite_with_bars.png")
 
     for p in [bar_png, bar_art, comp_png, comp_art]:

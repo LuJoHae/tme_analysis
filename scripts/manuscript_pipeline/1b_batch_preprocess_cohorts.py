@@ -382,6 +382,12 @@ def main() -> None:
         help="Target preprocessed H5AD directory.",
     )
     parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=Path("output/manuscript_pipeline/1b_batch_preprocess_cohorts"),
+        help="Per-script output directory for batch preprocessing summary reports.",
+    )
+    parser.add_argument(
         "--cohorts",
         type=str,
         default="",
@@ -482,6 +488,17 @@ def main() -> None:
                 print(f"[{idx:3d}/{len(tasks):3d}] ✗ {err}")
                 failures += 1
 
+    args.report_dir.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        [
+            {
+                "total_tasks": len(tasks),
+                "succeeded": successes,
+                "failed": failures,
+                "output_h5ad_dir": str(args.output_dir),
+            }
+        ]
+    ).write_parquet(args.report_dir / "batch_preprocess_summary.parquet")
     print(f"\nPreprocessing finished: {successes} succeeded, {failures} failed.")
 
 

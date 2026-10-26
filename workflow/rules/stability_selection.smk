@@ -1,7 +1,12 @@
 # workflow/rules/stability_selection.smk
 # Snakemake workflow rules for Multi-Cohort Stability Selection Benchmark & Publication Figures
 
-STABILITY_OUT_DIR = config.get("stability_out_dir", "output/stability_selection_fitters_benchmark")
+STABILITY_OUT_DIR = config.get(
+    "stability_out_dir", "output/manuscript_pipeline/2b_run_stability_selection_iatlas"
+)
+STABILITY_FIG_DIR = config.get(
+    "stability_fig_dir", "output/manuscript_pipeline/4c4_plot_fitter_gene_overlap"
+)
 STABILITY_COHORTS = config.get(
     "stability_cohorts",
     "pancancer melanoma rcc Rosenberg-iAtlas McDermott-iAtlas Riaz-iAtlas Gide-iAtlas Liu-iAtlas Hugo-iAtlas"
@@ -16,8 +21,8 @@ rule all_stability_selection:
         f"{STABILITY_OUT_DIR}/stability_scores.parquet",
         f"{STABILITY_OUT_DIR}/stability_paths.parquet",
         f"{STABILITY_OUT_DIR}/cohort_fitter_summary.parquet",
-        f"{STABILITY_OUT_DIR}/figures/fitter_gene_overlap_nature.svg",
-        f"{STABILITY_OUT_DIR}/figures/fitter_gene_overlap_nature.png"
+        f"{STABILITY_FIG_DIR}/fitter_gene_overlap_nature.svg",
+        f"{STABILITY_FIG_DIR}/fitter_gene_overlap_nature.png"
 
 rule run_multi_cohort_stability_benchmark:
     input:
@@ -49,8 +54,8 @@ rule plot_stability_selection_fitter_overlap:
         script="scripts/manuscript_pipeline/4c4_plot_fitter_gene_overlap.py",
         scores=f"{STABILITY_OUT_DIR}/stability_scores.parquet"
     output:
-        svg=f"{STABILITY_OUT_DIR}/figures/fitter_gene_overlap_nature.svg",
-        png=f"{STABILITY_OUT_DIR}/figures/fitter_gene_overlap_nature.png"
+        svg=f"{STABILITY_FIG_DIR}/fitter_gene_overlap_nature.svg",
+        png=f"{STABILITY_FIG_DIR}/fitter_gene_overlap_nature.png"
     shell:
         """
         python {input.script} \

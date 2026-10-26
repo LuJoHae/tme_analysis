@@ -72,12 +72,24 @@ TITLE_FONT_PX: Final[float] = 14.0  # 10.5 pt
 
 class BarPlotConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    benchmark_dir: Path = Path("output/results/pseudobulk_deconv_benchmark")
-    scatter_svg: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.svg")
-    out_bar_svg: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.svg")
-    out_bar_png: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.png")
-    out_composite_svg: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_composite_with_bars.svg")
-    out_composite_png: Path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_composite_with_bars.png")
+    benchmark_dir: Path = Path(
+        "output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"
+    )
+    scatter_svg: Path = Path(
+        "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
+    )
+    out_bar_svg: Path = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.svg"
+    )
+    out_bar_png: Path = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.png"
+    )
+    out_composite_svg: Path = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_composite_with_bars.svg"
+    )
+    out_composite_png: Path = Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_composite_with_bars.png"
+    )
     article_bar_png: Path = Path("article/figures/milo-deconv/nine_cohorts_deconv_correlations_bar.png")
     article_composite_png: Path = Path("article/figures/milo-deconv/nine_cohorts_deconv_composite_with_bars.png")
     chart_width: int = 81
@@ -439,37 +451,49 @@ def main() -> None:
     parser.add_argument(
         "--benchmark-dir",
         type=Path,
-        default=Path("output/results/pseudobulk_deconv_benchmark"),
+        default=Path(
+            "output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"
+        ),
         help="Root benchmark output directory containing cohort subfolders",
     )
     parser.add_argument(
         "--scatter-svg",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.svg"),
+        default=Path(
+            "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
+        ),
         help="Input 130mm scatter grid SVG path",
     )
     parser.add_argument(
         "--out-bar-svg",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.svg"),
+        default=Path(
+            "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.svg"
+        ),
         help="Target output bar SVG path",
     )
     parser.add_argument(
         "--out-bar-png",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.png"),
+        default=Path(
+            "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.png"
+        ),
         help="Target output bar PNG path",
     )
     parser.add_argument(
         "--out-composite-svg",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_composite_with_bars.svg"),
+        default=Path(
+            "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_composite_with_bars.svg"
+        ),
         help="Target output 180mm composite SVG path",
     )
     parser.add_argument(
         "--out-composite-png",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_composite_with_bars.png"),
+        default=Path(
+            "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_composite_with_bars.png"
+        ),
         help="Target output 180mm composite PNG path",
     )
     args = parser.parse_args()

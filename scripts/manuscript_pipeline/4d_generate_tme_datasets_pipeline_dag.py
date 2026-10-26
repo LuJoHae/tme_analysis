@@ -26,9 +26,9 @@ from returns.pipeline import is_successful
 from returns.result import Failure, Result, Success
 import vl_convert as vlc
 
-# Ensure scripts/figures is importable for shared Nature Methods style tokens
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "figures"))
-from nature_style_config import (  # noqa: E402
+# Ensure repository root is importable for shared Nature Methods style tokens
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.figures.nature_style_config import (  # noqa: E402
     COLOR_BORDER_HAIRLINE,
     COLOR_CANVAS_BG,
     COLOR_DIVIDER_RULE,
@@ -115,8 +115,12 @@ class DagExportConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    results_svg_path: Path = Path("results/dataset_overview/figure_tme_datasets_pipeline_dag.svg")
-    results_png_path: Path = Path("results/dataset_overview/figure_tme_datasets_pipeline_dag.png")
+    results_svg_path: Path = Path(
+        "output/manuscript_pipeline/4d_generate_tme_datasets_pipeline_dag/figure_tme_datasets_pipeline_dag.svg"
+    )
+    results_png_path: Path = Path(
+        "output/manuscript_pipeline/4d_generate_tme_datasets_pipeline_dag/figure_tme_datasets_pipeline_dag.png"
+    )
     article_svg_path: Path = Path("article/figures/dataset_overview/figure_tme_datasets_pipeline_dag.svg")
     article_png_path: Path = Path("article/figures/dataset_overview/figure_tme_datasets_pipeline_dag.png")
 
@@ -219,13 +223,13 @@ TIER2_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=142,
         accent_color=OKABE_BLUE,
         badge_tag="2A",
-        title="sample_and_analyze_cohorts.py",
+        title="2a1_sample_and_analyze_cohorts.py",
         body_lines=(
-            "+ combine_cohorts_and_analyze.py (scripts/milopy_analysis/)",
+            "+ 2a2_combine_cohorts_and_analyze.py (manuscript_pipeline/)",
             "Queries SC-9 via resolve_milopy_cohorts() & Harmony",
-            "Runs milopy kNN Negative Binomial GLM response DA",
+            "Fits milopy kNN Negative Binomial GLM response DA",
         ),
-        footer_label="Out: milopy_response_analysis/{da,cell_scores}.parquet",
+        footer_label="Out: .../2a1_sample_and_analyze_cohorts/*.parquet",
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
@@ -235,14 +239,14 @@ TIER2_CARDS: Final[tuple[DagCardSpec, ...]] = (
         width=428,
         height=142,
         accent_color=OKABE_ORANGE,
-        badge_tag="1",
-        title="download_and_preprocess_all.py",
+        badge_tag="1A–1C",
+        title="1a_download_and_preprocess_all.py",
         body_lines=(
-            "+ batch_preprocess_cohorts.py & run_qc_pipeline_*.py",
+            "+ 1b_batch_preprocess_cohorts.py & 1c_run_qc_*.py",
             "Queries SC-9 & BULK-15 via load_dataset() & Ensembl v111",
-            "Writes atomic QC-validated sparse AnnData caches",
+            "Writes atomic QC-validated .h5ad + summary parquets",
         ),
-        footer_label="Out: data/preprocessed/{9_SC + 11_Bulk}.h5ad",
+        footer_label="Out: data/preprocessed/*.h5ad & .../1a_*/ .../1c_*/",
         footer_color="#B45309",
     ),
     DagCardSpec(
@@ -253,13 +257,13 @@ TIER2_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=142,
         accent_color=OKABE_REDDISH_PURPLE,
         badge_tag="2B",
-        title="run_stability_selection_iatlas.py",
+        title="2b_run_stability_selection_iatlas.py",
         body_lines=(
-            "Uses shared.py: load_iatlas_cohort_or_combined() + Panels",
-            "12 cohorts × 13 fitters (Lasso, LassoFWL, MERF, OSCAR, SLOPE)",
+            "Queries load_iatlas_cohort_or_combined() + IO Panels",
+            "12 cohorts × 13 fitters (Lasso, LassoFWL, MERF, SLOPE)",
             "Complementary-pairs subsampling under PFER q_budget",
         ),
-        footer_label="Out: output/stability_selection_iatlas/{scores,paths}.parquet",
+        footer_label="Out: .../2b_run_stability_selection_iatlas/*.parquet",
         footer_color=OKABE_REDDISH_PURPLE,
     ),
 )
@@ -273,13 +277,13 @@ TIER3_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=142,
         accent_color=OKABE_BLUE,
         badge_tag="3A",
-        title="sade_feldman_pseudobulk_deconv_benchmark.py",
+        title="3a_sade_feldman_pseudobulk_deconv_benchmark.py",
         body_lines=(
-            "Reads 9 SC .h5ad [1] + cell_level_scores.parquet [2A]",
+            "Reads 9 SC .h5ad [1A] + cell_level_scores [2A1]",
             "Builds 355 Leiden r=2.0 reference centroids (Phi_1..Phi_9)",
-            "(+ sade_feldman_deconv_validation/01..05_*.py pipeline)",
+            "Evaluates 5-sweep Milo vs. pseudobulk β concordance",
         ),
-        footer_label="Out: pseudobulk_deconv_benchmark/*.parquet (355 states)",
+        footer_label="Out: .../3a_sade_feldman_pseudobulk_deconv_benchmark/",
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
@@ -290,13 +294,13 @@ TIER3_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=142,
         accent_color=OKABE_SKY_BLUE,
         badge_tag="3B",
-        title="pan_cohort_unified_deconv_benchmark.py",
+        title="3b_pan_cohort_unified_deconv_benchmark.py",
         body_lines=(
-            "Reads pseudobulk_deconv_benchmark/*.parquet (from [3A])",
-            "Ward-clusters 355 SC states into 42 Consensus-Meta42 states",
-            "Verifies Unified-All9, Meta42 & LOCO pseudobulk concordance",
+            "Reads 355 cohort centroids & sweeps from [3A]",
+            "Ward-clusters 355 SC states -> 42 Consensus-Meta42",
+            "Verifies Unified-All9, Meta42 & LOCO concordance",
         ),
-        footer_label="Out: unified_pan_cohort/{Unified-All9,Meta42}.parquet",
+        footer_label="Out: .../3b_pan_cohort_unified_deconv_benchmark/",
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
@@ -307,9 +311,9 @@ TIER3_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=304,
         accent_color=OKABE_BLUISH_GREEN,
         badge_tag="3C",
-        title="iatlas_instaprism_milopy_benchmark.py",
+        title="3c_iatlas_instaprism_milopy_benchmark.py",
         body_lines=(
-            "Inputs: 11 Bulk .h5ad [1] + 355 SC & Meta-42",
+            "Inputs: 11 Bulk .h5ad [1A] + 355 SC & Meta-42",
             "  reference/milopy parquets (from [3A] & [3B])",
             "1. Detects log2 bulk scale, linearizes (2^X - 1 -> 10^6 TPM)",
             "2. Runs InstaPrism EM across 13 Refs (Tiers 1–3) × 15 Cohorts",
@@ -318,7 +322,7 @@ TIER3_CARDS: Final[tuple[DagCardSpec, ...]] = (
             "5. Extracts 168 top-4 HGNC DEGs (14-state & All-42 atlases)",
             "6. Computes 8×8 & 42×42 epistasis z, RF 2D H & 3×3 regimes",
         ),
-        footer_label="Out: output/results/iatlas_instaprism_benchmark/ (11 .parquet)",
+        footer_label="Out: .../3c_iatlas_instaprism_milopy_benchmark/ (11)",
         footer_color=OKABE_BLUISH_GREEN,
     ),
     DagCardSpec(
@@ -329,13 +333,13 @@ TIER3_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=142,
         accent_color=OKABE_REDDISH_PURPLE,
         badge_tag="3D",
-        title="curate_expert_gene_list.py",
+        title="3d_curate_expert_gene_list.py",
         body_lines=(
-            "Reads stability_selection_iatlas/*.parquet (from [2B])",
+            "Reads 2b_run_stability_selection_iatlas/*.parquet [2B]",
             "+ queries pan-cancer bulk fold-changes via tme_datasets",
             "Computes composite Evidence Index E(g) across 91 runs",
         ),
-        footer_label="Out: article/tables/table_expert_gene_dossier.typ",
+        footer_label="Out: .../3d_curate_expert_gene_list/ & table_*.typ",
         footer_color=OKABE_REDDISH_PURPLE,
     ),
     DagCardSpec(
@@ -346,13 +350,13 @@ TIER3_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=142,
         accent_color=OKABE_ORANGE,
         badge_tag="3E",
-        title="benchmark_iatlas_icb_predictors.py",
+        title="3e1_benchmark_iatlas_icb_predictors.py",
         body_lines=(
-            "+ reference_sampling_hpo/run_hpo_pipeline.py",
+            "+ 3e2_run_hpo_pipeline.py (Optuna TPE + LOCO)",
             "Queries 9 iAtlas & SC cohorts via tme_datasets.load_dataset()",
             "Benchmarks 27 RNA/multi-omic signatures & HPO sampling",
         ),
-        footer_label="Out: benchmarks/iatlas_roc_auc/*.parquet & HPO .parquet",
+        footer_label="Out: .../3e1_benchmark_*/ & .../3e2_run_hpo_*/",
         footer_color="#B45309",
     ),
 )
@@ -366,13 +370,13 @@ TIER4_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=152,
         accent_color=OKABE_BLUE,
         badge_tag="4A",
-        title="Single-Cell & Pseudobulk Figure Scripts",
+        title="4a1–4a7 Single-Cell & 2×2 Master Figures",
         body_lines=(
-            "generate_combined_figures.py · visualize_cohort_umaps.py",
-            "plot_cross_cohort_deconv_{scatter_grid,correlations_bar}.py",
-            "assemble_immunotherapy_2x2_figure.py (reads [2A] & [3A])",
+            "4a1_visualize_cohort_umaps · 4a2_generate_combined_*",
+            "4a3..4a6_plot_cross_cohort_{umaps,da,deconv_*}",
+            "4a7_assemble_immunotherapy_2x2_figure (reads 2A1 & 3A)",
         ),
-        footer_label="Article: figures/single-cell/* & milo-deconv/nine_cohorts_*",
+        footer_label="Out: .../4a1_*/..4a7_*/ -> article/figures/*",
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
@@ -383,13 +387,13 @@ TIER4_CARDS: Final[tuple[DagCardSpec, ...]] = (
         height=152,
         accent_color=OKABE_VERMILION,
         badge_tag="4B",
-        title="plot_iatlas_instaprism_milopy_figures.py",
+        title="4b_plot_iatlas_instaprism_milopy_figures.py",
         body_lines=(
             "Consumes all 11 parquets from [3C] -> renders 11 Figures:",
             "Focused (8): ROC/PR-AUC, Milo Grid, 14-State Forest/DEG, 8×8",
             "Full Atlas (3): All-42 Forest, 168-Gene DEG, 42×42 Epistasis",
         ),
-        footer_label="Article: figures/milo-deconv/iatlas_*.{svg,png} (Ch. 3.18–3.21)",
+        footer_label="Out: .../4b_plot_iatlas_*/ -> figures/milo-deconv/",
         footer_color=OKABE_VERMILION,
     ),
     DagCardSpec(
@@ -399,14 +403,14 @@ TIER4_CARDS: Final[tuple[DagCardSpec, ...]] = (
         width=430,
         height=152,
         accent_color=OKABE_REDDISH_PURPLE,
-        badge_tag="4C",
-        title="Stability, HPO & Manuscript Build Pipeline",
+        badge_tag="4C–4D",
+        title="4c1–4c5 Stability/HPO & 4d Provenance DAG",
         body_lines=(
-            "combine_all_stability_paths.py · plot_fitter_gene_overlap.py",
-            "generate_hpo_summary_figures.py (reads [2B], [3D], [3E])",
+            "4c1..4c4_*{stability_paths,cohort_*,fitter_*}_overlap",
+            "4c5_generate_hpo_summary_figures · 4d_generate_*_dag",
             "article/Makefile: rsvg-convert (300 DPI) + typst compile",
         ),
-        footer_label="Article: figures/stability-selection/* & article/main.pdf",
+        footer_label="Out: .../4c1_*/..4d_*/ -> article/main.pdf",
         footer_color=OKABE_REDDISH_PURPLE,
     ),
 )
@@ -621,6 +625,7 @@ def _render_card(spec: DagCardSpec) -> str:
 
     tag_w = max(36, int(len(spec.badge_tag) * 8.6) + 12)
     title_x = 12 + tag_w + 8
+    title_font_px = "13.5px" if len(spec.title) > 40 or len(spec.badge_tag) > 3 else "14.5px"
 
     return f"""    <g id="{spec.card_id}" inkscape:label="{spec.card_id}" transform="translate({spec.x}, {spec.y})">
       <rect x="0" y="0" width="{spec.width}" height="{spec.height}" rx="0"
@@ -630,7 +635,7 @@ def _render_card(spec: DagCardSpec) -> str:
             fill="{COLOR_SUBTLE_FILL}" stroke="{spec.accent_color}" stroke-width="0.75" />
       <text x="{12 + tag_w / 2:.1f}" y="23.5" font-size="13.5px" font-weight="700"
             fill="{spec.accent_color}" text-anchor="middle">{_esc(spec.badge_tag)}</text>
-      <text x="{title_x}" y="24" font-size="14.5px" font-weight="700"
+      <text x="{title_x}" y="24" font-size="{title_font_px}" font-weight="700"
             fill="{COLOR_TEXT_PRIMARY}">{_esc(spec.title)}</text>
 {body_svg}
       <line x1="0" y1="{footer_y}" x2="{spec.width}" y2="{footer_y}"
@@ -736,10 +741,10 @@ def build_pipeline_dag_svg() -> str:
     </text>
     <g class="role-title-subtitle" id="grp-subtitle">
       <text x="16" y="50" font-size="13.5px" fill="{COLOR_TEXT_MUTED}">
-        Declarative cohort/panel queries from packages/tme_datasets and downstream .h5ad / .parquet script-to-script handoffs
+        All 26 pipeline scripts reside in scripts/manuscript_pipeline/&lt;tier&gt;_*.py and query packages/tme_datasets
       </text>
       <text x="16" y="68" font-size="13.5px" fill="{COLOR_TEXT_MUTED}">
-        Solid arrows = primary .h5ad / .parquet artifact flow; dashed arrows = auxiliary figure/table inputs
+        Each script writes to output/manuscript_pipeline/&lt;script_stem&gt;/ (solid = primary .h5ad/.parquet; dashed = aux)
       </text>
     </g>
 

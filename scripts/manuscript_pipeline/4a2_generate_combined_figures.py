@@ -47,8 +47,8 @@ from plotting_utils import (
 
 class FiguresConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    results_dir: Path = Path("output/results/milopy_response_analysis")
-    reports_dir: Path = Path("output/reports")
+    results_dir: Path = Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts")
+    reports_dir: Path = Path("output/manuscript_pipeline/4a2_generate_combined_figures")
     fdr_threshold: float = 0.10
     panel_width: int = 300
     panel_height_volcano: int = 230
@@ -67,13 +67,13 @@ def parse_args() -> FiguresConfig:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("output/results/milopy_response_analysis"),
+        default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"),
         help="Directory containing cohort milopy results",
     )
     parser.add_argument(
         "--reports-dir",
         type=Path,
-        default=Path("output/reports"),
+        default=Path("output/manuscript_pipeline/4a2_generate_combined_figures"),
         help="Directory to save combined SVG figures",
     )
     parser.add_argument(

@@ -30,7 +30,7 @@ load_cohort_panel_data = _stage4a5.load_cohort_panel_data
 
 @pytest.fixture
 def benchmark_dir() -> Path:
-    return Path("output/results/pseudobulk_deconv_benchmark")
+    return Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
 
 
 @pytest.fixture
@@ -115,8 +115,12 @@ def test_output_figures_exist_and_nonempty() -> None:
     """Verify that the generated SVG and PNG figures exist, have 130mm width, and >=10pt font sizes."""
     import re
 
-    svg_path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.svg")
-    png_path = Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.png")
+    svg_path = Path(
+        "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
+    )
+    png_path = Path(
+        "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.png"
+    )
     article_path = Path("article/figures/milo-deconv/nine_cohorts_deconv_scatter_grid.png")
 
     assert svg_path.exists(), f"Missing SVG at {svg_path}"

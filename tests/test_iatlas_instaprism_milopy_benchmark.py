@@ -207,8 +207,8 @@ def test_all42_nonlinear_interactions_symmetry(tmp_path: Path) -> None:
 
 def test_generated_benchmark_parquets_and_figures() -> None:
     """Verify empirical parquet outputs, simplex fraction invariants, and all 11 180mm vector SVGs."""
-    out_dir = Path("output/results/iatlas_instaprism_benchmark")
-    results_dir = Path("results/iatlas_instaprism_benchmark")
+    out_dir = Path("output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark")
+    results_dir = Path("output/manuscript_pipeline/4b_plot_iatlas_instaprism_milopy_figures")
 
     pred_path = out_dir / "response_prediction_metrics.parquet"
     conc_path = out_dir / "milopy_iatlas_concordance_summary.parquet"
@@ -322,7 +322,9 @@ def test_generated_benchmark_parquets_and_figures() -> None:
 def test_tme_datasets_pipeline_dag_svg_and_png() -> None:
     """Verify the tme_datasets provenance & script-dependency DAG SVG and 300 DPI PNG."""
     svg_paths = (
-        Path("results/dataset_overview/figure_tme_datasets_pipeline_dag.svg"),
+        Path(
+            "output/manuscript_pipeline/4d_generate_tme_datasets_pipeline_dag/figure_tme_datasets_pipeline_dag.svg"
+        ),
         Path("article/figures/dataset_overview/figure_tme_datasets_pipeline_dag.svg"),
     )
     for svg_p in svg_paths:

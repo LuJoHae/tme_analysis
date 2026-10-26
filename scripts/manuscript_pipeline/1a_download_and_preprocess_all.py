@@ -273,8 +273,10 @@ def download_and_preprocess_all(config: PipelineConfig) -> pl.DataFrame:
     setup_disconnection_immunity()
 
     repo_root = find_repo_root()
-    log_file = config.log_file or (repo_root / "logs/download_and_preprocess.log")
-    progress_file = config.progress_file or (repo_root / "output/preprocessing_progress.json")
+    script_out_dir = repo_root / "output/manuscript_pipeline/1a_download_and_preprocess_all"
+    script_out_dir.mkdir(parents=True, exist_ok=True)
+    log_file = config.log_file or (script_out_dir / "download_and_preprocess.log")
+    progress_file = config.progress_file or (script_out_dir / "preprocessing_progress.json")
     logger = setup_pipeline_logger(log_file)
 
     specs = list_registered_datasets()
@@ -346,6 +348,7 @@ def download_and_preprocess_all(config: PipelineConfig) -> pl.DataFrame:
     if not pending_specs:
         logger.info("All target datasets already preprocessed. Generating summary report.")
         summary_df = pl.DataFrame([r.model_dump() for r in results])
+        summary_df.write_parquet(script_out_dir / "preprocessing_summary.parquet")
         return summary_df
 
     # Step 3: Concurrent Execution with Dynamic Memory Governor
@@ -489,6 +492,7 @@ def download_and_preprocess_all(config: PipelineConfig) -> pl.DataFrame:
                 pass
 
     summary_df = pl.DataFrame([r.model_dump() for r in results])
+    summary_df.write_parquet(script_out_dir / "preprocessing_summary.parquet")
     logger.info("\n" + "=" * 80)
     logger.info("PREPROCESSING PIPELINE COMPLETE")
     logger.info("=" * 80)

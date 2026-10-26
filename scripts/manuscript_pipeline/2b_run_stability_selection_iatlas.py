@@ -350,8 +350,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("output/stability_selection_fitters_benchmark"),
-        help="Target output directory (default: output/stability_selection_fitters_benchmark)",
+        default=Path("output/manuscript_pipeline/2b_run_stability_selection_iatlas"),
+        help="Target output directory (default: output/manuscript_pipeline/2b_run_stability_selection_iatlas)",
     )
     return parser.parse_args()
 

@@ -56,9 +56,13 @@ COHORT_ORDER_AND_METADATA: Final[tuple[dict[str, str], ...]] = (
 
 class DaBarConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    results_dir: Path = Path("output/results/milopy_response_analysis")
-    out_svg: Path = Path("results/milopy_analysis/nine_cohorts_da_bars.svg")
-    out_png: Path = Path("results/milopy_analysis/nine_cohorts_da_bars.png")
+    results_dir: Path = Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts")
+    out_svg: Path = Path(
+        "output/manuscript_pipeline/4a4_plot_cross_cohort_da_bars/nine_cohorts_da_bars.svg"
+    )
+    out_png: Path = Path(
+        "output/manuscript_pipeline/4a4_plot_cross_cohort_da_bars/nine_cohorts_da_bars.png"
+    )
     article_png: Path = Path("article/figures/single-cell/nine_cohorts_da_bars.png")
     chart_width: int = 81
     chart_height: int = 321
@@ -265,19 +269,23 @@ def main() -> None:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("output/results/milopy_response_analysis"),
+        default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"),
         help="Root milopy analysis directory",
     )
     parser.add_argument(
         "--out-svg",
         type=Path,
-        default=Path("results/milopy_analysis/nine_cohorts_da_bars.svg"),
+        default=Path(
+            "output/manuscript_pipeline/4a4_plot_cross_cohort_da_bars/nine_cohorts_da_bars.svg"
+        ),
         help="Output SVG path",
     )
     parser.add_argument(
         "--out-png",
         type=Path,
-        default=Path("results/milopy_analysis/nine_cohorts_da_bars.png"),
+        default=Path(
+            "output/manuscript_pipeline/4a4_plot_cross_cohort_da_bars/nine_cohorts_da_bars.png"
+        ),
         help="Output PNG path",
     )
     args = parser.parse_args()

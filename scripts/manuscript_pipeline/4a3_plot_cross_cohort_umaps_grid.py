@@ -61,9 +61,13 @@ COHORT_ORDER_AND_METADATA: Final[tuple[dict[str, str], ...]] = (
 
 class UmapGridConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    results_dir: Path = Path("output/results/milopy_response_analysis")
-    out_svg: Path = Path("results/milopy_analysis/nine_cohorts_umaps_logfc_grid.svg")
-    out_png: Path = Path("results/milopy_analysis/nine_cohorts_umaps_logfc_grid.png")
+    results_dir: Path = Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts")
+    out_svg: Path = Path(
+        "output/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid/nine_cohorts_umaps_logfc_grid.svg"
+    )
+    out_png: Path = Path(
+        "output/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid/nine_cohorts_umaps_logfc_grid.png"
+    )
     article_png: Path = Path("article/figures/single-cell/nine_cohorts_umaps_logfc_grid.png")
     panel_width: int = 142
     panel_height: int = 79
@@ -282,19 +286,23 @@ def main() -> None:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("output/results/milopy_response_analysis"),
+        default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"),
         help="Root milopy analysis directory",
     )
     parser.add_argument(
         "--out-svg",
         type=Path,
-        default=Path("results/milopy_analysis/nine_cohorts_umaps_logfc_grid.svg"),
+        default=Path(
+            "output/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid/nine_cohorts_umaps_logfc_grid.svg"
+        ),
         help="Output SVG path",
     )
     parser.add_argument(
         "--out-png",
         type=Path,
-        default=Path("results/milopy_analysis/nine_cohorts_umaps_logfc_grid.png"),
+        default=Path(
+            "output/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid/nine_cohorts_umaps_logfc_grid.png"
+        ),
         help="Output PNG path",
     )
     args = parser.parse_args()

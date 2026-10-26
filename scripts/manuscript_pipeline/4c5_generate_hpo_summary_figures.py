@@ -13,8 +13,8 @@ Adheres strictly to:
 - Predictor display labels without underscores ("Cohort-Optimized Deconvolution (Our Model, 2026)");
   cohort display labels with formal author-year labels and clean typography.
 - Output files:
-  1. output/reports/fig_hpo_method_and_sampling.svg
-  2. output/reports/fig_hpo_benchmark_results.svg
+  1. output/manuscript_pipeline/4c5_generate_hpo_summary_figures/fig_hpo_method_and_sampling.svg
+  2. output/manuscript_pipeline/4c5_generate_hpo_summary_figures/fig_hpo_benchmark_results.svg
 - Verification: XML parser and 300 DPI rasters via rsvg-convert.
 """
 
@@ -1196,9 +1196,15 @@ def main() -> int:
     print("=" * 70)
 
     # 1. Load Data
-    csv_path = REPO_ROOT / "output" / "benchmarks" / "iatlas_roc_auc" / "iatlas_benchmark_metrics.csv"
-    hpo_dir = REPO_ROOT / "output" / "reference_sampling_hpo"
-    perturb_parquet = REPO_ROOT / "output" / "benchmarks" / "iatlas_roc_auc" / "perturbation_benchmark_metrics.parquet"
+    pred_dir = (
+        REPO_ROOT / "output" / "manuscript_pipeline" / "3e1_benchmark_iatlas_icb_predictors"
+    )
+    csv_path = pred_dir / "iatlas_benchmark_metrics.csv"
+    hpo_dir = REPO_ROOT / "output" / "manuscript_pipeline" / "3e2_run_hpo_pipeline"
+    perturb_parquet = pred_dir / "perturbation_benchmark_metrics.parquet"
+    out_dir = (
+        REPO_ROOT / "output" / "manuscript_pipeline" / "4c5_generate_hpo_summary_figures"
+    )
 
     print("\n[Step 1] Ingesting empirical benchmark and reference diagnostic data...")
     match load_benchmark_rows(csv_path):
@@ -1233,12 +1239,12 @@ def main() -> int:
         case Success(n_layers):
             print(f"  + Verified valid XML with {n_layers} Inkscape native layers.")
 
-    fig1_path = REPO_ROOT / "output" / "reports" / "fig_hpo_method_and_sampling.svg"
+    fig1_path = out_dir / "fig_hpo_method_and_sampling.svg"
     fig1_path.parent.mkdir(parents=True, exist_ok=True)
     fig1_path.write_text(fig1_svg, encoding="utf-8")
     print(f"  + Saved Figure 1 SVG: {fig1_path}")
 
-    fig1_png = REPO_ROOT / "output" / "reports" / "fig_hpo_method_and_sampling.png"
+    fig1_png = out_dir / "fig_hpo_method_and_sampling.png"
     match convert_svg_to_png(fig1_path, fig1_png):
         case Success(p):
             print(f"  + Rendered 300 DPI raster: {p}")
@@ -1255,11 +1261,11 @@ def main() -> int:
         case Success(n_layers):
             print(f"  + Verified valid XML with {n_layers} Inkscape native layers.")
 
-    fig2_path = REPO_ROOT / "output" / "reports" / "fig_hpo_benchmark_results.svg"
+    fig2_path = out_dir / "fig_hpo_benchmark_results.svg"
     fig2_path.write_text(fig2_svg, encoding="utf-8")
     print(f"  + Saved Figure 2 SVG: {fig2_path}")
 
-    fig2_png = REPO_ROOT / "output" / "reports" / "fig_hpo_benchmark_results.png"
+    fig2_png = out_dir / "fig_hpo_benchmark_results.png"
     match convert_svg_to_png(fig2_path, fig2_png):
         case Success(p):
             print(f"  + Rendered 300 DPI raster: {p}")

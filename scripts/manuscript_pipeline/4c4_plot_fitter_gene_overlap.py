@@ -866,19 +866,25 @@ def main() -> int:
     parser.add_argument(
         "--scores-path",
         type=Path,
-        default=Path("output/stability_selection_fitters_benchmark/stability_scores.parquet"),
+        default=Path(
+            "output/manuscript_pipeline/2b_run_stability_selection_iatlas/stability_scores.parquet"
+        ),
         help="Path to multi-fitter stability scores parquet",
     )
     parser.add_argument(
         "--output-svg",
         type=Path,
-        default=Path("output/stability_selection_fitters_benchmark/figures/fitter_gene_overlap_nature.svg"),
+        default=Path(
+            "output/manuscript_pipeline/4c4_plot_fitter_gene_overlap/fitter_gene_overlap_nature.svg"
+        ),
         help="Target output SVG path",
     )
     parser.add_argument(
         "--output-png",
         type=Path,
-        default=Path("output/stability_selection_fitters_benchmark/figures/fitter_gene_overlap_nature.png"),
+        default=Path(
+            "output/manuscript_pipeline/4c4_plot_fitter_gene_overlap/fitter_gene_overlap_nature.png"
+        ),
         help="Target output PNG path",
     )
     args = parser.parse_args()

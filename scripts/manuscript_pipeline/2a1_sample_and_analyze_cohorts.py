@@ -69,7 +69,8 @@ from tme_datasets import (
     subsample_cells,
 )
 
-from plot_neighborhood_diagnostics import render_diagnostic_dashboard
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.milopy_analysis.plot_neighborhood_diagnostics import render_diagnostic_dashboard
 
 # Canonical Cancer Type Lookup for the 9 Cohorts
 COHORT_CANCER_MAP: dict[str, str] = {
@@ -95,8 +96,8 @@ class SampledRunConfig(BaseModel):
     cohort_ids: tuple[str, ...] = Field(..., description="Resolved cohort accession IDs")
     cells_per_dataset: int = Field(default=20000, description="Max cells per dataset prior to concatenation (0 = unconstrained)")
     base_dir: Path = Field(default=Path("/ritom/scratch/cscs/lhaeuser/data-test"), description="Base directory containing preprocessed H5AD files")
-    out_dir: Path = Field(default=Path("output/results/milopy_sampled_analysis"), description="Results output directory")
-    reports_dir: Path = Field(default=Path("output/reports/milopy_sampled_analysis"), description="Reports output directory")
+    out_dir: Path = Field(default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"), description="Results output directory")
+    reports_dir: Path = Field(default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"), description="Reports output directory")
 
     # In-silico perturbation
     perturbation: str = Field(default="none", description="Perturbation type: none, dropout, jitter, knockout, overexpression, negative_binomial")
@@ -168,13 +169,13 @@ def parse_args() -> SampledRunConfig:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("output/results/milopy_sampled_analysis"),
+        default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"),
         help="Output directory for results",
     )
     parser.add_argument(
         "--reports-dir",
         type=Path,
-        default=Path("output/reports/milopy_sampled_analysis"),
+        default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"),
         help="Output directory for publication figures",
     )
 

@@ -44,37 +44,51 @@ VIEWBOX_TOTAL_HEIGHT = _stage4a7.VIEWBOX_TOTAL_HEIGHT
 
 @pytest.fixture
 def master_svg_path() -> Path:
-    return Path("results/milopy_analysis/immunotherapy_response_2x2_master.svg")
+    return Path(
+        "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/immunotherapy_response_2x2_master.svg"
+    )
 
 
 @pytest.fixture
 def master_png_path() -> Path:
-    return Path("results/milopy_analysis/immunotherapy_response_2x2_master.png")
+    return Path(
+        "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/immunotherapy_response_2x2_master.png"
+    )
 
 
 @pytest.fixture
 def row1_composite_svg_path() -> Path:
-    return Path("results/milopy_analysis/nine_cohorts_single_cell_composite.svg")
+    return Path(
+        "output/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure/nine_cohorts_single_cell_composite.svg"
+    )
 
 
 @pytest.fixture
 def panel_a_svg_path() -> Path:
-    return Path("results/milopy_analysis/nine_cohorts_umaps_logfc_grid.svg")
+    return Path(
+        "output/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid/nine_cohorts_umaps_logfc_grid.svg"
+    )
 
 
 @pytest.fixture
 def panel_b_svg_path() -> Path:
-    return Path("results/milopy_analysis/nine_cohorts_da_bars.svg")
+    return Path(
+        "output/manuscript_pipeline/4a4_plot_cross_cohort_da_bars/nine_cohorts_da_bars.svg"
+    )
 
 
 @pytest.fixture
 def panel_c_svg_path() -> Path:
-    return Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_scatter_grid.svg")
+    return Path(
+        "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
+    )
 
 
 @pytest.fixture
 def panel_d_svg_path() -> Path:
-    return Path("results/pseudobulk_deconv_benchmark/nine_cohorts_deconv_correlations_bar.svg")
+    return Path(
+        "output/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar/nine_cohorts_deconv_correlations_bar.svg"
+    )
 
 
 def test_cohort_order_definition() -> None:

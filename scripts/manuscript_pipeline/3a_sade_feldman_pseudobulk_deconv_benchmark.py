@@ -88,9 +88,9 @@ class BenchmarkConfig(BaseModel):
     cell_scores_path: Path | None = None
     phi_path: Path | None = None
     marker_genes_path: Path | None = None
-    milo_da_dir: Path = Path("output/results/milopy_response_analysis")
-    out_dir: Path = Path("output/results/pseudobulk_deconv_benchmark")
-    results_dir: Path = Path("results/pseudobulk_deconv_benchmark")
+    milo_da_dir: Path = Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts")
+    out_dir: Path = Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
+    results_dir: Path = Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
     deconv_backend: str = "instaprism"
     deconv_iters: int = 100
     use_marker_genes: bool = True
@@ -166,19 +166,19 @@ def parse_args() -> BenchmarkConfig:
     parser.add_argument(
         "--milo-dir",
         type=Path,
-        default=Path("output/results/milopy_response_analysis"),
+        default=Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts"),
         help="Directory containing milopy DA parquets",
     )
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("output/results/pseudobulk_deconv_benchmark"),
+        default=Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"),
         help="Output directory for data parquets",
     )
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/pseudobulk_deconv_benchmark"),
+        default=Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"),
         help="Results directory for plots and vector SVGs",
     )
     parser.add_argument(
@@ -921,6 +921,7 @@ def resolve_cohort_data(
     candidate_milo_paths = [
         config.cell_scores_path,
         config.milo_da_dir / cohort_id / "cell_level_scores.parquet",
+        Path(f"output/manuscript_pipeline/2a1_sample_and_analyze_cohorts/{cohort_id}/cell_level_scores.parquet"),
         _scratch_data_dir / f"results/milopy_response_analysis/{cohort_id}/cell_level_scores.parquet",
         Path(f"output/results/milopy_response_analysis/{cohort_id}/cell_level_scores.parquet"),
     ]
