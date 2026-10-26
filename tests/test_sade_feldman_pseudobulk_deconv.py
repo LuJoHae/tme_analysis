@@ -15,13 +15,16 @@ import polars as pl
 import pytest
 from returns.result import Success
 
-from scripts.sade_feldman_pseudobulk_deconv_benchmark import (
-    classify_quadrant,
-    compute_true_cell_fractions,
-    evaluate_concordance,
-    fit_logistic_stratum,
-    run_pseudobulk_deconvolution,
+import importlib
+
+_stage3a = importlib.import_module(
+    "scripts.manuscript_pipeline.3a_sade_feldman_pseudobulk_deconv_benchmark"
 )
+classify_quadrant = _stage3a.classify_quadrant
+compute_true_cell_fractions = _stage3a.compute_true_cell_fractions
+evaluate_concordance = _stage3a.evaluate_concordance
+fit_logistic_stratum = _stage3a.fit_logistic_stratum
+run_pseudobulk_deconvolution = _stage3a.run_pseudobulk_deconvolution
 
 
 def test_compute_true_cell_fractions_simplex() -> None:

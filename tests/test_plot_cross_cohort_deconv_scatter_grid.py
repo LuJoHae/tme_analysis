@@ -15,14 +15,17 @@ import polars as pl
 import pytest
 from returns.result import Success
 
-from scripts.milopy_analysis.plot_cross_cohort_deconv_scatter_grid import (
-    COHORT_ORDER_AND_METADATA,
-    CohortPanelData,
-    PlotConfig,
-    assemble_3x3_scatter_grid,
-    build_cohort_scatter_panel,
-    load_cohort_panel_data,
+import importlib
+
+_stage4a5 = importlib.import_module(
+    "scripts.manuscript_pipeline.4a5_plot_cross_cohort_deconv_scatter_grid"
 )
+COHORT_ORDER_AND_METADATA = _stage4a5.COHORT_ORDER_AND_METADATA
+CohortPanelData = _stage4a5.CohortPanelData
+PlotConfig = _stage4a5.PlotConfig
+assemble_3x3_scatter_grid = _stage4a5.assemble_3x3_scatter_grid
+build_cohort_scatter_panel = _stage4a5.build_cohort_scatter_panel
+load_cohort_panel_data = _stage4a5.load_cohort_panel_data
 
 
 @pytest.fixture

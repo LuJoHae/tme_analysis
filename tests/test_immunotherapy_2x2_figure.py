@@ -14,25 +14,32 @@ import xml.etree.ElementTree as ET
 import polars as pl
 import pytest
 
+import importlib
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.milopy_analysis.plot_cross_cohort_umaps_grid import (
-    COHORT_ORDER_AND_METADATA,
-    MIN_FONT_PX,
-    TARGET_WIDTH_MM as UMAP_WIDTH_MM,
-    UmapGridConfig,
+_stage4a3 = importlib.import_module(
+    "scripts.manuscript_pipeline.4a3_plot_cross_cohort_umaps_grid"
 )
-from scripts.milopy_analysis.plot_cross_cohort_da_bars import (
-    DaBarConfig,
-    TARGET_WIDTH_MM as BAR_WIDTH_MM,
-    load_all_cohort_da_stats,
+COHORT_ORDER_AND_METADATA = _stage4a3.COHORT_ORDER_AND_METADATA
+MIN_FONT_PX = _stage4a3.MIN_FONT_PX
+UMAP_WIDTH_MM = _stage4a3.TARGET_WIDTH_MM
+UmapGridConfig = _stage4a3.UmapGridConfig
+
+_stage4a4 = importlib.import_module(
+    "scripts.manuscript_pipeline.4a4_plot_cross_cohort_da_bars"
 )
-from scripts.milopy_analysis.assemble_immunotherapy_2x2_figure import (
-    AssemblerConfig,
-    TOTAL_WIDTH_MM,
-    VIEWBOX_TOTAL_WIDTH,
-    VIEWBOX_TOTAL_HEIGHT,
+DaBarConfig = _stage4a4.DaBarConfig
+BAR_WIDTH_MM = _stage4a4.TARGET_WIDTH_MM
+load_all_cohort_da_stats = _stage4a4.load_all_cohort_da_stats
+
+_stage4a7 = importlib.import_module(
+    "scripts.manuscript_pipeline.4a7_assemble_immunotherapy_2x2_figure"
 )
+AssemblerConfig = _stage4a7.AssemblerConfig
+TOTAL_WIDTH_MM = _stage4a7.TOTAL_WIDTH_MM
+VIEWBOX_TOTAL_WIDTH = _stage4a7.VIEWBOX_TOTAL_WIDTH
+VIEWBOX_TOTAL_HEIGHT = _stage4a7.VIEWBOX_TOTAL_HEIGHT
 
 
 @pytest.fixture

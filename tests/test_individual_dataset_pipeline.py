@@ -9,9 +9,9 @@ import anndata as ad
 from returns.result import Success, Failure
 
 import importlib
-raw_to_sparse = importlib.import_module("scripts.02_convert_to_sparse_h5")
-preprocess_h5 = importlib.import_module("scripts.03_preprocess_datasets")
-plot_h5 = importlib.import_module("scripts.04_plot_dataset_embeddings")
+raw_to_sparse = importlib.import_module("scripts.ingestion.02_convert_to_sparse_h5")
+preprocess_h5 = importlib.import_module("scripts.ingestion.03_preprocess_datasets")
+plot_h5 = importlib.import_module("scripts.ingestion.04_plot_dataset_embeddings")
 
 convert_df_to_sparse_adata = raw_to_sparse.convert_df_to_sparse_adata
 preprocess_single_dataset = preprocess_h5.preprocess_single_dataset

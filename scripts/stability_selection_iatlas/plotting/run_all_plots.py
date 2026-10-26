@@ -77,7 +77,7 @@ def main() -> int:
     if not (args.all or args.paths or args.composite or args.cohort_overlap or args.fitter_overlap):
         args.all = True
 
-    script_dir = Path(__file__).resolve().parent
+    pipeline_dir = Path(__file__).resolve().parents[2] / "manuscript_pipeline"
     python_bin = sys.executable
 
     successes: list[str] = []
@@ -85,7 +85,7 @@ def main() -> int:
 
     # 1. Individual Cohort Stability Paths
     if args.all or args.paths:
-        cmd = [python_bin, str(script_dir / "plot_stability_selection_iatlas.py")]
+        cmd = [python_bin, str(pipeline_dir / "4c1_plot_stability_selection_iatlas.py")]
         if args.output_dir is not None:
             cmd.extend(["--output-dir", str(args.output_dir)])
         ok = run_cmd(cmd, "Individual Cohort Stability Paths")
@@ -93,7 +93,7 @@ def main() -> int:
 
     # 2. Composite 12-Cohort Figure
     if args.all or args.composite:
-        cmd = [python_bin, str(script_dir / "combine_all_stability_paths.py")]
+        cmd = [python_bin, str(pipeline_dir / "4c2_combine_all_stability_paths.py")]
         if args.output_dir is not None:
             cmd.extend([
                 "--output-svg", str(args.output_dir / "all_cohorts_stability_paths_composite.svg"),
@@ -104,7 +104,7 @@ def main() -> int:
 
     # 3. Cross-Cohort Overlap (UpSet + Euler)
     if args.all or args.cohort_overlap:
-        cmd = [python_bin, str(script_dir / "plot_cohort_gene_overlap.py")]
+        cmd = [python_bin, str(pipeline_dir / "4c3_plot_cohort_gene_overlap.py")]
         if args.output_dir is not None:
             cmd.extend([
                 "--output-svg", str(args.output_dir / "cohort_gene_overlap_nature.svg"),
@@ -115,7 +115,7 @@ def main() -> int:
 
     # 4. Multi-Fitter Gene Selection Matrix
     if args.all or args.fitter_overlap:
-        cmd = [python_bin, str(script_dir / "plot_fitter_gene_overlap.py")]
+        cmd = [python_bin, str(pipeline_dir / "4c4_plot_fitter_gene_overlap.py")]
         if args.output_dir is not None:
             cmd.extend([
                 "--output-svg", str(args.output_dir / "fitter_gene_overlap_nature.svg"),

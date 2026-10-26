@@ -75,7 +75,7 @@ rule download_discovered_cohort:
             echo "ERROR: Internet dataset downloads are strictly forbidden on CSCS Eiger. Download on olm and transfer via Globus." >&2
             exit 1
         fi
-        python scripts/download_cohorts.py \
+        python scripts/ingestion/download_cohorts.py \
             --registry {params.registry} \
             --data-raw-dir {RAW_DIR} \
             --cohorts {wildcards.cohort} \
@@ -96,7 +96,7 @@ rule preprocess_discovered_cohort:
         mem_mb=12000
     shell:
         """
-        python scripts/batch_preprocess_cohorts.py \
+        python scripts/manuscript_pipeline/1b_batch_preprocess_cohorts.py \
             --registry {params.registry} \
             --data-raw-dir {RAW_DIR} \
             --output-dir {PREPROCESSED_DIR} \

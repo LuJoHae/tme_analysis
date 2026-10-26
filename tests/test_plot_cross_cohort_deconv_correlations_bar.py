@@ -16,18 +16,21 @@ import polars as pl
 import pytest
 from returns.result import Success
 
-from scripts.milopy_analysis.plot_cross_cohort_deconv_correlations_bar import (
-    BAR_WIDTH_MM,
-    COHORT_ORDER_AND_METADATA,
-    COMPOSITE_WIDTH_MM,
-    FIGURE_HEIGHT_MM,
-    MIN_FONT_PT,
-    BarPlotConfig,
-    build_correlation_bar_chart,
-    enforce_svg_physical_dimensions,
-    load_cohort_correlations,
-    stitch_composite_grid_and_bars,
+import importlib
+
+_stage4a6 = importlib.import_module(
+    "scripts.manuscript_pipeline.4a6_plot_cross_cohort_deconv_correlations_bar"
 )
+BAR_WIDTH_MM = _stage4a6.BAR_WIDTH_MM
+COHORT_ORDER_AND_METADATA = _stage4a6.COHORT_ORDER_AND_METADATA
+COMPOSITE_WIDTH_MM = _stage4a6.COMPOSITE_WIDTH_MM
+FIGURE_HEIGHT_MM = _stage4a6.FIGURE_HEIGHT_MM
+MIN_FONT_PT = _stage4a6.MIN_FONT_PT
+BarPlotConfig = _stage4a6.BarPlotConfig
+build_correlation_bar_chart = _stage4a6.build_correlation_bar_chart
+enforce_svg_physical_dimensions = _stage4a6.enforce_svg_physical_dimensions
+load_cohort_correlations = _stage4a6.load_cohort_correlations
+stitch_composite_grid_and_bars = _stage4a6.stitch_composite_grid_and_bars
 
 
 @pytest.fixture

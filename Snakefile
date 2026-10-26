@@ -673,7 +673,7 @@ rule plot_myeloid_dge:
 
 rule unify_step07_gse120575:
     input:
-        script="scripts/unify_step07_gse120575.py",
+        script="scripts/ingestion/unify_step07_gse120575.py",
         tpm=f"{GSE_DIR}/gse120575_tpm.parquet",
         tpm_meta=f"{GSE_DIR}/gse120575_tpm_cell_metadata.parquet"
     output:
@@ -690,7 +690,7 @@ rule unify_step07_gse120575:
 
 rule plot_unified_embeddings:
     input:
-        script="scripts/plot_unified_embeddings.py",
+        script="scripts/ingestion/plot_unified_embeddings.py",
         h5ad=f"{DATA_DIR}/unified_step07_gse120575.h5ad"
     output:
         pca_gse=f"{RESULTS_DIR}/unified_integration/pca_uncorrected_gse_vs_rest.svg",
@@ -726,7 +726,7 @@ DATASETS = [
 
 rule download_dataset:
     input:
-        script="scripts/01_download_datasets.py"
+        script="scripts/ingestion/01_download_datasets.py"
     output:
         marker=f"{DATA_DIR}/raw_geo/{{dataset}}/download_completed.txt"
     shell:
@@ -737,7 +737,7 @@ rule download_dataset:
 
 rule convert_dataset_to_sparse_h5:
     input:
-        script="scripts/02_convert_to_sparse_h5.py",
+        script="scripts/ingestion/02_convert_to_sparse_h5.py",
         marker=f"{DATA_DIR}/raw_geo/{{dataset}}/download_completed.txt"
     output:
         h5ad=f"{DATA_DIR}/sparse_h5/{{dataset}}_sparse.h5ad"
@@ -748,7 +748,7 @@ rule convert_dataset_to_sparse_h5:
 
 rule preprocess_dataset_to_h5:
     input:
-        script="scripts/03_preprocess_datasets.py",
+        script="scripts/ingestion/03_preprocess_datasets.py",
         h5ad=f"{DATA_DIR}/sparse_h5/{{dataset}}_sparse.h5ad"
     output:
         h5ad=f"{DATA_DIR}/processed_h5/{{dataset}}_processed.h5ad"
@@ -759,7 +759,7 @@ rule preprocess_dataset_to_h5:
 
 rule plot_dataset_embedding:
     input:
-        script="scripts/04_plot_dataset_embeddings.py",
+        script="scripts/ingestion/04_plot_dataset_embeddings.py",
         h5ad=f"{DATA_DIR}/processed_h5/{{dataset}}_processed.h5ad"
     output:
         marker=f"{RESULTS_DIR}/results_embeddings/{{dataset}}_completed.txt"
@@ -977,7 +977,7 @@ rule run_sade_feldman_pipeline:
 
 rule download_single_cell_immuno_datasets:
     input:
-        script="scripts/01_download_single_cell_immuno.py"
+        script="scripts/ingestion/01_download_single_cell_immuno.py"
     output:
         gse120575=f"{DATA_DIR}/raw/GSE120575/GSE120575_tpm.txt.gz",
         gse115978=f"{DATA_DIR}/raw/GSE115978/GSE115978_tpm.csv.gz",
@@ -1003,7 +1003,7 @@ rule download_single_cell_immuno_datasets:
 
 rule preprocess_single_cell_immuno_datasets:
     input:
-        script="scripts/03_preprocess_datasets.py"
+        script="scripts/ingestion/03_preprocess_datasets.py"
     output:
         marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
     params:
@@ -1018,7 +1018,7 @@ rule preprocess_single_cell_immuno_datasets:
 
 rule report_single_cell_immuno_datasets:
     input:
-        script="scripts/03_generate_single_cell_immuno_report.py"
+        script="scripts/ingestion/03_generate_single_cell_immuno_report.py"
     output:
         report_md=f"{DATA_DIR}/reports/icb_single_cell_datasets_summary.md",
         svg1=f"{DATA_DIR}/reports/tier1_patient_counts.svg",
@@ -1033,7 +1033,7 @@ rule report_single_cell_immuno_datasets:
 
 rule check_milopy_compatibility:
     input:
-        script="scripts/04_check_milopy_compatibility.py",
+        script="scripts/ingestion/04_check_milopy_compatibility.py",
         marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
     output:
         report_md=f"{DATA_DIR}/reports/milopy_compatibility_report.md",
@@ -1056,7 +1056,7 @@ rule run_single_cell_immuno_pipeline:
 
 rule run_milopy_da:
     input:
-        script="scripts/05_run_milopy_da.py",
+        script="scripts/ingestion/05_run_milopy_da.py",
         marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
     output:
         report_md=f"{DATA_DIR}/reports/milopy_da_cohort_summary.md",
@@ -1072,7 +1072,7 @@ rule run_milopy_da:
 
 rule investigate_subtle_datasets:
     input:
-        script="scripts/06_investigate_subtle_datasets.py",
+        script="scripts/ingestion/06_investigate_subtle_datasets.py",
         marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
     output:
         report_md=f"{DATA_DIR}/reports/subtle_datasets_investigation.md"
@@ -1086,7 +1086,7 @@ rule investigate_subtle_datasets:
 
 rule integrate_combined_cohorts:
     input:
-        script="scripts/07_integrate_combined_cohorts.py",
+        script="scripts/ingestion/07_integrate_combined_cohorts.py",
         marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
     output:
         report_md=f"{DATA_DIR}/reports/integrated_cohorts_summary.md",
@@ -1103,7 +1103,7 @@ rule integrate_combined_cohorts:
 
 rule visualize_cohort_umaps:
     input:
-        script="scripts/milopy_analysis/visualize_cohort_umaps.py"
+        script="scripts/manuscript_pipeline/4a1_visualize_cohort_umaps.py"
     output:
         completed=f"{DATA_DIR}/results/milopy_response_analysis/visualize_cohort_umaps_completed.txt"
     params:
@@ -1121,7 +1121,7 @@ rule visualize_cohort_umaps:
 
 rule generate_combined_milopy_figures:
     input:
-        script="scripts/milopy_analysis/generate_combined_figures.py",
+        script="scripts/manuscript_pipeline/4a2_generate_combined_figures.py",
         umaps_done=f"{DATA_DIR}/results/milopy_response_analysis/visualize_cohort_umaps_completed.txt"
     output:
         volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid.svg",
@@ -1142,7 +1142,7 @@ rule generate_combined_milopy_figures:
 
 rule generate_combined_milopy_figures_pre:
     input:
-        script="scripts/milopy_analysis/generate_combined_figures.py"
+        script="scripts/manuscript_pipeline/4a2_generate_combined_figures.py"
     output:
         volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_pre.svg",
         umap_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_pre.svg",
@@ -1162,7 +1162,7 @@ rule generate_combined_milopy_figures_pre:
 
 rule generate_combined_milopy_figures_post:
     input:
-        script="scripts/milopy_analysis/generate_combined_figures.py"
+        script="scripts/manuscript_pipeline/4a2_generate_combined_figures.py"
     output:
         volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_post.svg",
         umap_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_post.svg",
@@ -1182,7 +1182,7 @@ rule generate_combined_milopy_figures_post:
 
 rule combine_and_run_melanoma_milopy:
     input:
-        script="scripts/milopy_analysis/combine_cohorts_and_analyze.py"
+        script="scripts/manuscript_pipeline/2a2_combine_cohorts_and_analyze.py"
     output:
         da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/melanoma/da_results.parquet",
         cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/melanoma/cell_level_scores.parquet",
@@ -1209,7 +1209,7 @@ rule combine_and_run_melanoma_milopy:
 
 rule combine_and_run_nsclc_milopy:
     input:
-        script="scripts/milopy_analysis/combine_cohorts_and_analyze.py"
+        script="scripts/manuscript_pipeline/2a2_combine_cohorts_and_analyze.py"
     output:
         da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/nsclc/da_results.parquet",
         cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/nsclc/cell_level_scores.parquet",
@@ -1236,7 +1236,7 @@ rule combine_and_run_nsclc_milopy:
 
 rule combine_and_run_solid_tumors_milopy:
     input:
-        script="scripts/milopy_analysis/combine_cohorts_and_analyze.py"
+        script="scripts/manuscript_pipeline/2a2_combine_cohorts_and_analyze.py"
     output:
         da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/solid_tumors/da_results.parquet",
         cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/solid_tumors/cell_level_scores.parquet",
@@ -1263,7 +1263,7 @@ rule combine_and_run_solid_tumors_milopy:
 
 rule combine_and_run_pancancer_milopy:
     input:
-        script="scripts/milopy_analysis/combine_cohorts_and_analyze.py"
+        script="scripts/manuscript_pipeline/2a2_combine_cohorts_and_analyze.py"
     output:
         da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/pancancer/da_results.parquet",
         cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/pancancer/cell_level_scores.parquet",

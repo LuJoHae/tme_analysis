@@ -9,15 +9,20 @@ import polars as pl
 import pytest
 from returns.result import Success
 
-# Append script directory to import plotting
-script_dir = Path(__file__).resolve().parents[3] / "scripts" / "reference_sampling_hpo"
-sys.path.insert(0, str(script_dir))
-from plotting import plot_held_out_validation, plot_pareto_frontier  # type: ignore[import-not-found]
-from run_hpo_pipeline import (  # type: ignore[import-not-found]
-    evaluate_held_out_generalization,
-    generate_synthetic_benchmark_data,
-    verify_execution_host,
+import importlib
+
+repo_root = Path(__file__).resolve().parents[3]
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+from scripts.reference_sampling_hpo.plotting import (  # type: ignore[import-not-found]
+    plot_held_out_validation,
+    plot_pareto_frontier,
 )
+
+_stage3e2 = importlib.import_module("scripts.manuscript_pipeline.3e2_run_hpo_pipeline")
+evaluate_held_out_generalization = _stage3e2.evaluate_held_out_generalization
+generate_synthetic_benchmark_data = _stage3e2.generate_synthetic_benchmark_data
+verify_execution_host = _stage3e2.verify_execution_host
 from returns.result import Failure, Success
 from tme_datasets.sampling.classifier_hpo import (  # type: ignore[import-untyped]
     ClassifierType,

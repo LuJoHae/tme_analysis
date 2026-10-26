@@ -14,7 +14,7 @@ import polars as pl
 import pytest
 from returns.result import Success
 
-from scripts.synthetic_milo_deconv_benchmark import (
+from scripts.synthetic_benchmarks.synthetic_milo_deconv_benchmark import (
     BenchmarkConfig,
     assign_cells_to_patients,
     classify_quadrant,

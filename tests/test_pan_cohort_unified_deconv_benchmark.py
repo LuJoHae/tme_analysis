@@ -11,19 +11,20 @@ import numpy as np
 import polars as pl
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "milopy_analysis"))
+import importlib
 
-from pan_cohort_unified_deconv_benchmark import (  # noqa: E402
-    COHORT_ORDER,
-    UnifiedBenchmarkConfig,
-    build_unified_reference_atlas,
-    compute_permutation_pvalue,
-    compute_within_cohort_specificity,
-    deconvolve_pseudobulk_matrix,
-    fit_logistic_effect_sizes,
-    load_all_nine_cohorts,
-    project_unified_reference_to_cohort_genes,
+_stage3b = importlib.import_module(
+    "scripts.manuscript_pipeline.3b_pan_cohort_unified_deconv_benchmark"
 )
+COHORT_ORDER = _stage3b.COHORT_ORDER
+UnifiedBenchmarkConfig = _stage3b.UnifiedBenchmarkConfig
+build_unified_reference_atlas = _stage3b.build_unified_reference_atlas
+compute_permutation_pvalue = _stage3b.compute_permutation_pvalue
+compute_within_cohort_specificity = _stage3b.compute_within_cohort_specificity
+deconvolve_pseudobulk_matrix = _stage3b.deconvolve_pseudobulk_matrix
+fit_logistic_effect_sizes = _stage3b.fit_logistic_effect_sizes
+load_all_nine_cohorts = _stage3b.load_all_nine_cohorts
+project_unified_reference_to_cohort_genes = _stage3b.project_unified_reference_to_cohort_genes
 
 
 @given(

@@ -104,16 +104,16 @@ download-icb-datasets download-discovered-test parallel-download-preprocess remo
 	@exit 1
 
 remote-preprocess-status:
-	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/run_remote_preprocess.sh status"
+	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/cluster_ops/run_remote_preprocess.sh status"
 
 remote-preprocess-logs:
-	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/run_remote_preprocess.sh logs"
+	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/cluster_ops/run_remote_preprocess.sh logs"
 
 remote-preprocess-stop:
-	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/run_remote_preprocess.sh stop"
+	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/cluster_ops/run_remote_preprocess.sh stop"
 
 remote-preprocess-attach:
-	@ssh -t $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/run_remote_preprocess.sh attach"
+	@ssh -t $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/cluster_ops/run_remote_preprocess.sh attach"
 
 article:
 	@$(MAKE) -C article article
@@ -209,7 +209,7 @@ SAMPLE_EXTRA_FLAGS ?=
 
 sample-and-analyze-cohorts: sync stage-in
 	@echo "Running multi-cohort Milopy analysis (sample-by: $(SAMPLE_BY)) on $(REMOTE_HOST) via Slurm..."
-	ssh $(REMOTE_HOST) "$(SRUN_COMPUTE) bash -c 'cd $(REMOTE_DIR) && PYTHONPATH=scripts/milopy_analysis:\$$PYTHONPATH $(REMOTE_ENV) $(REMOTE_UV) run python scripts/milopy_analysis/sample_and_analyze_cohorts.py \
+	ssh $(REMOTE_HOST) "$(SRUN_COMPUTE) bash -c 'cd $(REMOTE_DIR) && PYTHONPATH=scripts/manuscript_pipeline:\$$PYTHONPATH $(REMOTE_ENV) $(REMOTE_UV) run python scripts/manuscript_pipeline/2a1_sample_and_analyze_cohorts.py \
 		--sample-by $(SAMPLE_BY) \
 		$(if $(SAMPLE_VALUE),--value $(SAMPLE_VALUE)) \
 		--cells-per-dataset $(SAMPLE_CELLS) \
@@ -290,7 +290,7 @@ run-sade-feldman: sync stage-in
 
 preprocess-discovered-test: sync stage-in
 	@echo "Running batch preprocessing for discovered cohorts on $(REMOTE_HOST) via Slurm (RAM cap: 150GB)..."
-	ssh $(REMOTE_HOST) "$(SRUN_COMPUTE) bash -c 'mkdir -p $(REMOTE_TEST_DATA_DIR)/preprocessed $(REMOTE_TMP_DIR) && cd $(REMOTE_DIR) && $(REMOTE_ENV) $(REMOTE_UV) run python scripts/batch_preprocess_cohorts.py --data-raw-dir $(REMOTE_TEST_DATA_DIR)/raw --output-dir $(REMOTE_TEST_DATA_DIR)/preprocessed --max-ram-gb 150.0'"
+	ssh $(REMOTE_HOST) "$(SRUN_COMPUTE) bash -c 'mkdir -p $(REMOTE_TEST_DATA_DIR)/preprocessed $(REMOTE_TMP_DIR) && cd $(REMOTE_DIR) && $(REMOTE_ENV) $(REMOTE_UV) run python scripts/manuscript_pipeline/1b_batch_preprocess_cohorts.py --data-raw-dir $(REMOTE_TEST_DATA_DIR)/raw --output-dir $(REMOTE_TEST_DATA_DIR)/preprocessed --max-ram-gb 150.0'"
 	$(MAKE) stage-out
 
 preprocess-discovered-bg: sync stage-in
@@ -298,7 +298,7 @@ preprocess-discovered-bg: sync stage-in
 	ssh $(REMOTE_HOST) "mkdir -p $(REMOTE_TEST_DATA_DIR)/preprocessed $(REMOTE_TMP_DIR) $(REMOTE_SCRATCH_BASE)/slurm_logs && \
 		sbatch -A $(SLURM_ACCOUNT) -p $(SLURM_PARTITION) -J preprocess_discovered -c $(WORKERS) --mem=150G -t 12:00:00 \
 		-o $(REMOTE_SCRATCH_BASE)/slurm_logs/preprocess_discovered.log \
-		--wrap='cd $(REMOTE_DIR) && $(REMOTE_ENV) $(REMOTE_UV) run python scripts/batch_preprocess_cohorts.py --data-raw-dir $(REMOTE_TEST_DATA_DIR)/raw --output-dir $(REMOTE_TEST_DATA_DIR)/preprocessed --max-ram-gb 150.0'"
+		--wrap='cd $(REMOTE_DIR) && $(REMOTE_ENV) $(REMOTE_UV) run python scripts/manuscript_pipeline/1b_batch_preprocess_cohorts.py --data-raw-dir $(REMOTE_TEST_DATA_DIR)/raw --output-dir $(REMOTE_TEST_DATA_DIR)/preprocessed --max-ram-gb 150.0'"
 
 preprocess-discovered-status:
 	@ssh $(REMOTE_HOST) "squeue -u \$$USER -n preprocess_discovered"
@@ -319,12 +319,12 @@ snakemake-discovered-test: sync stage-in
 
 setup-manual-downloads: sync stage-in
 	@echo "Populating manual_download and preprocessed on $(REMOTE_HOST) \$$SCRATCH via Slurm..."
-	ssh $(REMOTE_HOST) "$(SRUN_STAGE) bash -c 'cd $(REMOTE_DIR) && $(REMOTE_ENV) $(REMOTE_UV) run python scripts/setup_manual_downloads.py'"
+	ssh $(REMOTE_HOST) "$(SRUN_STAGE) bash -c 'cd $(REMOTE_DIR) && $(REMOTE_ENV) $(REMOTE_UV) run python scripts/ingestion/setup_manual_downloads.py'"
 	$(MAKE) stage-out
 
 setup-manual-downloads-local:
 	@echo "Populating local data/manual_download and data/preprocessed..."
-	$(LOCAL_UV) run python scripts/setup_manual_downloads.py
+	$(LOCAL_UV) run python scripts/ingestion/setup_manual_downloads.py
 
 jupyter-kernel:
 	@echo "Registering tme_analysis ipykernel on $(REMOTE_HOST) via Slurm..."
@@ -332,16 +332,16 @@ jupyter-kernel:
 
 jupyter-start: sync jupyter-kernel
 	@echo "Starting Jupyter server via Slurm on $(REMOTE_HOST)..."
-	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && JUPYTER_PORT=$(JUPYTER_PORT) SLURM_ACCOUNT=$(SLURM_ACCOUNT) bash scripts/remote_jupyter.sh start"
+	ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && JUPYTER_PORT=$(JUPYTER_PORT) SLURM_ACCOUNT=$(SLURM_ACCOUNT) bash scripts/cluster_ops/remote_jupyter.sh start"
 
 jupyter-status:
-	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && JUPYTER_PORT=$(JUPYTER_PORT) bash scripts/remote_jupyter.sh status"
+	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && JUPYTER_PORT=$(JUPYTER_PORT) bash scripts/cluster_ops/remote_jupyter.sh status"
 
 jupyter-stop:
-	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && JUPYTER_PORT=$(JUPYTER_PORT) bash scripts/remote_jupyter.sh stop"
+	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && JUPYTER_PORT=$(JUPYTER_PORT) bash scripts/cluster_ops/remote_jupyter.sh stop"
 
 jupyter-logs:
-	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/remote_jupyter.sh logs"
+	@ssh $(REMOTE_HOST) "cd $(REMOTE_DIR) && bash scripts/cluster_ops/remote_jupyter.sh logs"
 
 jupyter-tunnel:
 	@echo "Opening local SSH tunnel to remote Jupyter on port $(JUPYTER_PORT)..."
@@ -456,11 +456,11 @@ hpo-local:
 
 hpo-benchmark-local:
 	@echo "Running lightweight synthetic HPO benchmark locally..."
-	$(LOCAL_UV) run python scripts/reference_sampling_hpo/run_hpo_pipeline.py \
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/3e2_run_hpo_pipeline.py \
 		--benchmark-mode \
 		--n-trials 3 \
-		--out-dir output/reference_sampling_hpo/benchmark \
-		--results-dir results/reference_sampling_hpo/benchmark
+		--out-dir output/manuscript_pipeline/3e2_run_hpo_pipeline/benchmark \
+		--results-dir output/manuscript_pipeline/3e2_run_hpo_pipeline/benchmark
 
 # Cohort-Individual HPO (e.g. Gide, 32 cores via Slurm on eiger)
 HPO_COHORT ?= Gide
@@ -517,48 +517,48 @@ BENCHMARK_SWEEPS ?= 5
 
 benchmark-pseudobulk-deconv:
 	@echo "Running pseudobulk deconvolution benchmark on cohort '$(BENCHMARK_COHORT)'..."
-	$(LOCAL_UV) run python scripts/sade_feldman_pseudobulk_deconv_benchmark.py --cohort $(BENCHMARK_COHORT)
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark.py --cohort $(BENCHMARK_COHORT)
 
 benchmark-pseudobulk-deconv-all:
 	@echo "Running pseudobulk deconvolution benchmark across all 9 cohorts..."
-	$(LOCAL_UV) run python scripts/sade_feldman_pseudobulk_deconv_benchmark.py --cohort all
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark.py --cohort all
 
 benchmark-pseudobulk-deconv-sweeps:
 	@echo "Running $(BENCHMARK_SWEEPS) baseline sweeps of pseudobulk deconvolution benchmark across all 9 cohorts..."
-	$(LOCAL_UV) run python scripts/sade_feldman_pseudobulk_deconv_benchmark.py --cohort all --n-sweeps $(BENCHMARK_SWEEPS)
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark.py --cohort all --n-sweeps $(BENCHMARK_SWEEPS)
 
 benchmark-pseudobulk-deconv-remote: sync stage-in
 	@echo "Running $(BENCHMARK_SWEEPS)-sweep empirical pseudobulk deconvolution benchmark (Leiden res=2.0) on $(REMOTE_HOST) via Slurm..."
-	rm -rf output/results/pseudobulk_deconv_benchmark
-	ssh $(REMOTE_HOST) "$(SRUN_COMPUTE) bash -c 'cd $(REMOTE_DIR) && rm -rf output/results/pseudobulk_deconv_benchmark && $(REMOTE_ENV) $(REMOTE_UV) run python scripts/sade_feldman_pseudobulk_deconv_benchmark.py --cohort all --n-sweeps $(BENCHMARK_SWEEPS) --leiden-resolution 2.0 --adata-dir $(REMOTE_DATA_DIR)/preprocessed --milo-dir $(REMOTE_DATA_DIR)/results/milopy_response_analysis'"
+	rm -rf output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark
+	ssh $(REMOTE_HOST) "$(SRUN_COMPUTE) bash -c 'cd $(REMOTE_DIR) && rm -rf output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark && $(REMOTE_ENV) $(REMOTE_UV) run python scripts/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark.py --cohort all --n-sweeps $(BENCHMARK_SWEEPS) --leiden-resolution 2.0 --adata-dir $(REMOTE_DATA_DIR)/preprocessed --milo-dir $(REMOTE_DATA_DIR)/results/milopy_response_analysis'"
 	$(MAKE) stage-out
 	$(MAKE) pull-results
 	$(MAKE) plot-nine-cohorts-scatter-grid
 
 plot-nine-cohorts-scatter-grid:
 	@echo "Generating 3x3 composite scatter grid (Panel c, 130mm) across all 9 cohorts..."
-	$(LOCAL_UV) run python scripts/milopy_analysis/plot_cross_cohort_deconv_scatter_grid.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid.py
 	$(MAKE) plot-nine-cohorts-correlations-bar
 
 plot-nine-cohorts-correlations-bar:
 	@echo "Generating correlation bar chart (Panel d, 50mm) and combined Row 2 composite (180mm)..."
-	$(LOCAL_UV) run python scripts/milopy_analysis/plot_cross_cohort_deconv_correlations_bar.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar.py
 
 plot-cross-cohort-umaps-grid:
 	@echo "Generating 3x3 single-cell UMAP landscape grid (Panel a, 130mm)..."
-	$(LOCAL_UV) run python scripts/milopy_analysis/plot_cross_cohort_umaps_grid.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid.py
 
 plot-cross-cohort-da-bars:
 	@echo "Generating differential abundance diverging bar plot (Panel b, 50mm)..."
-	$(LOCAL_UV) run python scripts/milopy_analysis/plot_cross_cohort_da_bars.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a4_plot_cross_cohort_da_bars.py
 
 plot-immunotherapy-2x2-figure:
 	@echo "Generating all 4 panels and master 2x2 composite figure (180mm)..."
-	$(LOCAL_UV) run python scripts/milopy_analysis/plot_cross_cohort_umaps_grid.py
-	$(LOCAL_UV) run python scripts/milopy_analysis/plot_cross_cohort_da_bars.py
-	$(LOCAL_UV) run python scripts/milopy_analysis/plot_cross_cohort_deconv_scatter_grid.py
-	$(LOCAL_UV) run python scripts/milopy_analysis/plot_cross_cohort_deconv_correlations_bar.py
-	$(LOCAL_UV) run python scripts/milopy_analysis/assemble_immunotherapy_2x2_figure.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a3_plot_cross_cohort_umaps_grid.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a4_plot_cross_cohort_da_bars.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a6_plot_cross_cohort_deconv_correlations_bar.py
+	$(LOCAL_UV) run python scripts/manuscript_pipeline/4a7_assemble_immunotherapy_2x2_figure.py
 
 test-pseudobulk-deconv:
 	@echo "Running complete test suite for 2x2 immunotherapy response figures..."

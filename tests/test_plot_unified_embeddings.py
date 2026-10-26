@@ -8,7 +8,7 @@ from scipy.sparse import csr_matrix
 import anndata as ad
 from returns.result import Success, Failure
 
-from scripts.plot_unified_embeddings import (
+from scripts.ingestion.plot_unified_embeddings import (
     PlotConfig,
     apply_gene_length_scaling,
     compute_embeddings_mode,

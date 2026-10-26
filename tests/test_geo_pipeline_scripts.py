@@ -9,9 +9,9 @@ import anndata as ad
 from returns.result import Success, Failure
 
 import importlib
-geo_download = importlib.import_module("scripts.01_download_geo_data")
-raw_to_sparse = importlib.import_module("scripts.02_process_raw_to_sparse_h5")
-preprocess_h5 = importlib.import_module("scripts.03_preprocess_datasets_to_h5")
+geo_download = importlib.import_module("scripts.ingestion.01_download_geo_data")
+raw_to_sparse = importlib.import_module("scripts.ingestion.02_process_raw_to_sparse_h5")
+preprocess_h5 = importlib.import_module("scripts.ingestion.03_preprocess_datasets_to_h5")
 
 DownloadConfig = geo_download.DownloadConfig
 GeoDatasetSpec = geo_download.GeoDatasetSpec
@@ -97,7 +97,7 @@ def test_check_and_normalize_transform_space() -> None:
     X_log = csr_matrix(np.random.uniform(0.0, 5.0, size=(20, 10)))
     adata_log = ad.AnnData(X=X_log)
     
-    preprocess_h5 = importlib.import_module("scripts.03_preprocess_datasets_to_h5")
+    preprocess_h5 = importlib.import_module("scripts.ingestion.03_preprocess_datasets_to_h5")
     adata_res, status = preprocess_h5.check_and_normalize_transform_space(adata_log)
 
     assert status["is_log1p"] is True

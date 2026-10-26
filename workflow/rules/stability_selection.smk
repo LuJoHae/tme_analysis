@@ -21,7 +21,7 @@ rule all_stability_selection:
 
 rule run_multi_cohort_stability_benchmark:
     input:
-        script="scripts/stability_selection_iatlas/run_stability_selection_iatlas.py"
+        script="scripts/manuscript_pipeline/2b_run_stability_selection_iatlas.py"
     output:
         scores=f"{STABILITY_OUT_DIR}/stability_scores.parquet",
         paths=f"{STABILITY_OUT_DIR}/stability_paths.parquet",
@@ -46,7 +46,7 @@ rule run_multi_cohort_stability_benchmark:
 
 rule plot_stability_selection_fitter_overlap:
     input:
-        script="scripts/stability_selection_iatlas/plotting/plot_fitter_gene_overlap.py",
+        script="scripts/manuscript_pipeline/4c4_plot_fitter_gene_overlap.py",
         scores=f"{STABILITY_OUT_DIR}/stability_scores.parquet"
     output:
         svg=f"{STABILITY_OUT_DIR}/figures/fitter_gene_overlap_nature.svg",

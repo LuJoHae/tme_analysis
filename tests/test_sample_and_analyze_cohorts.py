@@ -35,15 +35,19 @@ from tme_datasets import (
 )
 
 # Import pipeline functions from scripts
+import importlib
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "milopy_analysis"))
-from sample_and_analyze_cohorts import (
-    SampledRunConfig,
-    apply_cohort_perturbation,
-    harmonize_cohort_metadata,
-    run_sampling_pipeline,
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_stage2a1 = importlib.import_module(
+    "scripts.manuscript_pipeline.2a1_sample_and_analyze_cohorts"
 )
-from plot_neighborhood_diagnostics import render_diagnostic_dashboard
+SampledRunConfig = _stage2a1.SampledRunConfig
+apply_cohort_perturbation = _stage2a1.apply_cohort_perturbation
+harmonize_cohort_metadata = _stage2a1.harmonize_cohort_metadata
+run_sampling_pipeline = _stage2a1.run_sampling_pipeline
+
+from scripts.milopy_analysis.plot_neighborhood_diagnostics import render_diagnostic_dashboard
 
 
 def create_synthetic_cohort_adata(

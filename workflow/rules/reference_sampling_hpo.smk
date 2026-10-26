@@ -27,7 +27,7 @@ rule all_reference_sampling_hpo:
 
 rule run_reference_sampling_hpo:
     input:
-        script="scripts/reference_sampling_hpo/run_hpo_pipeline.py",
+        script="scripts/manuscript_pipeline/3e2_run_hpo_pipeline.py",
     output:
         evaluations=f"{HPO_OUT_DIR}/hpo_evaluations.parquet",
         phi=f"{HPO_OUT_DIR}/best_reference/reference_phi.parquet",
@@ -63,7 +63,7 @@ rule run_reference_sampling_hpo:
 
 rule run_reference_sampling_hpo_benchmark:
     input:
-        script="scripts/reference_sampling_hpo/run_hpo_pipeline.py",
+        script="scripts/manuscript_pipeline/3e2_run_hpo_pipeline.py",
     output:
         evaluations=f"{HPO_OUT_DIR}/benchmark/hpo_evaluations.parquet",
         pareto_svg=f"{HPO_RESULTS_DIR}/benchmark/pareto_frontier_loco_vs_collinearity.svg",

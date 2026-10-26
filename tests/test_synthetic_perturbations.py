@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import pytest
 
-from scripts.synthetic_perturbation_benchmark import (
+from scripts.synthetic_benchmarks.synthetic_perturbation_benchmark import (
     COMPOUND_REGIMES,
     PerturbationProfile,
     SweepConfig,

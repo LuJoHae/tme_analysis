@@ -14,15 +14,20 @@ import polars as pl
 from returns.pipeline import is_successful
 from returns.result import Success
 
-from scripts.milopy_analysis.iatlas_instaprism_milopy_benchmark import (
-    BulkCohortBundle,
-    ReferenceSpecBundle,
-    analyze_all42_nonlinear_conditional_interactions,
-    compute_dersimonian_laird_meta_beta,
-    compute_hanley_mcneil_ci,
-    evaluate_regularized_logistic_cv,
-    linearize_and_normalize_bulk_matrix,
+import importlib
+
+_stage3c = importlib.import_module(
+    "scripts.manuscript_pipeline.3c_iatlas_instaprism_milopy_benchmark"
 )
+BulkCohortBundle = _stage3c.BulkCohortBundle
+ReferenceSpecBundle = _stage3c.ReferenceSpecBundle
+analyze_all42_nonlinear_conditional_interactions = (
+    _stage3c.analyze_all42_nonlinear_conditional_interactions
+)
+compute_dersimonian_laird_meta_beta = _stage3c.compute_dersimonian_laird_meta_beta
+compute_hanley_mcneil_ci = _stage3c.compute_hanley_mcneil_ci
+evaluate_regularized_logistic_cv = _stage3c.evaluate_regularized_logistic_cv
+linearize_and_normalize_bulk_matrix = _stage3c.linearize_and_normalize_bulk_matrix
 
 
 @settings(max_examples=25)
