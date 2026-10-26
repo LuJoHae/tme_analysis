@@ -13,6 +13,10 @@ Standard $L_1$-penalized regression (Lasso) and cross-validation select overly d
 
 ---
 
+> [!NOTE]
+> For the master computational pipeline guide connecting stability selection with single-cell Milo DA, pseudobulk deconvolution, perturbation stress-testing, Bayesian HPO, and clinical trial benchmarking, see:
+> **[`docs/computational_methodology_and_pipeline_guide.md`](file:///Users/halu/Code/tme_analysis/docs/computational_methodology_and_pipeline_guide.md)**.
+
 ## 2. Mathematical Foundations of Stability Selection
 
 ### 2.1 Subsampling & Selection Probability Paths

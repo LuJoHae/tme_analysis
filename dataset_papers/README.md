@@ -17,7 +17,7 @@ This document indexes the publications corresponding to each `.h5ad` cohort data
 | `Lauss.h5ad` | Mutational and putative neoantigen load predict clinical benefit of adoptive T cell therapy in melanoma | Lauss et al. | *Nat Commun* (2017) | [10.1038/s41467-017-01460-0](https://doi.org/10.1038/s41467-017-01460-0) | [`JK3G7M34`](zotero://select/library/items/JK3G7M34) | [Lauss_2017.pdf](./Lauss_2017.pdf) |
 | `Liu.h5ad` | Integrative molecular and clinical modeling of clinical outcomes to PD1 blockade in patients with metastatic melanoma | Liu et al. | *Nat Med* (2019) | [10.1038/s41591-019-0654-5](https://doi.org/10.1038/s41591-019-0654-5) | [`VEDAY7Q4`](zotero://select/library/items/VEDAY7Q4) | [Liu_2019.pdf](./Liu_2019.pdf) |
 | `Prat.h5ad` | Immune-Related Gene Expression Profiling After PD-1 Blockade in Non–Small Cell Lung Carcinoma, Head and Neck Squamous Cell Carcinoma, and Melanoma | Prat et al. | *Cancer Res* (2017) | [10.1158/0008-5472.CAN-16-3556](https://doi.org/10.1158/0008-5472.CAN-16-3556) | [`B35SS8QQ`](zotero://select/library/items/B35SS8QQ) | [Prat_2017.pdf](./Prat_2017.pdf) |
-| `Ravi.h5ad` | Genomic and transcriptomic analysis of checkpoint blockade response in advanced non-small cell lung cancer | Ravi et al. | *Nat Genet* (2023) | [10.1038/s41588-023-01355-x](https://doi.org/10.1038/s41588-023-01355-x) | [`T6287MEQ`](zotero://select/library/items/T6287MEQ) | [Ravi_2023.pdf](./Ravi_2023.pdf) |
+| `Ravi.h5ad` | Genomic and transcriptomic analysis of checkpoint blockade response in advanced non-small cell lung cancer | Ravi et al. | *Nat Genet* (2023) | [10.1038/s41588-023-01355-5](https://doi.org/10.1038/s41588-023-01355-5) | [`T6287MEQ`](zotero://select/library/items/T6287MEQ) | [Ravi_2023.pdf](./Ravi_2023.pdf) |
 | `Riaz.h5ad` | Tumor and Microenvironment Evolution during Immunotherapy with Nivolumab | Riaz et al. | *Cell* (2017) | [10.1016/j.cell.2017.09.028](https://doi.org/10.1016/j.cell.2017.09.028) | [`RIHCJY23`](zotero://select/library/items/RIHCJY23) | [Riaz_2017.pdf](./Riaz_2017.pdf) |
 | `Rose.h5ad` | Fibroblast growth factor receptor 3 alterations and response to immune checkpoint inhibition in metastatic urothelial cancer: a real world experience | Rose et al. | *Clin Cancer Res* (2021) | [10.1158/1078-0432.CCR-21-1250](https://doi.org/10.1158/1078-0432.CCR-21-1250) | [`ZMZL8NIB`](zotero://select/library/items/ZMZL8NIB) | [Rose_2021.pdf](./Rose_2021.pdf) |
 | `Snyder.h5ad` | Contribution of systemic and somatic factors to clinical response and resistance to PD-L1 blockade in urothelial cancer: An exploratory multi-omic analysis | Snyder et al. | *PLOS Med* (2017) | [10.1371/journal.pmed.1002309](https://doi.org/10.1371/journal.pmed.1002309) | [`BDNFMCG9`](zotero://select/library/items/BDNFMCG9) | [Snyder_2017.pdf](./Snyder_2017.pdf) |
@@ -115,7 +115,7 @@ This document indexes the publications corresponding to each `.h5ad` cohort data
 * **Title**: Genomic and transcriptomic analysis of checkpoint blockade response in advanced non-small cell lung cancer
 * **Authors**: Arvind Ravi, Matthew D. Hellmann, Monica B. Arniella, Mark Holton, Samuel S. Freeman, Vivek Naranbhai, ..., Justin F. Gainor
 * **Journal**: *Nature Genetics*, 55(5), 807–819 (2023)
-* **DOI**: [10.1038/s41588-023-01355-x](https://doi.org/10.1038/s41588-023-01355-x)
+* **DOI**: [10.1038/s41588-023-01355-5](https://doi.org/10.1038/s41588-023-01355-5)
 * **Zotero URI**: [zotero://select/library/items/T6287MEQ](zotero://select/library/items/T6287MEQ)
 * **PDF File**: `Ravi_2023.pdf`
 
