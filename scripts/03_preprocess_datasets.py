@@ -754,13 +754,13 @@ def main() -> None:
     parser.add_argument(
         "--input-dir",
         type=str,
-        default="/storage/halu/data/raw",
+        default="/ritom/scratch/cscs/lhaeuser/data-test/raw",
         help="Input directory with raw dataset files",
     )
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="/storage/halu/data/preprocessed",
+        default="/ritom/scratch/cscs/lhaeuser/data-test/preprocessed",
         help="Output directory for preprocessed .h5ad files",
     )
     parser.add_argument(

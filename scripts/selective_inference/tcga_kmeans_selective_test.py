@@ -21,7 +21,7 @@ def main():
     tcga_bg = importlib.import_module("TCGA-background")
     
     logging.info("Initializing Lair...")
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     
     logging.info("Loading TCGA data...")
     adata_tcga = load_tcga(lair)

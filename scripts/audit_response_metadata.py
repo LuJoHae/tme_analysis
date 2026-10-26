@@ -669,7 +669,7 @@ def main() -> None:
     parser.add_argument(
         "--raw-dir",
         type=Path,
-        default=Path("/storage/halu/data-test/raw"),
+        default=Path("/ritom/scratch/cscs/lhaeuser/data-test/raw"),
         help="Path to downloaded raw cohort directories.",
     )
     parser.add_argument(

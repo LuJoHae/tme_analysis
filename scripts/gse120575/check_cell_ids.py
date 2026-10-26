@@ -2,7 +2,7 @@ import polars as pl
 import re
 
 def main():
-    meta_path = "/storage/halu/data/GSE120575/gse120575_meta.parquet"
+    meta_path = "/ritom/scratch/cscs/lhaeuser/data-test/GSE120575/gse120575_meta.parquet"
     print(f"Loading metadata from {meta_path}...")
     df = pl.read_parquet(meta_path)
     

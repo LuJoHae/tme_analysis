@@ -472,7 +472,7 @@ def write_comprehensive_report(results: list[dict[str, Any]], out_md: Path) -> N
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Multi-cohort Harmony integration and meta-Milo DA")
-    parser.add_argument("--base-dir", type=Path, default=Path("/storage/halu/data"))
+    parser.add_argument("--base-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test"))
     parser.add_argument(
         "--mode",
         choices=["melanoma", "cutaneous", "pancancer", "all"],

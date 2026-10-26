@@ -29,7 +29,7 @@ class DatasetLM22(datalair.Dataset):
         super().__init__(namespace="DatasetLM22")
 
 class LM22(DatasetLM22):
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
     def derive(self, lair: datalair.Lair) -> None:
         output_dir = lair.get_path(self)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -293,7 +293,7 @@ def compute_highest_candle_limit(df_ct: pd.DataFrame) -> float:
 
 
 def main():
-    lair_path = "/storage/halu/lair"
+    lair_path = "/ritom/scratch/cscs/lhaeuser/data-test/lair"
     print(f"Initializing Lair at {lair_path}...")
     lair = datalair.Lair(lair_path)
     

@@ -1,6 +1,6 @@
 """Remote verification script to validate all 84 Tier 1 loaders on cluster storage (olm).
 
-Iterates through all 84 registered Tier 1 cohorts in /storage/halu/data-test/raw/{accession},
+Iterates through all 84 registered Tier 1 cohorts in /ritom/scratch/cscs/lhaeuser/data-test/raw/{accession},
 validating:
 1. Presence of raw vendor archive.
 2. Ingestion via load_tier1_cohort with subsample_n=100.
@@ -29,10 +29,10 @@ from tme_datasets.registry import get_dataset_spec
 
 
 def main() -> None:
-    raw_base = Path("/storage/halu/data-test/raw")
+    raw_base = Path("/ritom/scratch/cscs/lhaeuser/data-test/raw")
     if not raw_base.exists():
         logger.warning("Cluster raw base path %s not found on local machine.", raw_base)
-        logger.info("Run this script on 'olm' via: ssh olm 'cd /home/halu/python-venv/tme_analysis && ...'")
+        logger.info("Run this script on 'olm' via: ssh olm 'cd /ritom/scratch/cscs/lhaeuser/code && ...'")
         return
 
     logger.info("Found raw base directory at %s. Verifying all %d Tier 1 cohorts...", raw_base, len(TIER1_COHORTS))

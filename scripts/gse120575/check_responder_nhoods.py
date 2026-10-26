@@ -8,7 +8,7 @@ import scipy.sparse as sp
 
 def main():
     print("1. Loading real single-cell data (GSE120575)...")
-    adata = sc.read_h5ad('/storage/halu/data/GSE120575/gse120575_processed.h5ad')
+    adata = sc.read_h5ad('/ritom/scratch/cscs/lhaeuser/data-test/GSE120575/gse120575_processed.h5ad')
     
     # Map columns to what our script expects
     condition_col = 'characteristics: response'

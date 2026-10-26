@@ -72,7 +72,7 @@ def generate_markdown_report(results: list[MilopyCheckResult], out_md_path: Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verify milopy compatibility across all preprocessed single-cell datasets.")
-    parser.add_argument("--base-dir", type=str, default="/storage/halu/data", help="Base directory (default: /storage/halu/data)")
+    parser.add_argument("--base-dir", type=str, default="/ritom/scratch/cscs/lhaeuser/data-test", help="Base directory (default: /ritom/scratch/cscs/lhaeuser/data-test)")
     args = parser.parse_args()
 
     dirs = DataDirectories.with_base(Path(args.base_dir))

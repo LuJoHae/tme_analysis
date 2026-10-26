@@ -107,7 +107,7 @@ def run_cross_val_rf(X, y, seed):
 
 def main():
     print("Initializing Lair...")
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     
     # 1. safe_derive SingleCellBagaevDeconvolution
     print("\nDeriving Bagaev-Constrained Deconvolution Dataset...")

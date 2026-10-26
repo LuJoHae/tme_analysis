@@ -8,7 +8,7 @@ from single_cell_immuno_datasets import DataDirectories, generate_summary_report
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate ICB single-cell dataset summary report and SVG plots.")
-    parser.add_argument("--base-dir", type=str, default="/storage/halu/data", help="Base directory (default: /storage/halu/data)")
+    parser.add_argument("--base-dir", type=str, default="/ritom/scratch/cscs/lhaeuser/data-test", help="Base directory (default: /ritom/scratch/cscs/lhaeuser/data-test)")
     args = parser.parse_args()
 
     dirs = DataDirectories.with_base(Path(args.base_dir))

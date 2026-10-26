@@ -62,7 +62,7 @@ def load_data_clinical(data_dir):
     return pd.DataFrame({"response": responses})
 
 def load_data():
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     ds = Signature()
     lair.safe_derive(ds)
     filepaths = lair.get_dataset_filepaths(ds)

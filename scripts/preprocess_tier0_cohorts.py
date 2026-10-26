@@ -22,7 +22,7 @@ import anndata as ad
 from returns.result import Failure, Success
 
 # Set scratch directory
-os.environ.setdefault("TMPDIR", "/storage/halu/tmp")
+os.environ.setdefault("TMPDIR", "/ritom/scratch/cscs/lhaeuser/tmp")
 
 from tme_datasets.logging import get_logger
 from tme_datasets.models import QualityControlSpec, SingleCellProcessingSpec
@@ -186,8 +186,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Preprocess Tier 0 scRNA-seq ICB response cohorts into standardized .h5ad files.")
     parser.add_argument("--cohort", type=str, default="", help="Specific cohort to process (e.g. CELLxGENE_7b20c613, GSE207422).")
     parser.add_argument("--all", action="store_true", help="Process all 8 verified Tier 0 cohorts.")
-    parser.add_argument("--raw-dir", type=Path, default=Path("/storage/halu/data-test/raw"), help="Path to raw dataset directory on disk.")
-    parser.add_argument("--output-dir", type=Path, default=Path("/storage/halu/data-test/preprocessed"), help="Path to write preprocessed .h5ad files.")
+    parser.add_argument("--raw-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test/raw"), help="Path to raw dataset directory on disk.")
+    parser.add_argument("--output-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test/preprocessed"), help="Path to write preprocessed .h5ad files.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing preprocessed .h5ad files.")
     parser.add_argument("--dry-run", action="store_true", help="Inspect raw datasets and response columns without processing layers.")
     args = parser.parse_args()

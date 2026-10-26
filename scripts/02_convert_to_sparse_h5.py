@@ -238,9 +238,9 @@ def main() -> None:
         if not raw_files:
             candidate_dirs = [
                 raw_dir,
-                Path("/storage/halu/dataset_datalair/SingleCellDataProcessStep01"),
-                Path("/storage/halu/dataset_datalair/SingleCellDataProcessStep03"),
-                Path("/storage/halu/dataset_datalair"),
+                Path("/ritom/scratch/cscs/lhaeuser/data-testset_datalair/SingleCellDataProcessStep01"),
+                Path("/ritom/scratch/cscs/lhaeuser/data-testset_datalair/SingleCellDataProcessStep03"),
+                Path("/ritom/scratch/cscs/lhaeuser/data-testset_datalair"),
                 Path.home() / ".cache" / "datalair",
             ]
             for cdir in candidate_dirs:

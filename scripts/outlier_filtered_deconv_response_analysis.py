@@ -564,7 +564,7 @@ def p_value_to_asterisks(p: float) -> str:
 
 
 def main():
-    lair_path = "/storage/halu/lair"
+    lair_path = "/ritom/scratch/cscs/lhaeuser/data-test/lair"
     print(f"Initializing Lair at {lair_path}...")
     lair = datalair.Lair(lair_path)
     
@@ -575,7 +575,7 @@ def main():
     diag_dir = output_dir / "diagnostic_plots"
     diag_dir.mkdir(parents=True, exist_ok=True)
     
-    lm22_src = Path("/storage/halu/manual-download/LM22/LM22.txt")
+    lm22_src = Path("/ritom/scratch/cscs/lhaeuser/data-test/manual_download/LM22/LM22.txt")
     lm22_df = pd.read_csv(lm22_src, sep="\t", index_col=0)
     lm22_df.index = lm22_df.index.str.upper()
     

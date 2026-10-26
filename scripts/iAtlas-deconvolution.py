@@ -23,7 +23,7 @@ class DatasetLM22(datalair.Dataset):
         super().__init__(namespace="DatasetLM22")
 
 class LM22(DatasetLM22):
-    storage_path = Path("/storage/halu").resolve()
+    storage_path = Path("/ritom/scratch/cscs/lhaeuser/data-test").resolve()
 
     def derive(self, lair: datalair.Lair) -> None:
         """Derive the LM22 dataset by copying the file from manual downloads.
@@ -455,7 +455,7 @@ def run_correlation_analysis(lair: datalair.Lair, output_dir: Path, n_iter: int)
 # --- Main Driver ---
 
 def main():
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     lair.assert_ok_satus()
     
     # 1. Derive LM22 reference first

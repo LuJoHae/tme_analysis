@@ -71,7 +71,7 @@ def plot_mutation_frequencies(df_top, ds_name, total_samples, output_path):
 
 
 def main():
-    lair_path = "/storage/halu/lair"
+    lair_path = "/ritom/scratch/cscs/lhaeuser/data-test/lair"
     print(f"Initializing Lair at {lair_path}...")
     lair = datalair.Lair(lair_path)
     

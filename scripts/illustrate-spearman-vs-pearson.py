@@ -145,7 +145,7 @@ def load_clinical_response(cohort_name: str, lair):
         return None
 
 def main():
-    lair_path = "/storage/halu/lair"
+    lair_path = "/ritom/scratch/cscs/lhaeuser/data-test/lair"
     lair = datalair.Lair(lair_path)
     ds_deconv = SingleCellDeconvolution()
     deconv_paths = lair.get_dataset_filepaths(ds_deconv)

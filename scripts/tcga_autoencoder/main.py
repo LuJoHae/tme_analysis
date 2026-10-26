@@ -17,7 +17,7 @@ from .plot import plot_loss, plot_latent_space, plot_reconstruction_error, plot_
 
 def run_pipeline():
     print("Loading TCGA Data...")
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     
     # Safe-derive TCGA dataset before loading
     print("Safe-deriving TCGA dataset...")

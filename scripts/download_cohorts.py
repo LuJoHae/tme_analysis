@@ -28,6 +28,7 @@ import polars as pl
 from pydantic import BaseModel, ConfigDict
 from returns.result import Failure, Result, Success
 from tme_datasets.download.geo import download_geo_supplementary
+from tme_datasets.paths import is_cscs_environment
 
 
 class DownloadTask(BaseModel):
@@ -307,6 +308,13 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    if is_cscs_environment() and not args.dry_run:
+        print(
+            "ERROR: Internet dataset downloads are strictly disabled on CSCS Alps Eiger.\n"
+            "Download raw datasets on 'olm' first and transfer via Globus to /capstor/store/cscs/empa/em25/halu/data-test.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     indications = tuple(s.strip() for s in args.indications.split(",") if s.strip())
     specific_cohorts = tuple(s.strip() for s in args.cohorts.split(",") if s.strip())

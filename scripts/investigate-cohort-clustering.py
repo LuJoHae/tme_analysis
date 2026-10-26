@@ -70,7 +70,7 @@ def load_clinical(cohort_name: str, lair):
 
 def main():
     print("Initializing Lair...")
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     
     ds_bagaev = SingleCellBagaevDeconvolution()
     lair.safe_derive(ds_bagaev)

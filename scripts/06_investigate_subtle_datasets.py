@@ -162,7 +162,7 @@ def write_investigation_report(gse123813_res: dict, gse159115_res: dict, out_md:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Investigate subtle datasets GSE123813 and GSE159115")
-    parser.add_argument("--base-dir", type=Path, default=Path("/storage/halu/data"))
+    parser.add_argument("--base-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test"))
     args = parser.parse_args()
 
     dirs = DataDirectories.with_base(args.base_dir)

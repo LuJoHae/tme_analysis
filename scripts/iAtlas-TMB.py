@@ -497,7 +497,7 @@ def run_and_save_combined_pipeline(lair_path, output_dir, use_features, n_compon
 
 
 def main():
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     lair.assert_ok_satus()
     output_dir = Path(".") / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -533,7 +533,7 @@ def main():
     # Run tasks in parallel
     results_list = Parallel(n_jobs=-1)(
         delayed(run_and_save_pipeline)(
-            lair_path="/storage/halu/lair",
+            lair_path="/ritom/scratch/cscs/lhaeuser/data-test/lair",
             output_dir=output_dir,
             use_features=t["use_features"],
             n_components=t["n_components"],
@@ -582,7 +582,7 @@ def main():
     print(f"Running {len(combined_tasks)} combined cohort sweeps in parallel...")
     combined_results_list = Parallel(n_jobs=-1)(
         delayed(run_and_save_combined_pipeline)(
-            lair_path="/storage/halu/lair",
+            lair_path="/ritom/scratch/cscs/lhaeuser/data-test/lair",
             output_dir=output_dir,
             use_features=t["use_features"],
             n_components=t["n_components"],

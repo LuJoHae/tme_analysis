@@ -381,7 +381,7 @@ def main():
     output_dir = pathlib.Path("output/project_iatlas_pca")
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     lair.assert_ok_satus()
     
     print("Loading Bagaev Signature Genes...")

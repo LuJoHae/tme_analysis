@@ -53,8 +53,18 @@ def verify_execution_host(
     hostname: str | None = None,
     allow_local_env: str | None = None,
     storage_dir: Path | None = None,
+    slurm_job_id: str | None = None,
 ) -> Result[None, str]:
-    """Verify that execution is occurring on remote host 'olm' unless benchmark/override is active."""
+    """Verify that execution is occurring on a Slurm compute node on Eiger (unless benchmark/override is active)."""
+    current_host = socket.gethostname().lower() if hostname is None else hostname.lower()
+    active_slurm = os.environ.get("SLURM_JOB_ID", "") if slurm_job_id is None else slurm_job_id
+
+    if current_host.startswith("eiger-ln") and not active_slurm and not benchmark_mode:
+        return Failure(
+            f"Execution blocked on login node '{current_host}': Compute-intensive tasks must NEVER run "
+            "directly in bash on Eiger login nodes. Submit via Slurm ('make hpo' or 'srun'/'sbatch')."
+        )
+
     if benchmark_mode or force_local:
         return Success(None)
 
@@ -62,18 +72,28 @@ def verify_execution_host(
     if env_val.strip().lower() in {"1", "true", "yes"}:
         return Success(None)
 
-    current_host = socket.gethostname().lower() if hostname is None else hostname.lower()
-    if "olm" in current_host or current_host.startswith("sgl"):
+    if (
+        current_host.startswith("nid")
+        or "eiger" in current_host
+        or "alps" in current_host
+        or "olm" in current_host
+        or current_host.startswith("sgl")
+        or bool(active_slurm)
+    ):
         return Success(None)
 
-    check_storage = Path("/storage/halu") if storage_dir is None else storage_dir
+    check_storage = (
+        Path(os.environ.get("TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test"))
+        if storage_dir is None
+        else storage_dir
+    )
     if check_storage.exists():
         return Success(None)
 
     return Failure(
         f"Execution blocked: Single-cell reference sampling and classifier HPO is computationally "
-        f"intensive (>64GB RAM) and restricted to remote host 'olm' (current host: '{current_host}').\n"
-        f"To execute remotely on 'olm', run: make hpo (or make hpo-remote).\n"
+        f"intensive (>64GB RAM) and restricted to CSCS Eiger Slurm compute nodes (current host: '{current_host}').\n"
+        f"To execute remotely on 'eiger' via Slurm, run: make hpo (or make hpo-remote).\n"
         f"For local testing with synthetic cohorts, pass --benchmark-mode (or make hpo-benchmark-local)."
     )
 

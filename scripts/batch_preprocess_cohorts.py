@@ -20,6 +20,7 @@ import argparse
 import gc
 import gzip
 import shutil
+import signal
 import sys
 import tarfile
 import time
@@ -297,25 +298,57 @@ def harmonize_obs_metadata(adata: ad.AnnData, task: PreprocessTask) -> ad.AnnDat
 
 
 def execute_preprocess_task(task: PreprocessTask, clean_raw: bool = False) -> Result[str, str]:
-    """Execute end-to-end preprocessing for a single cohort using tme_datasets."""
+    """Execute end-to-end preprocessing for a single cohort using tme_datasets or standalone fallback."""
+    from returns.maybe import Some
     from tme_datasets.query import load_dataset
+    from tme_datasets.registry import get_dataset_spec, resolve_dataset_id
 
-    res = load_dataset(
-        dataset_id=task.accession,
-        raw_dir=task.raw_dir,
-        output_h5ad=task.output_h5ad,
-        auto_download=False,
-        force_recompute=True,
-        cache_h5ad=True,
-        normalize_ensembl=True,
-        apply_qc=True,
-    )
+    canonical_id = resolve_dataset_id(task.accession)
+    if isinstance(get_dataset_spec(canonical_id), Some):
+        # Registered curated cohort: use official loader
+        res = load_dataset(
+            dataset_id=task.accession,
+            raw_dir=task.raw_dir,
+            output_h5ad=task.output_h5ad,
+            auto_download=False,
+            force_recompute=True,
+            cache_h5ad=True,
+            normalize_ensembl=True,
+            apply_qc=True,
+        )
+        match res:
+            case Failure(err):
+                return Failure(f"{task.accession}: {err}")
+            case Success(adata):
+                n_obs, n_vars = adata.n_obs, adata.n_vars
+                del adata
+                gc.collect()
+    else:
+        # Discovered cohort not in static curated registry: use generic standalone asset processor
+        asset_res = read_raw_matrix_asset(task.raw_dir, task.accession)
+        match asset_res:
+            case Failure(read_err):
+                return Failure(f"{task.accession}: {read_err}")
+            case Success(raw_adata):
+                try:
+                    raw_adata.obs_names_make_unique()
+                    raw_adata.var_names_make_unique()
+                    adata = check_and_restore_raw_counts(raw_adata)
+                    adata = apply_standard_qc(adata)
+                    adata = harmonize_obs_metadata(adata, task)
+                    try:
+                        from tme_datasets.preprocessing.gene_normalization import normalize_genes_to_ensembl
+                        adata = normalize_genes_to_ensembl(adata)
+                    except Exception as norm_err:
+                        print(f"[EnsemblNorm] Notice for {task.accession}: {norm_err}")
 
-    match res:
-        case Failure(err):
-            return Failure(f"{task.accession}: {err}")
-        case Success(adata):
-            pass
+                    task.output_h5ad.parent.mkdir(parents=True, exist_ok=True)
+                    adata.write_h5ad(task.output_h5ad, compression="gzip")
+                    n_obs, n_vars = adata.n_obs, adata.n_vars
+                    del adata
+                    gc.collect()
+                except Exception as proc_err:
+                    return Failure(f"{task.accession}: Processing failed: {proc_err}")
 
     if clean_raw and task.raw_dir.exists():
         try:
@@ -324,7 +357,7 @@ def execute_preprocess_task(task: PreprocessTask, clean_raw: bool = False) -> Re
             pass
 
     return Success(
-        f"{task.accession}: Saved preprocessed AnnData ({adata.n_obs:,} cells x {adata.n_vars:,} genes) to {task.output_h5ad}"
+        f"{task.accession}: Saved preprocessed AnnData ({n_obs:,} cells x {n_vars:,} genes) to {task.output_h5ad}"
     )
 
 
@@ -377,6 +410,9 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
     df = pl.read_parquet(args.registry)
     if args.cohorts:

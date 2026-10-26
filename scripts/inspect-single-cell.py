@@ -8,7 +8,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent / "packages"))
 import single_cell_datasets
 
 def main():
-    lair_path = "/storage/halu/lair"
+    lair_path = "/ritom/scratch/cscs/lhaeuser/data-test/lair"
     print(f"Loading lair from {lair_path}...")
     lair = datalair.Lair(lair_path)
     

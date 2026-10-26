@@ -38,11 +38,10 @@ PAPER_H5AD_FILES = (
     "VanAllen.h5ad",
 )
 
-CLUSTER_LAIR_DIR = Path(
-    "/storage/halu/lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized"
-)
-CLUSTER_EGAD_DIR = Path("/storage/halu/manual-download/EGAD00001006631-align")
-CLUSTER_PREPROCESSED_DIR = Path("/storage/halu/data-test/preprocessed")
+_DEFAULT_CLUSTER_BASE = Path(os.environ.get("TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test"))
+CLUSTER_LAIR_DIR = _DEFAULT_CLUSTER_BASE / "lair/ImmuneCheckpointTherapyResponseProcessedGeneNormalizedClinicalDataNormalized"
+CLUSTER_EGAD_DIR = _DEFAULT_CLUSTER_BASE / "manual_download/EGAD00001006631-align"
+CLUSTER_PREPROCESSED_DIR = _DEFAULT_CLUSTER_BASE / "preprocessed"
 
 
 
@@ -80,8 +79,8 @@ def setup_manual_downloads(verbose: bool = True) -> None:
     # 2. Copy Maynard NSCLC H5AD
     maynard_src_candidates = [
         repo_root / "jupyter/data/maynard2020_3k.h5ad",
-        Path("/storage/halu/data-test/preprocessed/maynard2020_3k.h5ad"),
-        Path("/storage/halu/data/preprocessed/maynard2020_3k.h5ad"),
+        _DEFAULT_CLUSTER_BASE / "preprocessed/maynard2020_3k.h5ad",
+        _DEFAULT_CLUSTER_BASE / "manual_download/Maynard_NSCLC.h5ad",
     ]
 
     maynard_dst = manual_dir / "Maynard_NSCLC.h5ad"

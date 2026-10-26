@@ -34,7 +34,7 @@ def main():
     
     t0 = time.time()
     logging.info("Initializing Lair and loading TCGA data...")
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     adata_tcga = load_tcga(lair)
     adata_tcga.var_names_make_unique()
     adata_tcga.X = adata_tcga.X.astype(np.float32)

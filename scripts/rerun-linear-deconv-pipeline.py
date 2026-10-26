@@ -14,7 +14,7 @@ import datalair
 from single_cell_datasets import SingleCellDeconvolution, SingleCellBagaevDeconvolution
 
 def main():
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     python_bin = sys.executable
     
     print("====================================================")

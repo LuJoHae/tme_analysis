@@ -137,7 +137,7 @@ def generate_markdown_report(summaries: list[MiloRunSummary], out_md_path: Path,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run full milopy DA analysis on ready ICB datasets")
-    parser.add_argument("--base-dir", type=Path, default=Path("/storage/halu/data"), help="Base data directory")
+    parser.add_argument("--base-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test"), help="Base data directory")
     parser.add_argument("--dataset", type=str, default="all", help="Dataset accession or 'all'")
     parser.add_argument("--force", action="store_true", help="Force re-running DA pipeline even if results exist")
     args = parser.parse_args()

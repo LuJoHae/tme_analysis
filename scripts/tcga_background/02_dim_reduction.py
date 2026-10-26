@@ -12,7 +12,7 @@ from ml_pipelines.tcga_background import (
 
 
 def main():
-    lair = datalair.Lair("/storage/halu/lair")
+    lair = datalair.Lair("/ritom/scratch/cscs/lhaeuser/data-test/lair")
     lair.assert_ok_satus()
     
     output_dir = Path(".") / "output" / "TCGA-background" / "dimensionality_reduction"

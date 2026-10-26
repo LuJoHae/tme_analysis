@@ -3,15 +3,15 @@ import pandas as pd
 import scipy.sparse as sp
 import milopy
 
-adata = ad.read_h5ad('/storage/halu/data/GSE120575/gse120575_processed.h5ad', backed='r')
+adata = ad.read_h5ad('/ritom/scratch/cscs/lhaeuser/data-test/GSE120575/gse120575_processed.h5ad', backed='r')
 obs = adata.obs[adata.obs['treatment_status'] == 'Combined'].copy()
-nhoods = sp.load_npz('/storage/halu/data/output/milopy_nhoods_Combined.npz')
+nhoods = sp.load_npz('/ritom/scratch/cscs/lhaeuser/data-test/output/milopy_nhoods_Combined.npz')
 
 # Create mock adata with nhoods
 test_adata = ad.AnnData(X=sp.csr_matrix((nhoods.shape[0], 1)))
 test_adata.obsm['nhoods'] = nhoods
 
-res = pd.read_csv('/storage/halu/data/output/milopy_results_Combined.csv')
+res = pd.read_csv('/ritom/scratch/cscs/lhaeuser/data-test/output/milopy_results_Combined.csv')
 if 'Unnamed: 0' in res.columns: res = res.rename(columns={'Unnamed: 0': 'Nhood'})
 elif '' in res.columns: res = res.rename(columns={'': 'Nhood'})
 

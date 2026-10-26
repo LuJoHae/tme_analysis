@@ -1,14 +1,29 @@
-"""CLI Script to download Tier 1 ICB single-cell datasets into /storage/halu/data/raw."""
+"""CLI Script to download Tier 1 ICB single-cell datasets (disabled on CSCS Eiger)."""
 
 import argparse
+import os
 from pathlib import Path
+import sys
 from returns.result import Success, Failure
 from single_cell_immuno_datasets import DataDirectories, download_all_tier1, download_dataset, TIER_1_DATASETS
+from tme_datasets.paths import is_cscs_environment
 
 
 def main() -> None:
+    if is_cscs_environment():
+        print(
+            "ERROR: Internet dataset downloads are strictly disabled on CSCS Alps Eiger.\n"
+            "Download raw datasets on 'olm' first and transfer via Globus to /capstor/store/cscs/empa/em25/halu/data-test.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     parser = argparse.ArgumentParser(description="Download Tier 1 ICB Single-Cell Datasets.")
-    parser.add_argument("--base-dir", type=str, default="/storage/halu/data", help="Base directory (default: /storage/halu/data)")
+    parser.add_argument(
+        "--base-dir",
+        type=str,
+        default=os.environ.get("TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test"),
+        help="Base directory",
+    )
     parser.add_argument("--accession", type=str, default=None, help="Specific dataset accession to download")
     args = parser.parse_args()
 

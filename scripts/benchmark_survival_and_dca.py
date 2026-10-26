@@ -55,6 +55,7 @@ from tme_response import (
     create_dca_net_benefit_chart,
     export_chart_svg,
     fit_univariable_cox,
+    get_cohort_display_label,
     load_multi_omic_cohort,
     standardize_prediction_scores,
 )
@@ -145,7 +146,7 @@ def compute_standard_predictors(cohort) -> list[PredictionResult]:
         compute_ayers_ifng6_score,
         compute_jiang_ctls_score,
         lambda c: compute_jiang_tams_score(c, invert_for_response=True),
-        lambda c: compute_jiang_texh_score(c, invert_for_response=True),
+        compute_jiang_texh_score,
         compute_messina_cks_score,
         lambda c: compute_nurmik_cafs_score(c, invert_for_response=True),
         compute_roh_is_score,
@@ -581,9 +582,10 @@ def run_survival_and_dca_benchmark(
             if not cid_dca.is_empty():
                 cohort_dir = output_dir / "cohorts" / cid
                 cohort_dir.mkdir(parents=True, exist_ok=True)
+                clean_cid_title = get_cohort_display_label(cid)
                 match create_dca_net_benefit_chart(
                     cid_dca,
-                    title=f"Decision Curve Analysis (Net Clinical Benefit) - {cid}",
+                    title=f"Decision Curve Analysis (Net Clinical Benefit) - {clean_cid_title}",
                 ):
                     case Success(chart):
                         cohort_svg = cohort_dir / "fig_dca_net_benefit.svg"

@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict
 from returns.result import Failure, Result, Success
 
 from tme_datasets import list_registered_datasets, load_dataset
-from tme_datasets.paths import find_repo_root, get_data_paths, get_preprocessed_h5ad_path
+from tme_datasets.paths import find_repo_root, get_data_paths, get_preprocessed_h5ad_path, is_cscs_environment
 from tme_datasets.preprocessing.gene_normalization import ensure_ensembl_release_installed
 
 
@@ -551,6 +551,13 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    if is_cscs_environment():
+        print(
+            "ERROR: Internet dataset downloads are strictly disabled on CSCS Alps Eiger.\n"
+            "Download raw datasets on 'olm' first and transfer via Globus to /capstor/store/cscs/empa/em25/halu/data-test.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     skip = () if args.include_pelka else ("GSE178341",)
     cfg = PipelineConfig(

@@ -6,6 +6,18 @@ Target Cohorts:
 - GSE302781: Metastatic Urothelial Carcinoma Rapid Autopsy snRNA-seq (15 samples, 10x triplets)
 - GSE326225: Muscle-Invasive Bladder Cancer scRNA-seq (8 samples, 10x triplets)
 - GSE301651: Single-cell sequencing of bladder cancer patients (13 samples, 10x triplets)
+- GSE310802: En Bloc Resected NMIBC scRNA-seq (8 samples)
+- GSE326854: NMIBC cell lines scRNA-seq (3 samples)
+- GSE250523: Bladder Ewing Sarcoma scRNA-seq (4 samples)
+- GSE267718: Urine, PBMC, and tumor scRNA-seq (33 samples)
+- GSE176249: UMUC-1 FOXA1 KO scRNA-seq (1 sample)
+- GSE172433: SuperSeries of GSE176249 (symlinked)
+- GSE277524: Multifocal Bladder Cancer scRNA-seq (9 valid samples)
+- CELLxGENE_f0e0575d: SMBO-114 Bladder Cancer scRNA-seq
+- CELLxGENE_e2094676: SMBO-106 Bladder Cancer scRNA-seq
+- CELLxGENE_7ee4b15b: SCBO-8 Bladder Cancer scRNA-seq
+- CELLxGENE_670a9f65: SMBO-170 Bladder Cancer scRNA-seq
+- CELLxGENE_024581e3: SMBO-109 Bladder Cancer scRNA-seq
 
 Standardizes raw cohort inputs into publication-grade AnnData (.h5ad) files containing:
 - layers['counts']: Raw integer count matrix (sparse CSR float32).
@@ -31,7 +43,7 @@ import anndata as ad
 from returns.result import Failure, Success
 
 # Set scratch directory
-os.environ.setdefault("TMPDIR", "/storage/halu/tmp")
+os.environ.setdefault("TMPDIR", "/ritom/scratch/cscs/lhaeuser/tmp")
 
 from tme_datasets.logging import get_logger
 from tme_datasets.models import QualityControlSpec, SingleCellProcessingSpec
@@ -43,10 +55,25 @@ from tme_datasets.registry import resolve_dataset_id
 logger = get_logger("preprocess_bladder")
 
 BLADDER_COHORTS: tuple[str, ...] = (
+    # Previously preprocessed cohorts (will skip automatically unless --overwrite):
     "GSE222315",  # Primary Bladder Cancer vs Normal Adjacent Tissue (13 samples)
     "GSE302781",  # Metastatic Urothelial Carcinoma snRNA-seq (15 samples)
     "GSE326225",  # Muscle-Invasive Bladder Cancer scRNA-seq (8 samples)
-    "GSE301651",  # Bladder Cancer scRNA-seq (13 samples, primary + LN met + PBMC)
+    "GSE301651",  # Bladder Cancer scRNA-seq (13 samples)
+    # Fast CELLxGENE cohorts:
+    "CELLxGENE_f0e0575d",  # SMBO-114 (2,410 cells)
+    "CELLxGENE_e2094676",  # SMBO-106 (5,762 cells)
+    "CELLxGENE_670a9f65",  # SMBO-170 (5,785 cells)
+    "CELLxGENE_024581e3",  # SMBO-109 (8,156 cells)
+    "CELLxGENE_7ee4b15b",  # SCBO-8 (10,946 cells)
+    # GEO single-cell cohorts:
+    "GSE176249",  # UMUC-1 FOXA1 KO (6,217 cells)
+    "GSE172433",  # SuperSeries of GSE176249 (symlinked)
+    "GSE250523",  # Bladder Ewing Sarcoma (17,001 cells)
+    "GSE326854",  # NMIBC cell lines (43,949 cells)
+    "GSE310802",  # En Bloc NMIBC (69,975 cells)
+    "GSE267718",  # Urine, PBMC, and tumor (185,724 cells)
+    "GSE277524",  # Multifocal Bladder Cancer (1,315,941 cells)
 )
 
 
@@ -69,21 +96,56 @@ def preprocess_bladder_cohort(
     logger.info("Target File:               %s", out_file)
     logger.info("=================================================================")
 
+    # Special handling for GSE172433 SuperSeries (identical to GSE176249)
+    if canonical_id == "GSE172433":
+        target_file = output_dir / "GSE176249.h5ad"
+        if not target_file.exists() and not dry_run:
+            preprocess_bladder_cohort("GSE176249", raw_dir, output_dir, overwrite, dry_run, skip_ensembl)
+        if target_file.exists() and (not out_file.exists() or overwrite):
+            if out_file.is_symlink() or out_file.exists():
+                out_file.unlink()
+            out_file.symlink_to(target_file.name)
+            logger.info("[%s] Created symlink %s -> %s", canonical_id, out_file.name, target_file.name)
+        if out_file.exists():
+            adata_head = ad.read_h5ad(out_file, backed="r")
+            n_cells = adata_head.n_obs
+            n_vars = adata_head.n_vars
+            n_pts = int(adata_head.obs["patient_id"].nunique()) if "patient_id" in adata_head.obs.columns else 0
+            n_smps = int(adata_head.obs["sample_id"].nunique()) if "sample_id" in adata_head.obs.columns else 0
+            if hasattr(adata_head, "file") and adata_head.file is not None:
+                adata_head.file.close()
+            del adata_head
+            gc.collect()
+            return {
+                "cohort": canonical_id,
+                "status": "SYMLINK_SUCCESS",
+                "cells": n_cells,
+                "post_qc_cells": n_cells,
+                "genes": n_vars,
+                "patients": n_pts,
+                "samples": n_smps,
+                "file_size_mb": round(out_file.stat().st_size / (1024 * 1024), 2),
+            }
+
     if out_file.exists() and not overwrite and not dry_run:
         logger.info("Output file already exists: %s (skipping, use --overwrite to recompute)", out_file)
         adata_head = ad.read_h5ad(out_file, backed="r")
         n_cells = adata_head.n_obs
         n_vars = adata_head.n_vars
         n_pts = int(adata_head.obs["patient_id"].nunique()) if "patient_id" in adata_head.obs.columns else 0
-        adata_head.file.close()
+        n_smps = int(adata_head.obs["sample_id"].nunique()) if "sample_id" in adata_head.obs.columns else 0
+        if hasattr(adata_head, "file") and adata_head.file is not None:
+            adata_head.file.close()
         del adata_head
         gc.collect()
         return {
             "cohort": canonical_id,
             "status": "ALREADY_EXISTS",
             "cells": n_cells,
+            "post_qc_cells": n_cells,
             "genes": n_vars,
             "patients": n_pts,
+            "samples": n_smps,
             "file_size_mb": round(out_file.stat().st_size / (1024 * 1024), 2),
         }
 
@@ -192,6 +254,14 @@ def preprocess_bladder_cohort(
     processed_adata.write_h5ad(temp_out, compression="gzip")
     temp_out.replace(out_file)
 
+    if canonical_id == "GSE176249":
+        symlink_172433 = output_dir / "GSE172433.h5ad"
+        if not symlink_172433.exists() or overwrite:
+            if symlink_172433.is_symlink() or symlink_172433.exists():
+                symlink_172433.unlink()
+            symlink_172433.symlink_to("GSE176249.h5ad")
+            logger.info("[%s] Automatically symlinked GSE172433.h5ad -> GSE176249.h5ad", canonical_id)
+
     elapsed = time.time() - t0
     final_size_mb = round(out_file.stat().st_size / (1024 * 1024), 2)
     post_cells = processed_adata.n_obs
@@ -224,8 +294,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Preprocess Bladder Cancer single-cell & snRNA-seq cohorts into standardized .h5ad files.")
     parser.add_argument("--cohort", type=str, default="", help="Specific cohort to process (e.g. GSE222315, GSE302781, GSE326225).")
     parser.add_argument("--all", action="store_true", help="Process all 3 bladder cancer cohorts.")
-    parser.add_argument("--raw-dir", type=Path, default=Path("/storage/halu/data-test/raw"), help="Path to raw dataset directory on disk.")
-    parser.add_argument("--output-dir", type=Path, default=Path("/storage/halu/data-test/preprocessed"), help="Path to write preprocessed .h5ad files.")
+    parser.add_argument("--raw-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test/raw"), help="Path to raw dataset directory on disk.")
+    parser.add_argument("--output-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test/preprocessed"), help="Path to write preprocessed .h5ad files.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing preprocessed .h5ad files.")
     parser.add_argument("--dry-run", action="store_true", help="Inspect raw datasets and metadata without saving H5AD.")
     parser.add_argument("--skip-ensembl", action="store_true", help="Skip Ensembl Release 111 re-indexing.")
