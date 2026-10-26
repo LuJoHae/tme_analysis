@@ -19,6 +19,7 @@ from .query import (
     query_preprocessed_datasets,
     sample_single_cell_cohorts,
     run_sampling_hpo,
+    run_single_cohort_sampling_hpo,
     filter_candidate_cohorts,
     HPOSearchSpace,
     HPOTrialConfig,
@@ -180,6 +181,11 @@ from .simulation import simulate_pseudobulk
 from .harmonization import (
     align_and_concatenate,
     evaluate_integration_metrics,
+    run_harmony_batch_integration,
+)
+from .sampling.cohort_sampler import (
+    MILOPY_RESPONSE_COHORTS,
+    resolve_milopy_cohorts,
 )
 
 # PyTorch bridge
@@ -207,7 +213,19 @@ from .genes import (
 # Providers
 from .providers import (
     download_and_build_maynard_full,
+    download_cho,
+    download_jung,
+    download_prat,
+    download_ravi,
+    load_cho,
+    load_jung,
     load_maynard,
+    load_prat,
+    load_ravi,
+    preprocess_cho,
+    preprocess_jung,
+    preprocess_prat,
+    preprocess_ravi,
 )
 
 # Download & Verification
@@ -246,6 +264,7 @@ __all__ = [
     "generate_random_cluster_spec",
     "build_deconvolution_reference",
     "run_sampling_hpo",
+    "run_single_cohort_sampling_hpo",
     "filter_candidate_cohorts",
     "HPOSearchSpace",
     "HPOTrialConfig",
@@ -378,6 +397,10 @@ __all__ = [
     # Harmonization
     "align_and_concatenate",
     "evaluate_integration_metrics",
+    "run_harmony_batch_integration",
+    # Milopy Response Sampling
+    "MILOPY_RESPONSE_COHORTS",
+    "resolve_milopy_cohorts",
     # PyTorch
     "TmeTorchDataset",
     "create_tme_dataloader",
@@ -398,6 +421,18 @@ __all__ = [
     # Providers
     "load_maynard",
     "download_and_build_maynard_full",
+    "download_ravi",
+    "preprocess_ravi",
+    "load_ravi",
+    "download_prat",
+    "preprocess_prat",
+    "load_prat",
+    "download_jung",
+    "preprocess_jung",
+    "load_jung",
+    "download_cho",
+    "preprocess_cho",
+    "load_cho",
     # Logging
     "configure_logging",
     "get_logger",

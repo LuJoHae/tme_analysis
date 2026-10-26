@@ -719,3 +719,113 @@ def generate_random_cluster_spec(
         seed=Some(child_seed) if child_seed is not None else Nothing,
     )
 
+
+# Standardized metadata for the 9 premier single-cell ICB response cohorts
+MILOPY_RESPONSE_COHORTS: tuple[dict[str, str], ...] = (
+    {
+        "id": "GSE120575",
+        "cancer_type": "melanoma",
+        "treatment": "anti-pd1_ctla4",
+        "platform": "smartseq2",
+    },
+    {
+        "id": "CELLxGENE_7b20c613",
+        "cancer_type": "melanoma",
+        "treatment": "anti-pd1_monotherapy",
+        "platform": "10x_chromium_3p",
+    },
+    {
+        "id": "CELLxGENE_05a8c945",
+        "cancer_type": "colorectal",
+        "treatment": "anti-pd1_monotherapy",
+        "platform": "10x_chromium",
+    },
+    {
+        "id": "CELLxGENE_6f9de485",
+        "cancer_type": "breast",
+        "treatment": "anti-pd1_monotherapy",
+        "platform": "10x_chromium_3p",
+    },
+    {
+        "id": "GSE207422",
+        "cancer_type": "nsclc",
+        "treatment": "chemo_immunotherapy",
+        "platform": "bd_rhapsody",
+    },
+    {
+        "id": "GSE243013",
+        "cancer_type": "nsclc",
+        "treatment": "chemo_immunotherapy",
+        "platform": "10x_chromium_3p",
+    },
+    {
+        "id": "GSE233203",
+        "cancer_type": "nsclc",
+        "treatment": "combination_multitarget",
+        "platform": "10x_chromium_5p",
+    },
+    {
+        "id": "GSE200996",
+        "cancer_type": "hnscc",
+        "treatment": "anti-pd1_ctla4",
+        "platform": "10x_chromium_5p",
+    },
+    {
+        "id": "GSE316195",
+        "cancer_type": "pdac",
+        "treatment": "combination_multitarget",
+        "platform": "single_nucleus",
+    },
+)
+
+
+def resolve_milopy_cohorts(
+    sample_by: str,
+    value: str | None = None,
+) -> Result[tuple[str, ...], str]:
+    """Resolves single-cell cohort IDs from the 9 premier ICB response cohorts according to sampling criteria.
+
+    Args:
+        sample_by: Sampling axis ('all', 'cancer_type', 'treatment', 'platform', 'custom').
+        value: Target filter value (e.g. 'melanoma', 'anti-pd1_monotherapy', '10x', or comma-separated cohort IDs).
+
+    Returns:
+        Success(tuple of cohort IDs) or Failure(error message).
+    """
+    mode = sample_by.strip().lower()
+
+    if mode == "all":
+        return Success(tuple(c["id"] for c in MILOPY_RESPONSE_COHORTS))
+
+    if mode == "custom":
+        if not value:
+            return Failure("Value must be specified when sample_by='custom' (e.g. 'GSE120575,CELLxGENE_7b20c613')")
+        custom_ids = tuple(cid.strip() for cid in value.split(",") if cid.strip())
+        if not custom_ids:
+            return Failure(f"No valid cohort IDs parsed from custom string '{value}'")
+        return Success(custom_ids)
+
+    if not value:
+        valid_modes = ["all", "cancer_type", "treatment", "platform", "custom"]
+        return Failure(f"Value must be specified for sample_by='{sample_by}'. Available modes: {valid_modes}")
+
+    target_val = value.strip().lower().replace(" ", "_").replace("-", "_")
+
+    matched: list[str] = []
+    for c in MILOPY_RESPONSE_COHORTS:
+        c_attr = c.get(mode, "").lower().replace(" ", "_").replace("-", "_")
+        if not c_attr:
+            continue
+        # Direct equality or substring containment for flexibility (e.g. '10x' matches '10x_chromium_3p')
+        if target_val == c_attr or target_val in c_attr or c_attr in target_val:
+            matched.append(c["id"])
+
+    if not matched:
+        available_vals = sorted(list({c.get(mode, "") for c in MILOPY_RESPONSE_COHORTS if c.get(mode)}))
+        return Failure(
+            f"No cohorts matched {mode}='{value}'. Available values for '{mode}': {available_vals}"
+        )
+
+    return Success(tuple(matched))
+
+

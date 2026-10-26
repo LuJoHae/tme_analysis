@@ -9,8 +9,15 @@ from .classifier_hpo import (
     InnerOptimizationResult,
     TransformType,
     apply_compositional_transform,
+    compute_single_cohort_oof_predictions,
     evaluate_inner_pipeline,
+    evaluate_single_cohort_stratified_cv,
     run_inner_classifier_hpo,
+    run_single_cohort_classifier_hpo,
+)
+from .single_cohort_hpo import (
+    evaluate_single_cohort_trial_with_fidelity,
+    run_single_cohort_sampling_hpo,
 )
 from .cohort_sampler import (
     compute_cohort_cell_allocations,
@@ -63,6 +70,11 @@ __all__ = [
     "filter_candidate_cohorts",
     "generate_trial_config",
     "run_sampling_hpo",
+    "run_single_cohort_sampling_hpo",
+    "evaluate_single_cohort_trial_with_fidelity",
+    "evaluate_single_cohort_stratified_cv",
+    "compute_single_cohort_oof_predictions",
+    "run_single_cohort_classifier_hpo",
     "ClassifierType",
     "FeatureSelectorType",
     "InnerClassifierConfig",

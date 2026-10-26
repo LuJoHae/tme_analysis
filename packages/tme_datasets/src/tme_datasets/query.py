@@ -43,6 +43,7 @@ from .paths import (
     get_preprocessed_h5ad_path,
     get_raw_dataset_dir,
     get_scratch_dataset_dir,
+    is_cscs_environment,
 )
 from .providers.bulk_iatlas import IATLAS_COHORTS, load_iatlas_cohort
 from .providers.bulk_papers import load_genentech_egad, load_paper_h5ad
@@ -307,9 +308,41 @@ def _dispatch_load(
                 align_dir = raw_dir
             return load_genentech_egad(align_dir)
 
+        case "Ravi":
+            expected_file = manual_dir / "Ravi.h5ad"
+            if not force_download and expected_file.is_file() and expected_file.stat().st_size > 0:
+                return load_paper_h5ad(expected_file)
+            from .providers.bulk_papers import load_ravi
+
+            return load_ravi(raw_dir, auto_download=auto_download, force_download=force_download)
+
+        case "Prat":
+            expected_file = manual_dir / "Prat.h5ad"
+            if not force_download and expected_file.is_file() and expected_file.stat().st_size > 0:
+                return load_paper_h5ad(expected_file)
+            from .providers.bulk_papers import load_prat
+
+            return load_prat(raw_dir, auto_download=auto_download, force_download=force_download)
+
+        case "Jung":
+            expected_file = manual_dir / "Jung.h5ad"
+            if not force_download and expected_file.is_file() and expected_file.stat().st_size > 0:
+                return load_paper_h5ad(expected_file)
+            from .providers.bulk_papers import load_jung
+
+            return load_jung(raw_dir, auto_download=auto_download, force_download=force_download)
+
+        case "Cho":
+            expected_file = manual_dir / "Cho.h5ad"
+            if not force_download and expected_file.is_file() and expected_file.stat().st_size > 0:
+                return load_paper_h5ad(expected_file)
+            from .providers.bulk_papers import load_cho
+
+            return load_cho(raw_dir, auto_download=auto_download, force_download=force_download)
+
         case _ if canonical_id in (
             "Auslander", "Chen-CTLA4", "Chen-PD1", "Freeman", "Gide", "Hugo",
-            "Lauss", "Liu", "Prat", "Ravi", "Riaz", "Rose", "Snyder", "VanAllen"
+            "Lauss", "Liu", "Riaz", "Rose", "Snyder", "VanAllen"
         ):
             # Direct paper H5AD
             expected_file = manual_dir / f"{canonical_id}.h5ad"
@@ -380,6 +413,14 @@ def load_dataset(
     Returns:
         Success(adata) or Failure(error_message).
     """
+    if is_cscs_environment():
+        if force_download:
+            return Failure(
+                "force_download=True is strictly prohibited on CSCS Eiger. "
+                "Datasets must be downloaded on 'olm', transferred via Globus to $STORE, and staged via 'make stage-in'."
+            )
+        auto_download = False
+
     logger.info(
         "Loading dataset '%s' (auto_download=%s, force_recompute=%s, force_download=%s, normalize_ensembl=%s)...",
         dataset_id,
@@ -397,7 +438,7 @@ def load_dataset(
         logger.error(msg)
         return Failure(msg)
 
-    root = (base_dir or find_repo_root()).resolve()
+    root = (Path(base_dir) if base_dir is not None else find_repo_root()).resolve()
 
     # Step 1: Fast path - load from preprocessed H5AD if available
     if not force_recompute and not force_download:
@@ -412,7 +453,29 @@ def load_dataset(
                     size_mb,
                 )
                 try:
-                    adata = ad.read_h5ad(h5ad_path)
+                    import h5py
+                    from anndata.io import read_elem
+
+                    use_selective_read = False
+                    if size_mb > 4000:
+                        try:
+                            with h5py.File(h5ad_path, "r") as f:
+                                if "layers" in f and len(f["layers"]) > 0 and "X" in f:
+                                    use_selective_read = True
+                        except Exception:
+                            use_selective_read = False
+
+                    if use_selective_read:
+                        logger.info("Dataset '%s' contains large redundant layers (%.1f MB); streaming X, obs, var directly...", canonical_id, size_mb)
+                        with h5py.File(h5ad_path, "r") as f:
+                            obs = read_elem(f["obs"])
+                            var = read_elem(f["var"])
+                            X = read_elem(f["X"])
+                            uns = read_elem(f["uns"]) if "uns" in f else {}
+                            adata = ad.AnnData(X=X, obs=obs, var=var, uns=uns)
+                    else:
+                        adata = ad.read_h5ad(h5ad_path)
+
                     if subset or subsample_n:
                         adata = _apply_subset_and_subsample(adata, subset=subset, subsample_n=subsample_n)
 
@@ -836,6 +899,7 @@ def filter_candidate_cohorts(
     cancer_types: Any = None,
     min_viable_cells: int = 200,
     require_cached: bool = True,
+    max_file_size_gb: float = 3.5,
 ) -> Any:
     """Filter single-cell cohorts from registry suitable for reference deconvolution optimization."""
     from .sampling.hpo_optimizer import filter_candidate_cohorts as _impl
@@ -844,6 +908,38 @@ def filter_candidate_cohorts(
         cancer_types=cancer_types,
         min_viable_cells=min_viable_cells,
         require_cached=require_cached,
+        max_file_size_gb=max_file_size_gb,
+    )
+
+
+def run_single_cohort_sampling_hpo(
+    target_cohort_name: str,
+    target_bulk_mat: Any,
+    target_bulk_genes: Any,
+    target_y: Any,
+    search_space: Any,
+    target_bulk_ensembl_genes: Any = None,
+    target_bulk_symbol_genes: Any = None,
+    n_trials: int = 15,
+    seed: int = 42,
+    early_prune_threshold: float = 0.52,
+    n_jobs: int = 32,
+) -> Any:
+    """Execute complete multi-fidelity ASHA hyperparameter optimization campaign for a single target cohort."""
+    from .sampling.single_cohort_hpo import run_single_cohort_sampling_hpo as _impl
+
+    return _impl(
+        target_cohort_name=target_cohort_name,
+        target_bulk_mat=target_bulk_mat,
+        target_bulk_genes=target_bulk_genes,
+        target_y=target_y,
+        search_space=search_space,
+        target_bulk_ensembl_genes=target_bulk_ensembl_genes,
+        target_bulk_symbol_genes=target_bulk_symbol_genes,
+        n_trials=n_trials,
+        seed=seed,
+        early_prune_threshold=early_prune_threshold,
+        n_jobs=n_jobs,
     )
 
 
@@ -867,6 +963,7 @@ __all__ = [
     "DeconvolutionReferenceConfig",
     "DeconvolutionReferenceResult",
     "run_sampling_hpo",
+    "run_single_cohort_sampling_hpo",
     "filter_candidate_cohorts",
     "HPOSearchSpace",
     "HPOTrialConfig",

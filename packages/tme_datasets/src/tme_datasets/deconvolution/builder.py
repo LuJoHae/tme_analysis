@@ -284,6 +284,20 @@ def build_deconvolution_reference(
 
     # 10. Compute Mean GEP Emission Matrices (Phi_state and Phi_type)
     gene_names = [str(g) for g in working_adata.var_names]
+    gene_symbols: list[str] = []
+    if "gene_name" in working_adata.var.columns:
+        gene_symbols = [
+            str(x).upper() if x is not None and str(x) != "nan" else ""
+            for x in working_adata.var["gene_name"]
+        ]
+    elif "gene_symbol" in working_adata.var.columns:
+        gene_symbols = [
+            str(x).upper() if x is not None and str(x) != "nan" else ""
+            for x in working_adata.var["gene_symbol"]
+        ]
+    elif all(not str(g).startswith("ENSG") for g in gene_names[:10]):
+        gene_symbols = [str(g).upper() for g in gene_names]
+
     phi_state, state_profiles = _compute_gep_matrix(
         X=counts_matrix,
         group_labels=obs_states,
@@ -328,6 +342,7 @@ def build_deconvolution_reference(
             mrna_scaling=mrna_scaling,
             collinearity=collinearity,
             gene_names=tuple(gene_names),
+            gene_symbols=tuple(gene_symbols),
             cell_states=tuple(unique_states),
             cell_types=tuple(unique_types),
             malignant_states=malignant_states,

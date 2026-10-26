@@ -381,7 +381,7 @@ def test_dysfunctional_flagging() -> None:
     # Test list_datasets exclude_dysfunctional behavior
     clean_datasets = list_datasets(exclude_dysfunctional=True)
     all_datasets = list_datasets(exclude_dysfunctional=False)
-    assert len(all_datasets) - len(clean_datasets) == 44
+    assert len(all_datasets) - len(clean_datasets) == 46
 
     # Single-cell breakdown
     sc_clean = list_datasets(modality=Modality.SINGLE_CELL, exclude_dysfunctional=True)
@@ -394,4 +394,4 @@ def test_dysfunctional_flagging() -> None:
     # RegisteredDatasets filter method
     reg_clean = list_registered_datasets().filter(exclude_dysfunctional=True)
     reg_all = list_registered_datasets().filter(exclude_dysfunctional=False)
-    assert len(reg_all) - len(reg_clean) == 44
+    assert len(reg_all) - len(reg_clean) == 46

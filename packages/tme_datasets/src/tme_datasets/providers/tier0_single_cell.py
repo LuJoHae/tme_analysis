@@ -351,7 +351,12 @@ def _load_10x_triplets_or_h5(
             if not (bc_p.exists() and feat_p.exists()):
                 continue
 
-            mat = _to_csr(sio.mmread(mp))
+            try:
+                mat = _to_csr(sio.mmread(mp))
+            except Exception as exc:
+                logger.warning("Failed to parse MTX %s: %s (skipping sample)", mp.name, exc)
+                continue
+
             try:
                 bcs = pd.read_csv(bc_p, header=None, sep=None, engine="python")[0].astype(str).tolist()
                 feats = pd.read_csv(feat_p, header=None, sep=None, engine="python")

@@ -171,8 +171,8 @@ def test_verify_execution_host_allows_env_override() -> None:
 
 
 def test_verify_execution_host_allows_olm() -> None:
-    """Verify that remote host 'olm' is accepted."""
-    for host in ("olm", "olm.cluster.internal", "node-olm-01"):
+    """Verify that remote cluster hosts ('eiger', 'nid', 'olm') are accepted and login nodes without Slurm are blocked."""
+    for host in ("nid001234", "eiger", "olm", "olm.cluster.internal", "node-olm-01"):
         res = verify_execution_host(
             benchmark_mode=False,
             force_local=False,
@@ -180,4 +180,14 @@ def test_verify_execution_host_allows_olm() -> None:
             allow_local_env="",
         )
         assert isinstance(res, Success)
+
+    # Eiger login node without SLURM_JOB_ID must be blocked
+    login_res = verify_execution_host(
+        benchmark_mode=False,
+        force_local=False,
+        hostname="eiger-ln001",
+        allow_local_env="",
+        slurm_job_id="",
+    )
+    assert isinstance(login_res, Failure)
 

@@ -42,6 +42,7 @@ class DeconvolutionReferenceResult(BaseModel):
     mrna_scaling: pl.DataFrame
     collinearity: pl.DataFrame
     gene_names: tuple[str, ...]
+    gene_symbols: tuple[str, ...] = Field(default_factory=tuple)
     cell_states: tuple[str, ...]
     cell_types: tuple[str, ...]
     malignant_states: tuple[str, ...]

@@ -9,8 +9,12 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from returns.maybe import Nothing, Some
-from returns.result import Success
+from returns.result import Failure, Success
+import pytest
 
+from tme_datasets.download.fetcher import download_single_file
+from tme_datasets.download.gdrive import download_gdrive_file
+from tme_datasets.download.geo import download_geo_supplementary
 from tme_datasets.paths import (
     DataPathsConfig,
     find_dataset_h5ad,
@@ -20,6 +24,7 @@ from tme_datasets.paths import (
     get_raw_dataset_dir,
     get_reference_h5ad_path,
     get_scratch_dataset_dir,
+    validate_no_store_io,
 )
 from tme_datasets.query import load_dataset
 
@@ -139,3 +144,45 @@ def test_no_hardcoded_paths_lint() -> None:
                     assert banned not in val, (
                         f"Found banned hardcoded path '{banned}' in {mod_path.name} at line {node.lineno}: {val!r}"
                     )
+
+
+def test_validate_no_store_io() -> None:
+    """Verify that runtime paths under /capstor/store are rejected and $SCRATCH paths are allowed."""
+    scratch_path = Path("/ritom/scratch/cscs/lhaeuser/data-test/preprocessed/GSE120575.h5ad")
+    res_ok = validate_no_store_io(scratch_path)
+    assert res_ok == scratch_path
+
+    store_path = Path("/capstor/store/cscs/empa/em25/halu/data-test/preprocessed/GSE120575.h5ad")
+    with pytest.raises(ValueError, match="Direct runtime read/write to persistent \\$STORE"):
+        validate_no_store_io(store_path)
+
+
+def test_tme_data_dir_env_override_and_store_guard(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify TME_DATA_DIR overrides data_root and blocks /capstor/store paths."""
+    scratch_mock = tmp_path / "scratch_data"
+    monkeypatch.setenv("TME_DATA_DIR", str(scratch_mock))
+    cfg = get_data_paths()
+    assert cfg.data_root == scratch_mock.resolve()
+    assert cfg.preprocessed_dir == (scratch_mock / "preprocessed").resolve()
+
+    monkeypatch.setenv("TME_DATA_DIR", "/capstor/store/cscs/empa/em25/halu/data-test")
+    with pytest.raises(ValueError, match="Direct runtime read/write to persistent \\$STORE"):
+        get_data_paths()
+
+
+def test_cscs_internet_download_blocked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify internet downloads are strictly blocked when running on CSCS Alps Eiger."""
+    monkeypatch.setenv("CLUSTER_NAME", "eiger")
+
+    res_http = download_single_file("https://example.com/data.tar.gz", tmp_path / "data.tar.gz")
+    assert isinstance(res_http, Failure)
+    assert "strictly disabled on CSCS Eiger" in res_http.failure()
+
+    res_geo = download_geo_supplementary("GSE120575", tmp_path)
+    assert isinstance(res_geo, Failure)
+    assert "strictly disabled on CSCS Eiger" in res_geo.failure()
+
+    res_gdrive = download_gdrive_file("fake_file_id", tmp_path / "file.h5ad")
+    assert isinstance(res_gdrive, Failure)
+    assert "strictly disabled on CSCS Eiger" in res_gdrive.failure()
+

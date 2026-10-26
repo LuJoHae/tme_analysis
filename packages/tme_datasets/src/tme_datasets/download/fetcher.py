@@ -9,8 +9,15 @@ import urllib.request
 from returns.result import Failure, Result, Success
 
 from ..logging import get_logger
+from ..paths import is_cscs_environment
 
 logger = get_logger("download")
+
+CSCS_DOWNLOAD_BLOCKED_MSG = (
+    "Internet dataset downloads are strictly disabled on CSCS Eiger. "
+    "Download raw/preprocessed datasets on 'olm' first, transfer them manually to "
+    "/capstor/store/cscs/empa/em25/halu/data-test via Globus, and run 'make stage-in'."
+)
 
 
 def download_single_file(url: str, dest_path: Path) -> Result[Path, str]:
@@ -18,6 +25,9 @@ def download_single_file(url: str, dest_path: Path) -> Result[Path, str]:
 
     Streams chunks to a temporary .part file and atomically renames upon completion.
     """
+    if is_cscs_environment():
+        logger.error("%s (blocked URL: %s)", CSCS_DOWNLOAD_BLOCKED_MSG, url)
+        return Failure(f"{CSCS_DOWNLOAD_BLOCKED_MSG} (blocked URL: {url})")
     try:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         part_path = dest_path.with_name(dest_path.name + ".part")

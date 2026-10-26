@@ -55,6 +55,18 @@ def align_and_concatenate(
                 aligned_matrices = []
                 all_obs = []
 
+                # Preserve gene_name mapping across datasets
+                sym_map: dict[str, str] = {}
+                for a in adatas:
+                    if "gene_name" in a.var.columns:
+                        for g, sym in zip(a.var_names, a.var["gene_name"]):
+                            if g not in sym_map and sym is not None and str(sym) != "nan":
+                                sym_map[str(g)] = str(sym)
+                    elif "gene_symbol" in a.var.columns:
+                        for g, sym in zip(a.var_names, a.var["gene_symbol"]):
+                            if g not in sym_map and sym is not None and str(sym) != "nan":
+                                sym_map[str(g)] = str(sym)
+
                 for a, ds_id in zip(adatas, dataset_ids):
                     n_cells = a.n_obs
                     X_orig = a.X.tocsr() if sp.issparse(a.X) else sp.csr_matrix(a.X)
@@ -81,10 +93,14 @@ def align_and_concatenate(
                 combined_obs = pd.concat(all_obs, axis=0)
                 combined_obs.index = [f"cell_union_{i:06d}" for i in range(len(combined_obs))]
 
+                var_data: dict[str, list[str]] = {}
+                if sym_map:
+                    var_data["gene_name"] = [sym_map.get(str(g), "") for g in all_genes]
+
                 combined = ad.AnnData(
                     X=combined_X,
                     obs=combined_obs,
-                    var=pd.DataFrame(index=all_genes),
+                    var=pd.DataFrame(var_data, index=all_genes),
                 )
                 return Success(combined)
     except Exception as exc:

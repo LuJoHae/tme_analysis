@@ -18,6 +18,7 @@ dependencies = [
     "mygene>=3.2.0",
     "gdown>=5.1.0",
     "fast-matrix-market>=1.7.0",
+    "harmonypy>=0.0.10",
 ]
 
 [build-system]

@@ -8,6 +8,9 @@ from pathlib import Path
 import gdown
 from returns.result import Failure, Result, Success
 
+from ..paths import is_cscs_environment
+from .fetcher import CSCS_DOWNLOAD_BLOCKED_MSG
+
 logger = logging.getLogger("tme_datasets")
 
 
@@ -26,6 +29,8 @@ def download_gdrive_file(
     Returns:
         Result[Path, str]: Success(dest_path) if successful, Failure(err) otherwise.
     """
+    if is_cscs_environment():
+        return Failure(f"{CSCS_DOWNLOAD_BLOCKED_MSG} (blocked Google Drive download: {file_id_or_url})")
     try:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         url = (

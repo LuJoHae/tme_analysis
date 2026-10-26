@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Mapping, Sequence
 import numpy as np
@@ -48,6 +49,7 @@ def filter_candidate_cohorts(
     min_viable_cells: int = 200,
     max_viable_cells: int = 80000,
     require_cached: bool = True,
+    max_file_size_gb: float = 3.5,
 ) -> Result[tuple[str, ...], str]:
     """Filter single-cell cohorts from registry suitable for reference deconvolution optimization."""
     try:
@@ -70,8 +72,16 @@ def filter_candidate_cohorts(
                 continue
 
             if require_cached:
-                if not isinstance(find_dataset_h5ad(spec.id), Some):
+                h5_opt = find_dataset_h5ad(spec.id)
+                if not isinstance(h5_opt, Some):
                     continue
+                if max_file_size_gb is not None:
+                    try:
+                        sz_gb = os.path.getsize(h5_opt.unwrap()) / (1024**3)
+                        if sz_gb > max_file_size_gb:
+                            continue
+                    except Exception:
+                        pass
 
             candidates.append(spec.id)
 
@@ -176,10 +186,12 @@ def batch_richardson_lucy_deconvolution(
     reference: np.ndarray,
     n_iter: int = 40,
     eps: float = 1e-12,
+    initial_theta: np.ndarray | None = None,
 ) -> np.ndarray:
     """Batch-vectorized Richardson-Lucy / InstaPrism deconvolution across all samples simultaneously.
 
     Executes via multi-threaded BLAS GEMM matrix multiplications across all CPU cores.
+    Supports warm-starting from prior iterations via initial_theta.
     Mathematically identical to instaprism.insta_prism with floating point error < 1e-15.
     """
     n_samples, _ = bulk.shape
@@ -191,8 +203,11 @@ def batch_richardson_lucy_deconvolution(
     b_sums[b_sums == 0] = 1.0
     bulk_cpm = (bulk / b_sums) * 1e6
 
-    # Initialize uniform cell state fractions: shape (N, S)
-    theta = np.full((n_samples, n_states), 1.0 / n_states, dtype=np.float64)
+    # Initialize uniform cell state fractions or warm-start from prior state
+    if initial_theta is not None and initial_theta.shape == (n_samples, n_states):
+        theta = np.array(initial_theta, dtype=np.float64, copy=True)
+    else:
+        theta = np.full((n_samples, n_states), 1.0 / n_states, dtype=np.float64)
 
     for _ in range(n_iter):
         # 1. Projected bulk expression: (N, S) @ (S, G) -> (N, G)
@@ -214,32 +229,59 @@ def fast_deconvolute_cohorts(
     ref_genes: Sequence[str],
     bulk_data_dict: Mapping[str, tuple[Any, ...]],
     n_iter: int = 40,
+    ref_symbols: Sequence[str] | None = None,
 ) -> Result[tuple[dict[str, np.ndarray], dict[str, np.ndarray]], str]:
-    """Deconvolute multiple bulk cohorts using instaprism fixed-point solver."""
+    """Deconvolute multiple bulk cohorts using batch Richardson-Lucy solver with dual-space alignment."""
     if len(bulk_data_dict) < 1:
         return Failure("Need at least 1 bulk cohort for deconvolution.")
 
-    ref_gene_to_idx = {g.upper(): idx for idx, g in enumerate(ref_genes)}
+    ref_ens_to_idx = {g.upper(): idx for idx, g in enumerate(ref_genes)}
+    ref_sym_to_idx = {s.upper(): idx for idx, s in enumerate(ref_symbols) if s} if ref_symbols is not None else {}
     cohort_fractions: dict[str, np.ndarray] = {}
     cohort_responses: dict[str, np.ndarray] = {}
 
     for cid, entry in bulk_data_dict.items():
         if len(entry) == 4:
             bulk_mat, ensembl_genes, symbol_genes, y_resp = entry
-            # Pick whichever gene nomenclature maximizes overlap with ref_genes
-            ens_overlap = sum(1 for g in ensembl_genes if str(g).upper() in ref_gene_to_idx)
-            sym_overlap = sum(1 for g in symbol_genes if str(g).upper() in ref_gene_to_idx)
-            bulk_genes = ensembl_genes if ens_overlap >= sym_overlap else symbol_genes
         else:
             bulk_mat, bulk_genes, y_resp = entry
+            ensembl_genes, symbol_genes = bulk_genes, bulk_genes
 
-        shared_genes = [g for g in bulk_genes if str(g).upper() in ref_gene_to_idx]
+        # Test all 4 space pairings:
+        c_ens_ens = sum(1 for g in ensembl_genes if str(g).upper() in ref_ens_to_idx)
+        c_sym_sym = sum(1 for g in symbol_genes if str(g).upper() in ref_sym_to_idx) if ref_sym_to_idx else 0
+        c_sym_ens = sum(1 for g in symbol_genes if str(g).upper() in ref_ens_to_idx)
+        c_ens_sym = sum(1 for g in ensembl_genes if str(g).upper() in ref_sym_to_idx) if ref_sym_to_idx else 0
+
+        pairs = [
+            (c_ens_ens, ensembl_genes, ref_ens_to_idx),
+            (c_sym_sym, symbol_genes, ref_sym_to_idx),
+            (c_sym_ens, symbol_genes, ref_ens_to_idx),
+            (c_ens_sym, ensembl_genes, ref_sym_to_idx),
+        ]
+        best_count, chosen_bulk_genes, chosen_ref_map = max(pairs, key=lambda x: x[0])
+
+        shared_genes: list[str] = []
+        ref_sub_idx: list[int] = []
+        bulk_sub_idx: list[int] = []
+        seen_ref_idx: set[int] = set()
+
+        bulk_gene_to_idx = {g: idx for idx, g in enumerate(chosen_bulk_genes)}
+        for g in chosen_bulk_genes:
+            g_up = str(g).upper()
+            if g_up in chosen_ref_map:
+                r_idx = chosen_ref_map[g_up]
+                if r_idx not in seen_ref_idx:
+                    seen_ref_idx.add(r_idx)
+                    shared_genes.append(g)
+                    ref_sub_idx.append(r_idx)
+                    bulk_sub_idx.append(bulk_gene_to_idx[g])
+
         if len(shared_genes) < 50:
-            return Failure(f"Insufficient gene overlap ({len(shared_genes)}) between reference and cohort '{cid}'.")
-
-        ref_sub_idx = [ref_gene_to_idx[str(g).upper()] for g in shared_genes]
-        bulk_gene_to_idx = {g: idx for idx, g in enumerate(bulk_genes)}
-        bulk_sub_idx = [bulk_gene_to_idx[g] for g in shared_genes]
+            return Failure(
+                f"Insufficient gene overlap ({len(shared_genes)}) between reference and cohort '{cid}'. "
+                f"Counts (ens-ens: {c_ens_ens}, sym-sym: {c_sym_sym}, sym-ens: {c_sym_ens}, ens-sym: {c_ens_sym})"
+            )
 
         sub_ref = ref_mat[:, ref_sub_idx]
         sub_bulk = bulk_mat[:, bulk_sub_idx]

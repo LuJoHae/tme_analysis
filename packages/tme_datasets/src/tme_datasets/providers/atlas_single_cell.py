@@ -860,7 +860,7 @@ def load_borcherding_ccrcc(
             combined,
             dataset="Borcherding2021",
             organ="Kidney",
-            cancer_type="Clear Cell Renal Cell",
+            cancer_type="Clear Cell Renal Cell Carcinoma",
             cancer_code="KIRC",
             patient_col="patient",
             sample_col="sample",

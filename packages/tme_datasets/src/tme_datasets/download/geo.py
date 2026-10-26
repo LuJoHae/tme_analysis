@@ -10,7 +10,8 @@ import urllib.request
 from returns.result import Failure, Result, Success
 
 from ..logging import get_logger
-from .fetcher import download_single_file
+from ..paths import is_cscs_environment
+from .fetcher import CSCS_DOWNLOAD_BLOCKED_MSG, download_single_file
 
 logger = get_logger("download.geo")
 
@@ -26,6 +27,8 @@ def get_geo_suppl_url(gse_id: str, filename: str) -> str:
 
 def list_geo_supplementary_files(gse_id: str) -> Result[tuple[str, ...], str]:
     """List supplementary files available for a GSE accession via anonymous FTP."""
+    if is_cscs_environment():
+        return Failure(f"{CSCS_DOWNLOAD_BLOCKED_MSG} (blocked GEO FTP listing for {gse_id})")
     prefix = gse_id[:-3]
     remote_dir = f"/geo/series/{prefix}nnn/{gse_id}/suppl"
     try:

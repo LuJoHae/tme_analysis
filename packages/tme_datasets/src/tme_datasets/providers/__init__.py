@@ -1,7 +1,23 @@
 """Dataset providers for single-cell, bulk iAtlas, direct papers, spatial, and TCGA."""
 
 from .bulk_iatlas import IATLAS_COHORTS, load_iatlas_cohort
-from .bulk_papers import PAPER_DATASETS, load_genentech_egad, load_paper_h5ad
+from .bulk_papers import (
+    PAPER_DATASETS,
+    download_cho,
+    download_jung,
+    download_prat,
+    download_ravi,
+    load_cho,
+    load_genentech_egad,
+    load_jung,
+    load_paper_h5ad,
+    load_prat,
+    load_ravi,
+    preprocess_cho,
+    preprocess_jung,
+    preprocess_prat,
+    preprocess_ravi,
+)
 from .single_cell import (
     download_and_build_maynard_full,
     load_gse179994,
@@ -99,6 +115,18 @@ __all__ = [
     "PAPER_DATASETS",
     "load_paper_h5ad",
     "load_genentech_egad",
+    "download_ravi",
+    "preprocess_ravi",
+    "load_ravi",
+    "download_prat",
+    "preprocess_prat",
+    "load_prat",
+    "download_jung",
+    "preprocess_jung",
+    "load_jung",
+    "download_cho",
+    "preprocess_cho",
+    "load_cho",
     "load_spatial_dataset",
     "compute_spatial_graph",
     "load_tcga_project",
