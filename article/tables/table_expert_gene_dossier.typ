@@ -5,7 +5,9 @@
     columns: (1.2fr, 0.8fr, 0.8fr, 0.8fr, 0.9fr, 1.1fr, 1.4fr, 1.8fr),
     inset: 4.5pt,
     align: (left, center, center, center, center, center, left, left),
-    [*Gene*], [*Tier*], [*Cohorts*], [*Fitters*], [*Peak $pi$*], [*Direction*], [*Biological Axis*], [*Druggability / Actionability*],
+    table.header(
+      [*Gene*], [*Tier*], [*Cohorts*], [*Fitters*], [*Peak $pi$*], [*Direction*], [*Biological Axis*], [*Druggability / Actionability*],
+    ),
     [_HLA-A_], [Tier 1], [4], [12], [1.00], [Favorable (+0.27)], [Antigen Processing & Presentation], [Endogenous Presentation Machinery],
     [_IKZF2_], [Tier 1], [3], [10], [1.00], [Adverse (-0.32)], [Immune Checkpoints & Receptors], [Preclinical Targeted Protein Degraders (PROTACs)],
     [_PTGS2_], [Tier 1], [3], [9], [0.95], [Adverse (-0.61)], [Immunosuppressive Stroma & Metabolism], [Approved Repurposable Inhibitors (Celecoxib, Apricoxib)],
@@ -49,8 +51,8 @@
     [_PRDM1_], [Tier 2], [1], [1], [0.86], [Favorable (+0.05)], [Immune Checkpoints & Receptors], [Zinc Finger Repressor],
     [_CXCL9_], [Tier 2], [1], [1], [0.82], [Favorable (+0.86)], [Chemokines, Trafficking & TLS], [Biomarker / CXCR3 Agonist Axis],
     [_HLA-DRB1_], [Tier 2], [1], [1], [0.81], [Adverse (-0.22)], [Antigen Processing & Presentation], [MHC-II Platform],
-    [_NKG7_], [Tier 2], [1], [1], [0.80], [Favorable (+0.68)], [Effector Cytotoxicity & Lineage], [Effector Biomarker],
     [_GZMH_], [Tier 2], [1], [1], [0.80], [Favorable (+0.66)], [Effector Cytotoxicity & Lineage], [Granzyme Serine Protease],
+    [_NKG7_], [Tier 2], [1], [1], [0.80], [Favorable (+0.68)], [Effector Cytotoxicity & Lineage], [Effector Biomarker],
   ),
   caption: [Curated candidate biomarker dossier derived from 91 stability selection models across 12 clinical cohorts and 13 regularized fitters. Candidates are stratified into Tier 1 (Universal Replicated) and Tier 2 (Histology / Multi-Task Determinants) based on cross-cohort replication, 5-paradigm algorithmic coverage, and peak stability probability. Direction reflects pan-cancer responder vs non-responder log2 fold-change ($p < 0.05$).],
 ) <tab-curated-expert-gene-dossier>

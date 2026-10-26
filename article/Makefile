@@ -30,13 +30,16 @@ article: convert-figures compile-article
 
 convert-figures:
 	@echo "Ensuring figure directory structure..."
-	@mkdir -p figures/single-cell \
+	@mkdir -p figures/dataset_overview \
+	         figures/single-cell \
 	         figures/deconvolution \
 	         figures/mutations \
 	         figures/vaf-tmb \
 	         figures/immune-subsets \
 	         figures/signatures \
 	         figures/milo-deconv
+	@echo "Converting dataset provenance DAG SVG to high-resolution PNG..."
+	$(call convert_svg,$(RESULTS_DIR)/dataset_overview/figure_tme_datasets_pipeline_dag.svg,figures/dataset_overview/figure_tme_datasets_pipeline_dag.png)
 	@echo "Converting single-cell SVGs to high-resolution PNGs..."
 	$(call convert_svg,$(OUTPUT_DIR)/single-cell-exploration/umap_cell_type_annotations.svg,figures/single-cell/umap_cell_type_annotations.png)
 	$(call convert_svg,$(OUTPUT_DIR)/single-cell-exploration/qc_metadata_distributions.svg,figures/single-cell/qc_metadata_distributions.png)
@@ -80,6 +83,17 @@ convert-figures:
 	$(call convert_svg,$(RESULTS_DIR)/synthetic_benchmark/factorial_2d_interaction_heatmap.svg,figures/milo-deconv/factorial_2d_interaction_heatmap.png)
 	$(call convert_svg,$(RESULTS_DIR)/synthetic_benchmark/perturbation_sensitivity_curves.svg,figures/milo-deconv/perturbation_sensitivity_curves.png)
 	$(call convert_svg,$(RESULTS_DIR)/synthetic_benchmark/synthetic_perturbation_scatter_grid.svg,figures/milo-deconv/synthetic_perturbation_scatter_grid.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_response_prediction_auc_heatmap_and_bars.svg,figures/milo-deconv/iatlas_response_prediction_auc_heatmap_and_bars.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_response_prediction_prauc_heatmap_and_bars.svg,figures/milo-deconv/iatlas_response_prediction_prauc_heatmap_and_bars.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_milopy_vs_deconv_concordance_grid.svg,figures/milo-deconv/iatlas_milopy_vs_deconv_concordance_grid.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_cross_cohort_concordance_transfer_matrix.svg,figures/milo-deconv/iatlas_cross_cohort_concordance_transfer_matrix.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_consensus_metastate_forest_and_tme_profile.svg,figures/milo-deconv/iatlas_consensus_metastate_forest_and_tme_profile.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_consensus_metastate_all42_forest_and_tme_profile.svg,figures/milo-deconv/iatlas_consensus_metastate_all42_forest_and_tme_profile.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_consensus_metastate_top_deg_markers.svg,figures/milo-deconv/iatlas_consensus_metastate_top_deg_markers.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_consensus_metastate_all42_top_deg_markers.svg,figures/milo-deconv/iatlas_consensus_metastate_all42_top_deg_markers.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_classifier_and_reference_tier_pareto.svg,figures/milo-deconv/iatlas_classifier_and_reference_tier_pareto.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_nonlinear_conditional_interactions.svg,figures/milo-deconv/iatlas_nonlinear_conditional_interactions.png)
+	$(call convert_svg,$(RESULTS_DIR)/iatlas_instaprism_benchmark/iatlas_nonlinear_conditional_interactions_all42.svg,figures/milo-deconv/iatlas_nonlinear_conditional_interactions_all42.png)
 	@echo "All figures successfully converted to PNG in article/figures/."
 
 compile-article:

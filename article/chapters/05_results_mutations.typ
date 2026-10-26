@@ -2,6 +2,7 @@
 Predicting patient response from raw deconvolution sub-cluster fractions using Random Forest models yielded moderate predictive accuracy in large cohorts (e.g. `Combined-Melanoma` ROC AUC = *0.707*, @fig-deconv-pred). In smaller cohorts with elevated noise, embedding *Univariate ANOVA Feature Selection* directly within the cross-validation loop substantially improved performance and mitigated variance, boosting the ROC AUC in breast cancer (`Anders`, $N=31$) from 0.518 to *0.735* and the Matthews Correlation Coefficient (MCC) from -0.142 to *0.392* (@fig-supp-s11).
 
 #figure(
+  placement: auto,
   image("../figures/deconvolution/deconv_prediction_advanced_grid_kmeans_subcluster_res_0.5.png", width: 90%),
   caption: [Performance metrics (Mean ± SD across 5 random seeds) of Random Forest response prediction using fine-grained deconvolution fractions.]
 ) <fig-deconv-pred>

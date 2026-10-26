@@ -4,6 +4,7 @@ To dissect the functional adaptive states underpinning patient response, we isol
 Neighborhood DA analysis uncovered marked phenotypic segregation between responders and non-responders. CD8+ T cells from responding tumors were significantly enriched for genes promoting long-term memory formation and cytokine-independent survival (@fig-cd8-dge). In particular, _IL7R_ (CD127) emerged as the single most significantly upregulated marker ($log_2 "FC" = 1.08$, $"FDR" = 4.45 times 10^(-30)$), co-expressed with canonical memory/stem-like transcription factors including _TCF7_ ($log_2 "FC" = 0.84$), _FOXP1_ ($log_2 "FC" = 0.48$), and _STAT4_ ($log_2 "FC" = 0.15$).
 
 #figure(
+  placement: auto,
   image("../figures/immune-subsets/cd8_dge_combined_figure.png", width: 90%),
   caption: [Differential Gene Expression in CD8+ T Cells. (Left) Volcano plot comparing responding versus non-responding patients. (Right) Dot plot of top 15 marker genes characterizing memory persistence versus terminal exhaustion.]
 ) <fig-cd8-dge>
@@ -14,6 +15,7 @@ Conversely, non-responding patients harbored CD8+ T cells characterized by termi
 Applying the same analytical framework to CD4+ helper T cells revealed a distinct, complementary transcriptomic divergence. While CD8+ T cells segregated along a memory versus exhaustion axis, CD4+ T cells diverged between high biosynthetic proliferation and suppressive senescence (@fig-cd4-dge).
 
 #figure(
+  placement: auto,
   image("../figures/immune-subsets/cd4_dge_combined_figure.png", width: 90%),
   caption: [Differential Gene Expression in CD4+ T Cells. (Left) Volcano plot comparing CD4+ responders versus non-responders. (Right) Dot plot of marker genes illustrating translational machinery vs. DUSP4-mediated senescence.]
 ) <fig-cd4-dge>
@@ -24,6 +26,7 @@ In responders, CD4+ cells displayed strong enrichment for ribosomal proteins and
 Beyond lymphoid lineages, we analyzed the innate compartment by isolating myeloid cells (_ITGAM_/CD11b positive, _CD3D_ negative). Milo differential abundance analysis resolved distinct cellular neighborhoods significantly polarized between clinical outcomes (@fig-myeloid-spatial).
 
 #figure(
+  placement: auto,
   grid(
     columns: (1fr, 1fr),
     gutter: 1.2em,
@@ -36,6 +39,7 @@ Beyond lymphoid lineages, we analyzed the innate compartment by isolating myeloi
 Differential expression analysis confirmed that responding tumors were enriched for pro-inflammatory M1-like macrophages and mature dendritic cell signatures capable of antigen presentation (@fig-myeloid-dge). Non-responders showed pervasive accumulation of myeloid-derived suppressor cell (MDSC) and M2-polarized immunosuppressive programs that inhibit T-cell infiltration and survival, demonstrating that successful checkpoint blockade requires coordinated adaptive activation and innate myeloid reprogramming.
 
 #figure(
+  placement: auto,
   grid(
     columns: (1fr, 1fr),
     gutter: 1.2em,

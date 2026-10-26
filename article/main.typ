@@ -13,21 +13,20 @@
   paper_keywords
 )
 
-#columns(2, gutter: 1.5em)[
-  #include "chapters/01_introduction.typ"
-  #include "chapters/02_methods.typ"
-  #include "chapters/03_results_single_cell.typ"
-  #include "chapters/04_results_deconvolution.typ"
-  #include "chapters/05_results_mutations.typ"
-  #include "chapters/06_results_subclonal_vaf.typ"
-  #include "chapters/07_results_tcell_myeloid.typ"
-  #include "chapters/08_results_milo_vs_deconv.typ"
-  #include "chapters/09_results_stability_selection.typ"
-  #include "chapters/10_discussion.typ"
+#include "chapters/01_introduction.typ"
+#include "chapters/02_methods.typ"
+#include "chapters/03_results_single_cell.typ"
+#include "chapters/04_results_deconvolution.typ"
+#include "chapters/05_results_mutations.typ"
+#include "chapters/06_results_subclonal_vaf.typ"
+#include "chapters/07_results_tcell_myeloid.typ"
+#include "chapters/08_results_milo_vs_deconv.typ"
+#include "chapters/08b_results_iatlas_cross_modality.typ"
+#include "chapters/09_results_stability_selection.typ"
+#include "chapters/10_discussion.typ"
 
-  #v(1.5em)
-  #bibliography("references.bib", style: "nature")
-]
+#v(1.5em)
+#bibliography("references.bib", style: "nature")
 
 #pagebreak()
 #include "chapters/11_extended_data.typ"

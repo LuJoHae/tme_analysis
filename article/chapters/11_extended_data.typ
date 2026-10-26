@@ -31,21 +31,21 @@
 #pagebreak()
 
 #figure(
-  image("../figures/deconvolution/deconv_distributions_kmeans_subcluster_res_0.5.png", width: 100%),
+  image("../figures/deconvolution/deconv_distributions_kmeans_subcluster_res_0.5.png", height: 215mm, fit: "contain"),
   caption: [Supplementary Figure S5: Trial versus TCGA baseline deconvolution distributions. Side-by-side horizontal boxplots comparing the 58 sub-cluster fractions between the 9 trial cohorts and matched untreated TCGA indication cohorts.]
 ) <fig-supp-s5>
 
 #pagebreak()
 
 #figure(
-  image("../figures/deconvolution/deconv_split_response_kmeans_subcluster_res_0.5.png", width: 100%),
+  image("../figures/deconvolution/deconv_split_response_kmeans_subcluster_res_0.5.png", height: 215mm, fit: "contain"),
   caption: [Supplementary Figure S6: Cell fraction distributions split by clinical response. Boxplot grid displaying K-means 0.5 sub-cluster fractions split by RECIST clinical response (Responders, green vs Non-Responders, red).]
 ) <fig-supp-s6>
 
 #pagebreak()
 
 #figure(
-  image("../figures/deconvolution/deconv_split_tmb_kmeans_subcluster_res_0.5.png", width: 100%),
+  image("../figures/deconvolution/deconv_split_tmb_kmeans_subcluster_res_0.5.png", height: 215mm, fit: "contain"),
   caption: [Supplementary Figure S7: Cell fraction distributions split by tumor mutational burden. Boxplot grid displaying sub-cluster fractions split by cohort median DNA-TMB (High TMB, blue vs Low TMB, orange).]
 ) <fig-supp-s7>
 
@@ -59,7 +59,7 @@
 #pagebreak()
 
 #figure(
-  image("../figures/deconvolution/kmeans_centroids_heatmap.png", width: 95%),
+  image("../figures/deconvolution/kmeans_centroids_heatmap.png", height: 215mm, fit: "contain"),
   caption: [Supplementary Figure S9: TCGA K-means centroid profiles. Heatmap of the 100 reference centroids across the 58 sub-clusters characterizing primary baseline architectures.]
 ) <fig-supp-s9>
 

@@ -7,8 +7,10 @@ To characterize these multi-layered signatures, bulk deconvolution algorithms ha
 2. Machine learning classifiers predicting response from somatic mutations and identifying specific gene alterations (such as _TGM6_).
 3. Quantitative subclonal dynamics modeling using Variant Allele Frequencies (VAF) to optimize TMB thresholds and predict TMB reliability.
 4. Direct concordance benchmarking against continuous single-cell graph differential abundance (Milo) and multi-replicate perturbation stress-testing (@fig-study-overview).
+5. Pan-cancer cross-modality translation spanning 9 single-cell ICB atlases ($3.60 times 10^6$ cells, 13 hierarchical reference matrices, and the 42-state `Consensus-Meta42` consensus atlas) across 15 bulk clinical cohorts and pooled strata ($N = 1,058$ evaluable patients), resolving non-linear lymphoid–humoral synergy and myofibroblastic stromal exclusion gating via the unified `tme_datasets` computational provenance architecture (@fig-tme-datasets-pipeline-dag).
 
 #figure(
+  placement: auto,
   image("../figures/dataset_overview/figure1_study_cohorts_overview.png", width: 100%),
   caption: [
     *Figure 1: Comprehensive multi-omic immunotherapy dataset compendium, single-cell references, and analytical deconvolution framework.*

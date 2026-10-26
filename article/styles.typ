@@ -46,6 +46,8 @@
     ]
   }
 
+  show figure.where(kind: table): set block(breakable: true)
+
   show figure.caption: it => [
     #set text(size: 8pt, style: "italic")
     #it
