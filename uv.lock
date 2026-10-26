@@ -3357,18 +3357,26 @@ source = { editable = "packages/plotting_utils" }
 dependencies = [
     { name = "altair" },
     { name = "polars" },
+    { name = "pydantic" },
+    { name = "returns" },
+    { name = "vl-convert-python" },
 ]
 
 [package.optional-dependencies]
 test = [
+    { name = "hypothesis" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "altair", specifier = ">=5.0.0" },
+    { name = "hypothesis", marker = "extra == 'test'" },
     { name = "polars" },
+    { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'test'" },
+    { name = "returns" },
+    { name = "vl-convert-python" },
 ]
 provides-extras = ["test"]
 
@@ -4467,6 +4475,37 @@ wheels = [
 ]
 
 [[package]]
+name = "snakemake-executor-plugin-slurm"
+version = "2.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pyyaml" },
+    { name = "snakemake-executor-plugin-slurm-jobstep" },
+    { name = "snakemake-interface-common" },
+    { name = "snakemake-interface-executor-plugins" },
+    { name = "throttler" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8c/74/56d92bf50d148b6bb3f39d096ad7bc4aa21509b917bee5921b94551c3a80/snakemake_executor_plugin_slurm-2.8.0.tar.gz", hash = "sha256:97d931284b1452b6a7afd2f1b6d2002c278ce7a5e8f6a982dc77688817d30399", size = 137886, upload-time = "2026-08-10T09:33:07.06Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/1d/5c61f9db841498be3c933bee40debcc3e74b0b0552f2446a5920ed9592fa/snakemake_executor_plugin_slurm-2.8.0-py3-none-any.whl", hash = "sha256:9b7fdb89261cee00a499d592f408d985ff64ae89916ece768d0506eb848ab58c", size = 46256, upload-time = "2026-08-10T09:33:06.073Z" },
+]
+
+[[package]]
+name = "snakemake-executor-plugin-slurm-jobstep"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "snakemake-interface-common" },
+    { name = "snakemake-interface-executor-plugins" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fc/ec/4d4e41125a29717b71610ae7962a3cde0552c6b0c72c995139b8a0adeb7b/snakemake_executor_plugin_slurm_jobstep-0.6.1.tar.gz", hash = "sha256:0ed2feaa88d1d64f35dc66b4990f131d3f151733edece90d5e952dec0e8f7feb", size = 7437, upload-time = "2026-05-27T12:14:28.522Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/40/85/c6f70395037964e1d3b5334dde546cebc4bb0d05bd4c96399b03b6c4beab/snakemake_executor_plugin_slurm_jobstep-0.6.1-py3-none-any.whl", hash = "sha256:120e122ee1317257bd9608a2a458527ad9fe4520aa1a86109e9ce2ac322321ef", size = 8275, upload-time = "2026-05-27T12:14:29.514Z" },
+]
+
+[[package]]
 name = "snakemake-interface-common"
 version = "1.23.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4896,6 +4935,7 @@ dependencies = [
     { name = "single-cell-immuno-datasets" },
     { name = "singlecellrnasignature" },
     { name = "snakemake" },
+    { name = "snakemake-executor-plugin-slurm" },
     { name = "tables" },
     { name = "tcga" },
     { name = "tme-datasets" },
@@ -4952,6 +4992,7 @@ requires-dist = [
     { name = "single-cell-immuno-datasets", editable = "packages/single_cell_immuno_datasets" },
     { name = "singlecellrnasignature", git = "https://github.com/LuJoHae/SingleCellRNASignature.git" },
     { name = "snakemake", specifier = ">=9.23.1" },
+    { name = "snakemake-executor-plugin-slurm", specifier = ">=0.11.0" },
     { name = "tables", specifier = ">=3.11.1" },
     { name = "tcga", git = "https://github.com/LuJoHae/TCGA.git" },
     { name = "tme-datasets", editable = "packages/tme_datasets" },
@@ -4972,6 +5013,7 @@ dependencies = [
     { name = "anndata" },
     { name = "fast-matrix-market" },
     { name = "gdown" },
+    { name = "harmonypy" },
     { name = "mygene" },
     { name = "numpy" },
     { name = "polars" },
@@ -4990,6 +5032,7 @@ requires-dist = [
     { name = "anndata", specifier = ">=0.10.0" },
     { name = "fast-matrix-market", specifier = ">=1.7.0" },
     { name = "gdown", specifier = ">=5.1.0" },
+    { name = "harmonypy", specifier = ">=0.0.10" },
     { name = "mygene", specifier = ">=3.2.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "polars", specifier = ">=0.20.0" },

@@ -1,0 +1,25 @@
+executor: slurm
+jobs: 32
+latency-wait: 60
+rerun-incomplete: true
+printshellcmds: true
+default-resources:
+  slurm_account: "em25"
+  slurm_partition: "normal"
+  mem_mb: 16000
+  runtime: 120
+  cpus_per_task: 4
+set-threads:
+  preprocess_discovered_cohort: 8
+  run_reference_sampling_hpo: 16
+  run_single_cohort_hpo: 32
+set-resources:
+  preprocess_discovered_cohort:
+    mem_mb: 64000
+    runtime: 240
+  run_reference_sampling_hpo:
+    mem_mb: 64000
+    runtime: 360
+  run_single_cohort_hpo:
+    mem_mb: 64000
+    runtime: 360

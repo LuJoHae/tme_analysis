@@ -3,7 +3,7 @@
 
 CONCORDANCE_OUT_DIR = config.get("concordance_out_dir", "output/concordance")
 CONCORDANCE_RES_DIR = config.get("concordance_results_dir", "results/concordance")
-SC_ADATA_PATH = config.get("sc_adata", "/storage/halu/data/GSE120575/gse120575_processed.h5ad")
+SC_ADATA_PATH = config.get("sc_adata", "/ritom/scratch/cscs/lhaeuser/data-test/preprocessed/GSE120575.h5ad")
 BULK_COUNTS_PATH = config.get("bulk_counts", "data/bulk_counts.parquet")
 CLINICAL_PATH = config.get("clinical_meta", "data/bulk_clinical.parquet")
 

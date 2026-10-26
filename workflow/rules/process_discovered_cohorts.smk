@@ -2,7 +2,12 @@ import os
 from pathlib import Path
 import polars as pl
 
-DISCOVERED_DATA_DIR = os.environ.get("DISCOVERED_DATA_DIR", config.get("discovered_data_dir", "/storage/halu/data-test"))
+DISCOVERED_DATA_DIR = os.environ.get("DISCOVERED_DATA_DIR", config.get("discovered_data_dir", "/ritom/scratch/cscs/lhaeuser/data-test"))
+if str(DISCOVERED_DATA_DIR).startswith("/capstor/store"):
+    raise RuntimeError(
+        f"Direct compute read/write to persistent $STORE ('{DISCOVERED_DATA_DIR}') is strictly prohibited. "
+        "Stage data to $SCRATCH (/ritom/scratch/cscs/lhaeuser/data-test) first."
+    )
 REGISTRY_PATH = os.environ.get("REGISTRY_PATH", "data/registry/discovered_solid_tumor_sc_datasets.parquet")
 RAW_DIR = f"{DISCOVERED_DATA_DIR}/raw"
 PREPROCESSED_DIR = f"{DISCOVERED_DATA_DIR}/preprocessed"
@@ -66,6 +71,10 @@ rule download_discovered_cohort:
         mem_mb=2000
     shell:
         """
+        if [ "${{TME_DISABLE_DOWNLOADS:-0}}" = "1" ] || [ -d /ritom/scratch ]; then
+            echo "ERROR: Internet dataset downloads are strictly forbidden on CSCS Eiger. Download on olm and transfer via Globus." >&2
+            exit 1
+        fi
         python scripts/download_cohorts.py \
             --registry {params.registry} \
             --data-raw-dir {RAW_DIR} \

@@ -5,7 +5,7 @@ concordance_out_dir: "output/concordance"
 concordance_results_dir: "results/concordance"
 
 # Single-cell reference dataset
-sc_adata: "/storage/halu/data/GSE120575/gse120575_processed.h5ad"
+sc_adata: "/ritom/scratch/cscs/lhaeuser/data-test/preprocessed/GSE120575.h5ad"
 sc_patient_col: "patient"
 sc_response_col: "response"
 sc_cluster_col: "celltypist_leiden_0.5"

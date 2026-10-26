@@ -1,8 +1,16 @@
 # Snakefile
-# Orchestrates data processing on the remote server
+# Orchestrates data processing on the remote CSCS Alps Eiger cluster via Slurm
 
-DATA_DIR = "/storage/halu/data-test"
+import os
 
+DATA_DIR = os.environ.get("TME_DATA_DIR", config.get("data_dir", "/ritom/scratch/cscs/lhaeuser/data-test"))
+if str(DATA_DIR).startswith("/capstor/store"):
+    raise RuntimeError(
+        f"Direct compute read/write to persistent $STORE ('{DATA_DIR}') is strictly prohibited. "
+        "Stage data to $SCRATCH (/ritom/scratch/cscs/lhaeuser/data-test) first via 'make stage-in'."
+    )
+
+LAIR_DIR = os.environ.get("TME_LAIR_DIR", f"{DATA_DIR}/lair")
 RESULTS_DIR = f"{DATA_DIR}/results"
 GSE_DIR = f"{DATA_DIR}/GSE120575"
 GSE123139_DIR = f"{DATA_DIR}/GSE123139"
@@ -670,10 +678,12 @@ rule unify_step07_gse120575:
         tpm_meta=f"{GSE_DIR}/gse120575_tpm_cell_metadata.parquet"
     output:
         h5ad=f"{DATA_DIR}/unified_step07_gse120575.h5ad"
+    params:
+        lair_dir=LAIR_DIR
     shell:
         """
         python {input.script} \
-            --lair-dir /storage/halu/lair \
+            --lair-dir {params.lair_dir} \
             --gse120575-dir {GSE_DIR} \
             --output-path {output.h5ad}
         """
@@ -808,7 +818,7 @@ rule deconvolute_iatlas_sade_feldman:
         fracs_comb_20=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res2.0.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
-        lair_dir="/storage/halu/lair",
+        lair_dir=LAIR_DIR,
     shell:
         """
         python {input.script} --lair-dir {params.lair_dir} --out-dir {params.out_dir} --benchmark-mode
@@ -824,7 +834,7 @@ rule logistic_regression_sade_feldman:
         all_results=f"{SADE_VALIDATION_OUT}/logistic_regression_results_all_resolutions.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
-        lair_dir="/storage/halu/lair",
+        lair_dir=LAIR_DIR,
     shell:
         """
         python {input.script} --lair-dir {params.lair_dir} --out-dir {params.out_dir} --benchmark-mode
@@ -865,7 +875,7 @@ rule build_integrated_reference:
         res_metrics=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_comb.parquet",
     params:
         out_dir=SADE_VALIDATION_OUT,
-        lair_dir="/storage/halu/lair",
+        lair_dir=LAIR_DIR,
     shell:
         """
         python {input.script} --adata-sf {input.adata} --lair-dir {params.lair_dir} --out-dir {params.out_dir}
@@ -983,14 +993,17 @@ rule download_single_cell_immuno_datasets:
     shell:
         """
         set -euo pipefail
+        if [ "${{TME_DISABLE_DOWNLOADS:-0}}" = "1" ] || [ -d /ritom/scratch ]; then
+            echo "ERROR: Internet dataset downloads are strictly forbidden on CSCS Eiger. Download on olm and transfer via Globus." >&2
+            exit 1
+        fi
         python {input.script} --base-dir {params.base_dir}
         """
 
 
 rule preprocess_single_cell_immuno_datasets:
     input:
-        script="scripts/03_preprocess_datasets.py",
-        gse120575=f"{DATA_DIR}/raw/GSE120575/GSE120575_tpm.txt.gz"
+        script="scripts/03_preprocess_datasets.py"
     output:
         marker=f"{DATA_DIR}/preprocessed/preprocess_immuno_completed.txt"
     params:

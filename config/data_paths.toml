@@ -10,6 +10,11 @@ dataset_papers_dir = "dataset_papers"
 scratch_dir = "scratch"
 reference_h5ad = "data/reference.h5ad"
 ensembl_dir = "data/ensembl"
+lair_dir = "data/lair"
+results_dir = "data/results"
+output_dir = "data/output"
+reports_dir = "data/reports"
+tmp_dir = "scratch/tmp"
 default_ensembl_release = 111
 default_species = "human"
 
