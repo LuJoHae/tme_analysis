@@ -148,7 +148,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--run-perturbations",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Run systematic data perturbation sweeps (default: True).",
     )
@@ -166,9 +166,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--only-perturbations",
+        "--skip-baseline",
+        dest="only_perturbations",
         action="store_true",
         default=False,
-        help="Skip baseline recomputation and only run perturbation sweeps.",
+        help="Skip baseline recomputation and regenerate figures or run perturbation sweeps.",
     )
     parser.add_argument(
         "--force-perturbations",
@@ -294,7 +296,7 @@ def compute_all_cohort_predictors(cohort: MultiOmicCohort) -> list[PredictionRes
         compute_ayers_ifng6_score,
         compute_jiang_ctls_score,
         lambda c: compute_jiang_tams_score(c, invert_for_response=True),
-        lambda c: compute_jiang_texh_score(c, invert_for_response=True),
+        compute_jiang_texh_score,
         compute_messina_cks_score,
         lambda c: compute_nurmik_cafs_score(c, invert_for_response=True),
         compute_roh_is_score,
@@ -630,12 +632,30 @@ def main() -> None:
         (pl.col("time_stratum") == "Pre") & (pl.col("response_stratum") == "Extreme")
     )
 
-    # 1. Heatmap: ROC-AUC Pre-Treatment Standard Response
+    GENOMIC_MUTATION_PREDICTORS = {
+        "TMB_Genomic",
+        "Composite_Gene_CXCL9_TMB",
+        "Composite_Ayers_GEP_TMB",
+        "Gene_CXCL9_AP_Gated",
+    }
+    pre_std_transcriptomic = pre_std_primary.filter(
+        ~pl.col("predictor_name").is_in(GENOMIC_MUTATION_PREDICTORS)
+    )
+    extreme_transcriptomic = extreme_primary.filter(
+        ~pl.col("predictor_name").is_in(GENOMIC_MUTATION_PREDICTORS)
+    )
+
+    # 1A. Heatmap: Full Multi-Omic ROC-AUC Pre-Treatment Standard Response (Preserved)
     if not pre_std_primary.is_empty():
-        match create_auc_heatmap(pre_std_primary, metric="roc_auc", title="Pre-Treatment Standard ICB Response (ROC-AUC)"):
+        match create_auc_heatmap(
+            pre_std_primary,
+            metric="roc_auc",
+            title="Pre-Treatment Standard ICB Response (Multi-Omic, ROC-AUC)",
+            subtitle="All 31 predictors across 9 cohorts + 3 pools (gaps in Gide et al., 2019 indicate unprofiled WES/CNA data)",
+        ):
             case Success(chart):
                 svg_path = output_dir / "fig_roc_auc_heatmap_pre_standard.svg"
-                match export_chart_svg(chart, svg_path):
+                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
                     case Success(p):
                         print(f"Saved: {p}")
                     case Failure(err):
@@ -643,12 +663,35 @@ def main() -> None:
             case Failure(err):
                 print(f"ROC-AUC heatmap generation failed: {err}")
 
+    # 1B. Heatmap: Pure Transcriptomic Complete-Matrix ROC-AUC Pre-Treatment Standard Response (NEW - Gap-Free)
+    if not pre_std_transcriptomic.is_empty():
+        match create_auc_heatmap(
+            pre_std_transcriptomic,
+            metric="roc_auc",
+            title="Pre-Treatment Standard ICB Response (Transcriptomic Complete Matrix, ROC-AUC)",
+            subtitle="27 RNA-seq gene expression predictors evaluated across all 9 cohorts (100% complete data, zero missing values)",
+        ):
+            case Success(chart):
+                svg_path = output_dir / "fig_roc_auc_heatmap_transcriptomic_pre_standard.svg"
+                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
+                    case Success(p):
+                        print(f"Saved: {p}")
+                    case Failure(err):
+                        print(f"Failed to export transcriptomic ROC-AUC heatmap SVG: {err}")
+            case Failure(err):
+                print(f"Transcriptomic ROC-AUC heatmap generation failed: {err}")
+
     # 2. Heatmap: ROC-AUC Extreme Responders (CR/PR vs PD)
     if not extreme_primary.is_empty():
-        match create_auc_heatmap(extreme_primary, metric="roc_auc", title="Pre-Treatment Extreme Responders: CR/PR vs PD (ROC-AUC)"):
+        match create_auc_heatmap(
+            extreme_primary,
+            metric="roc_auc",
+            title="Pre-Treatment Extreme Responders: CR/PR vs PD (Multi-Omic, ROC-AUC)",
+            subtitle="All 31 predictors across 9 cohorts + 3 pools (gaps denote unprofiled WES/CNA)",
+        ):
             case Success(chart):
                 svg_path = output_dir / "fig_roc_auc_heatmap_pre_extreme.svg"
-                match export_chart_svg(chart, svg_path):
+                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
                     case Success(p):
                         print(f"Saved: {p}")
                     case Failure(err):
@@ -656,12 +699,34 @@ def main() -> None:
             case Failure(err):
                 print(f"Extreme ROC-AUC heatmap generation failed: {err}")
 
-    # 3. Heatmap: PR-AUC Pre-Treatment Standard Response
+    if not extreme_transcriptomic.is_empty():
+        match create_auc_heatmap(
+            extreme_transcriptomic,
+            metric="roc_auc",
+            title="Pre-Treatment Extreme Responders: CR/PR vs PD (Transcriptomic Complete Matrix, ROC-AUC)",
+            subtitle="27 RNA-seq gene expression predictors (100% complete data, zero missing values)",
+        ):
+            case Success(chart):
+                svg_path = output_dir / "fig_roc_auc_heatmap_transcriptomic_pre_extreme.svg"
+                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
+                    case Success(p):
+                        print(f"Saved: {p}")
+                    case Failure(err):
+                        print(f"Failed to export transcriptomic extreme ROC-AUC heatmap SVG: {err}")
+            case Failure(err):
+                print(f"Transcriptomic extreme ROC-AUC heatmap generation failed: {err}")
+
+    # 3A. Heatmap: Full Multi-Omic PR-AUC Pre-Treatment Standard Response (Preserved)
     if not pre_std_primary.is_empty():
-        match create_auc_heatmap(pre_std_primary, metric="pr_auc", title="Pre-Treatment Standard ICB Response (PR-AUC)"):
+        match create_auc_heatmap(
+            pre_std_primary,
+            metric="pr_auc",
+            title="Pre-Treatment Standard ICB Response (Multi-Omic, PR-AUC)",
+            subtitle="All 31 predictors across 9 cohorts + 3 pools (gaps in Gide et al., 2019 indicate unprofiled WES/CNA data)",
+        ):
             case Success(chart):
                 svg_path = output_dir / "fig_pr_auc_heatmap_pre_standard.svg"
-                match export_chart_svg(chart, svg_path):
+                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
                     case Success(p):
                         print(f"Saved: {p}")
                     case Failure(err):
@@ -669,18 +734,58 @@ def main() -> None:
             case Failure(err):
                 print(f"PR-AUC heatmap generation failed: {err}")
 
+    # 3B. Heatmap: Pure Transcriptomic Complete-Matrix PR-AUC Pre-Treatment Standard Response (NEW - Gap-Free)
+    if not pre_std_transcriptomic.is_empty():
+        match create_auc_heatmap(
+            pre_std_transcriptomic,
+            metric="pr_auc",
+            title="Pre-Treatment Standard ICB Response (Transcriptomic Complete Matrix, PR-AUC)",
+            subtitle="27 RNA-seq gene expression predictors evaluated across all 9 cohorts (100% complete data, zero missing values)",
+        ):
+            case Success(chart):
+                svg_path = output_dir / "fig_pr_auc_heatmap_transcriptomic_pre_standard.svg"
+                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
+                    case Success(p):
+                        print(f"Saved: {p}")
+                    case Failure(err):
+                        print(f"Failed to export transcriptomic PR-AUC heatmap SVG: {err}")
+            case Failure(err):
+                print(f"Transcriptomic PR-AUC heatmap generation failed: {err}")
+
     # 4. Heatmap: PR-AUC Extreme Responders
     if not extreme_primary.is_empty():
-        match create_auc_heatmap(extreme_primary, metric="pr_auc", title="Pre-Treatment Extreme Responders: CR/PR vs PD (PR-AUC)"):
+        match create_auc_heatmap(
+            extreme_primary,
+            metric="pr_auc",
+            title="Pre-Treatment Extreme Responders: CR/PR vs PD (Multi-Omic, PR-AUC)",
+            subtitle="All 31 predictors across 9 cohorts + 3 pools (gaps denote unprofiled WES/CNA)",
+        ):
             case Success(chart):
                 svg_path = output_dir / "fig_pr_auc_heatmap_pre_extreme.svg"
-                match export_chart_svg(chart, svg_path):
+                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
                     case Success(p):
                         print(f"Saved: {p}")
                     case Failure(err):
                         print(f"Failed to export extreme PR-AUC heatmap SVG: {err}")
             case Failure(err):
                 print(f"Extreme PR-AUC heatmap generation failed: {err}")
+
+    if not extreme_transcriptomic.is_empty():
+        match create_auc_heatmap(
+            extreme_transcriptomic,
+            metric="pr_auc",
+            title="Pre-Treatment Extreme Responders: CR/PR vs PD (Transcriptomic Complete Matrix, PR-AUC)",
+            subtitle="27 RNA-seq gene expression predictors (100% complete data, zero missing values)",
+        ):
+            case Success(chart):
+                svg_path = output_dir / "fig_pr_auc_heatmap_transcriptomic_pre_extreme.svg"
+                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
+                    case Success(p):
+                        print(f"Saved: {p}")
+                    case Failure(err):
+                        print(f"Failed to export transcriptomic extreme PR-AUC heatmap SVG: {err}")
+            case Failure(err):
+                print(f"Transcriptomic extreme PR-AUC heatmap generation failed: {err}")
 
     # 5. Forest Plot: Predictor Summary ROC-AUC ± 95% CI
     if not pre_std_primary.is_empty():
@@ -834,11 +939,11 @@ def main() -> None:
                         cid_resil = resilience_df.filter(pl.col("cohort_id") == cid)
                         if not cid_resil.is_empty():
                             cohort_dir = output_dir / "cohorts" / cid
-                            cohort_dir.mkdir(parents=True, exist_ok=True)
+                            cid_disp = get_cohort_display_label(cid)
                             match create_resilience_ranking_chart(
                                 cid_resil,
-                                title=f"Predictor Perturbation Resilience Index (PRI) - {cid}",
-                                subtitle=f"Cohort: {cid} | Metric: Normalized Area Retention (1.0 = Complete Resilience)",
+                                title=f"Predictor Perturbation Resilience Index (PRI) - {cid_disp}",
+                                subtitle=f"Cohort: {cid_disp} | Metric: Normalized Area Retention (1.0 = Complete Resilience)",
                             ):
                                 case Success(chart):
                                     export_chart_svg(chart, cohort_dir / "fig_perturbation_resilience_ranking.svg")

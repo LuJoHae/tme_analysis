@@ -142,7 +142,7 @@ def parse_args() -> CombinedRunConfig:
     parser.add_argument(
         "--base-dir",
         type=Path,
-        default=Path("/storage/halu/data-test"),
+        default=Path("/ritom/scratch/cscs/lhaeuser/data-test"),
         help="Base directory containing preprocessed H5AD files",
     )
     parser.add_argument(

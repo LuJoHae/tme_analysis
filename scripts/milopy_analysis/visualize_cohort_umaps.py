@@ -58,9 +58,9 @@ from plotting_utils import (
 
 class VisualizerConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    base_dir: Path = Path("/storage/halu/data-test")
-    results_dir: Path = Path("/storage/halu/data-test/results/milopy_response_analysis")
-    reports_dir: Path = Path("/storage/halu/data-test/reports")
+    base_dir: Path = Path("/ritom/scratch/cscs/lhaeuser/data-test")
+    results_dir: Path = Path("/ritom/scratch/cscs/lhaeuser/data-test/results/milopy_response_analysis")
+    reports_dir: Path = Path("/ritom/scratch/cscs/lhaeuser/data-test/reports")
     min_dist: float = 0.30
     spread: float = 1.00
     fdr_threshold: float = 0.10
@@ -74,17 +74,17 @@ def parse_args() -> VisualizerConfig:
     parser = argparse.ArgumentParser(
         description="Generates publication-grade UMAP visualizations of Milopy differential abundance."
     )
-    parser.add_argument("--base-dir", type=Path, default=Path("/storage/halu/data-test"), help="Base data directory")
+    parser.add_argument("--base-dir", type=Path, default=Path("/ritom/scratch/cscs/lhaeuser/data-test"), help="Base data directory")
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("/storage/halu/data-test/results/milopy_response_analysis"),
+        default=Path("/ritom/scratch/cscs/lhaeuser/data-test/results/milopy_response_analysis"),
         help="Directory containing cohort milopy outputs",
     )
     parser.add_argument(
         "--reports-dir",
         type=Path,
-        default=Path("/storage/halu/data-test/reports"),
+        default=Path("/ritom/scratch/cscs/lhaeuser/data-test/reports"),
         help="Directory to save master reports and SVGs",
     )
     parser.add_argument("--min-dist", type=float, default=0.30, help="UMAP min_dist parameter")

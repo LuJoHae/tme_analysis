@@ -33,6 +33,7 @@ SCORES_FILE: Final[Path] = BENCHMARK_DIR / "stability_scores.parquet"
 OUTPUT_PARQUET: Final[Path] = BENCHMARK_DIR / "curated_expert_gene_dossier.parquet"
 OUTPUT_CSV: Final[Path] = BENCHMARK_DIR / "expert_gene_summary_table.csv"
 OUTPUT_CANCER_CSV: Final[Path] = BENCHMARK_DIR / "curated_markers_cancer_associations.csv"
+OUTPUT_CANCER_TSV: Final[Path] = BENCHMARK_DIR / "curated_markers_cancer_associations.tsv"
 OUTPUT_MD: Final[Path] = BENCHMARK_DIR / "expert_gene_dossier.md"
 OUTPUT_TYP: Final[Path] = Path("article/tables/table_expert_gene_dossier.typ")
 
@@ -938,7 +939,9 @@ def generate_typst_table(df: pl.DataFrame) -> str:
         "    columns: (1.2fr, 0.8fr, 0.8fr, 0.8fr, 0.9fr, 1.1fr, 1.4fr, 1.8fr),",
         "    inset: 4.5pt,",
         "    align: (left, center, center, center, center, center, left, left),",
-        "    [*Gene*], [*Tier*], [*Cohorts*], [*Fitters*], [*Peak $pi$*], [*Direction*], [*Biological Axis*], [*Druggability / Actionability*],",
+        "    table.header(",
+        "      [*Gene*], [*Tier*], [*Cohorts*], [*Fitters*], [*Peak $pi$*], [*Direction*], [*Biological Axis*], [*Druggability / Actionability*],",
+        "    ),",
     ]
 
     for r in top_candidates.iter_rows(named=True):
@@ -982,14 +985,30 @@ def main() -> int:
     df.write_parquet(OUTPUT_PARQUET)
     print(f"[✓] Saved Parquet dossier: {OUTPUT_PARQUET} ({len(df)} candidate genes)")
 
-    # 2. Save CSVs (flatten list columns to semicolon-separated strings)
+    # 2. Save CSVs and TSV
     csv_df = df.with_columns(
         pl.col("cohorts_list").list.join("; "),
         pl.col("fitters_list").list.join("; "),
     )
     csv_df.write_csv(OUTPUT_CSV)
     csv_df.write_csv(OUTPUT_CANCER_CSV)
+
+    tsv_df = pl.DataFrame({
+        "Marker": df["gene_symbol"],
+        "Tier": df["evidence_tier"].map_elements(lambda t: t.split(":")[0].strip(), return_dtype=pl.String),
+        "Evidence Index": df["evidence_index"].map_elements(lambda x: f"{x:.1f}", return_dtype=pl.String),
+        "Peak Stability Score": df["max_stability_score"].map_elements(lambda x: f"{x:.2f}", return_dtype=pl.String),
+        "Direction of Effect": [
+            f"{d.split(' ')[0]} ({fc:+.2f})" 
+            for d, fc in zip(df["direction_of_effect"].to_list(), df["log2_fc"].to_list())
+        ],
+        "Associated Cancer Types": df["associated_cancer_types"],
+        "Datasets & Within-Cohort Peak Score": df["associated_datasets_with_peak_scores"],
+        "Immuno-Biological Axis": df["biological_axis_name"],
+    })
+    tsv_df.write_csv(OUTPUT_CANCER_TSV, separator="\t")
     print(f"[✓] Saved CSV summaries:   {OUTPUT_CSV} and {OUTPUT_CANCER_CSV}")
+    print(f"[✓] Saved TSV table:       {OUTPUT_CANCER_TSV}")
 
     # 3. Save Markdown factsheets
     md_content = generate_markdown_dossier(df)

@@ -389,11 +389,15 @@ def run_full_concordance(config: ConcordanceConfig) -> Result[Path, str]:
         "combo_plat_10x": "10x-Cross-Cancer",
         "combo_cross_tissue": "Cross-Tissue-Pair",
         "combo_tri_ici": "Triple-ICI",
+        "all_4_combined": "All-Datasets-Combined",
         # random combinations
         "random_pair1": "Random-Pair-1",
         "random_pair2": "Random-Pair-2",
+        "random_pair3": "Random-Pair-3",
         "random_triplet1": "Random-Triplet-1",
         "random_triplet2": "Random-Triplet-2",
+        "random_triplet3": "Random-Triplet-3",
+        "random_quad1": "Random-Quadruplet-1",
     }
 
     # Discover all logistic regression result files across references and resolutions

@@ -280,7 +280,7 @@ def main() -> None:
     parser.add_argument(
         "--adata",
         type=str,
-        default="/storage/halu/data/GSE120575/gse120575_processed.h5ad",
+        default="/ritom/scratch/cscs/lhaeuser/data-test/GSE120575/gse120575_processed.h5ad",
         help="Path to gse120575_processed.h5ad",
     )
     parser.add_argument(
@@ -304,7 +304,7 @@ def main() -> None:
     parser.add_argument(
         "--milo-dir",
         type=str,
-        default="/storage/halu/data/output/whole_dataset",
+        default="/ritom/scratch/cscs/lhaeuser/data-test/output/whole_dataset",
         help="Directory containing or to store milopy results CSV/NPZ",
     )
     parser.add_argument(

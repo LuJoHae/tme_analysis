@@ -28,7 +28,7 @@ def main() -> None:
     parser.add_argument(
         "--adata",
         type=str,
-        default="/storage/halu/data/GSE120575/gse120575_processed.h5ad",
+        default="/ritom/scratch/cscs/lhaeuser/data-test/GSE120575/gse120575_processed.h5ad",
         help="Path to gse120575_processed.h5ad",
     )
     parser.add_argument(
@@ -40,7 +40,7 @@ def main() -> None:
     parser.add_argument(
         "--lair-dir",
         type=str,
-        default="/storage/halu/lair",
+        default="/ritom/scratch/cscs/lhaeuser/data-test/lair",
         help="Path to datalair directory",
     )
     parser.add_argument(

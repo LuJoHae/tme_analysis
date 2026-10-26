@@ -331,7 +331,7 @@ def main() -> None:
     parser.add_argument(
         "--lair-dir",
         type=str,
-        default="scratch/lair" if Path("scratch/lair").exists() else "/storage/halu/lair",
+        default="scratch/lair" if Path("scratch/lair").exists() else "/ritom/scratch/cscs/lhaeuser/data-test/lair",
         help="Path to datalair directory",
     )
     parser.add_argument(

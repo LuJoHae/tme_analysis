@@ -9,6 +9,8 @@ Outputs to results/sade_feldman_deconv_validation/.
 from __future__ import annotations
 
 import argparse
+import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Final
@@ -1261,6 +1263,18 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
 
         df = pl.read_parquet(bench_file)
 
+        # Standardize criteria combination names to canonical publication terminology
+        canonical_map = {
+            "Cross-Tissue-Contrast": "Cross-Tissue-Pair",
+            "Platform-SS2-Duo": "SS2-Cross-Cancer",
+            "Platform-10x-Duo": "10x-Cross-Cancer",
+            "ICI-Trio": "Triple-ICI",
+            "Random-Quad-1": "Random-Quadruplet-1",
+        }
+        df = df.with_columns(
+            pl.col("reference_type").replace(canonical_map)
+        )
+
         if "subsample_fraction" not in df.columns:
             df = df.with_columns(pl.lit(1.0).alias("subsample_fraction"))
 
@@ -1296,9 +1310,16 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
         )
 
         # Full-cell configurations for resolution, cluster, and dataset-level sweeps
-        df_full = df.filter(pl.col("subsample_fraction") >= 0.999)
+        df_full = df.filter(
+            (pl.col("subsample_fraction") >= 0.999)
+            & (~pl.col("reference_type").str.contains(r"\(100% Cells\)"))
+        )
         df_full_pd = df_full.to_pandas()
         df_all_pd = df.to_pandas()
+
+        # Deterministic jitter centered on boxplot categories for Row 3
+        np.random.seed(42)
+        df_full_pd["dataset_jitter"] = np.random.uniform(-0.16, 0.16, len(df_full_pd))
 
         # Dataset-level mean summary for Row 3
         df_ds_summary = (
@@ -1327,15 +1348,29 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
         df_reg_coh = pd.DataFrame({"n_cells": x_grid, "mean_cohort_multivariate_auc": c_fit[0] * np.log(x_grid) + c_fit[1]})
 
         cat_order = ["Single Dataset", "Criteria-Combined", "Random-Combined", "Cell-Subsample"]
-        color_scale = alt.Scale(scheme="tableau20")
+        ref_order = sorted(df_full["reference_type"].unique().to_list())
+        color_scale = alt.Scale(scheme="tableau20", domain=ref_order)
         dash_scale = alt.Scale(
             domain=["Single Dataset", "Criteria-Combined", "Random-Combined"],
             range=[[1, 0], [6, 2], [2, 4]],
         )
 
+        # Horizontal bottom legends across full width
+        ref_legend = alt.Legend(
+            orient="bottom",
+            direction="horizontal",
+            columns=5,
+            titleAnchor="middle",
+            labelLimit=250,
+            titleLimit=400,
+            title="Reference Dataset / Strategy",
+            labelFontSize=13,
+            titleFontSize=14,
+            titleFontWeight="bold",
+        )
+
         base = alt.Chart(df_full_pd)
         base_all = alt.Chart(df_all_pd)
-        rule_05 = alt.Chart(pd.DataFrame({"y": [0.5]})).mark_rule(strokeDash=[3, 3], color="gray", opacity=0.7).encode(y="y:Q")
 
         PANEL_WIDTH = 280
         PANEL_HEIGHT = 200
@@ -1348,12 +1383,12 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
             .encode(
                 x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
                 y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
-                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=alt.Legend(columns=2)),
-                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale),
+                color=alt.Color("reference_type:N", title="Reference", scale=color_scale, legend=ref_legend),
+                strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
                 tooltip=["reference_type", "reference_category", "resolution", "melanoma_multivariate_auc", "n_clusters"],
             )
-            .properties(title="A. Melanoma Response AUC by Resolution", width=PANEL_WIDTH, height=PANEL_HEIGHT)
-        ) + rule_05
+            .properties(title=["Melanoma Response AUC", "by Resolution"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
 
         panel_b = (
             base.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=45, filled=True))
@@ -1364,8 +1399,8 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
                 tooltip=["reference_type", "reference_category", "resolution", "pancancer_multivariate_auc"],
             )
-            .properties(title="B. Pan-Cancer AUC by Resolution", width=PANEL_WIDTH, height=PANEL_HEIGHT)
-        ) + rule_05
+            .properties(title=["Pan-Cancer AUC", "by Resolution"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
 
         panel_c = (
             base.mark_line(strokeWidth=2.0, point=alt.OverlayMarkDef(size=45, filled=True))
@@ -1376,7 +1411,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
                 tooltip=["reference_type", "reference_category", "resolution", "mean_cohort_multivariate_auc"],
             )
-            .properties(title="C. Mean Cohort AUC by Resolution", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Mean Cohort AUC", "by Resolution"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         # ---------------------------------------------------------------------------
@@ -1391,8 +1426,8 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
                 tooltip=["reference_type", "reference_category", "n_clusters", "resolution", "melanoma_multivariate_auc"],
             )
-            .properties(title="D. Melanoma AUC vs. Number of Cell States", width=PANEL_WIDTH, height=PANEL_HEIGHT)
-        ) + rule_05
+            .properties(title=["Melanoma AUC vs.", "Number of Cell States"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
 
         panel_e = (
             base.mark_line(strokeWidth=1.8, point=alt.OverlayMarkDef(size=45, filled=True))
@@ -1403,8 +1438,8 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
                 tooltip=["reference_type", "reference_category", "n_clusters", "resolution", "pancancer_multivariate_auc"],
             )
-            .properties(title="E. Pan-Cancer AUC vs. Number of Cell States", width=PANEL_WIDTH, height=PANEL_HEIGHT)
-        ) + rule_05
+            .properties(title=["Pan-Cancer AUC vs.", "Number of Cell States"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
 
         panel_f = (
             base.mark_line(strokeWidth=1.8, point=alt.OverlayMarkDef(size=45, filled=True))
@@ -1415,7 +1450,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 strokeDash=alt.StrokeDash("reference_category:N", title="Strategy", scale=dash_scale, legend=None),
                 tooltip=["reference_type", "reference_category", "n_clusters", "resolution", "mean_cohort_multivariate_auc"],
             )
-            .properties(title="F. Mean Cohort AUC vs. Number of Cell States", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Mean Cohort AUC vs.", "Number of Cell States"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         # ---------------------------------------------------------------------------
@@ -1426,12 +1461,12 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
         panel_g = (
             alt.layer(
                 base.mark_boxplot(size=26, opacity=0.75, color="#e0e0e0").encode(
-                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets", axis=alt.Axis(labelAngle=0)),
                     y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
                 ),
                 base.mark_circle(size=32, opacity=0.65).encode(
-                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
-                    xOffset=alt.XOffset("resolution:Q", scale=alt.Scale(range=[-10, 10])),
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets", axis=alt.Axis(labelAngle=0)),
+                    xOffset=alt.XOffset("dataset_jitter:Q", scale=alt.Scale(domain=[-1, 1])),
                     y=alt.Y("melanoma_multivariate_auc:Q", scale=alt.Scale(domain=[0.55, 0.74])),
                     color=alt.Color("reference_type:N", scale=color_scale, legend=None),
                     tooltip=["reference_type", "n_datasets", "resolution", "melanoma_multivariate_auc"],
@@ -1441,18 +1476,18 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                     y=alt.Y("mean_mel_auc:Q"),
                 ),
             )
-            .properties(title="G. Melanoma AUC vs. Number of Integrated Datasets", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Melanoma AUC vs.", "Number of Integrated Datasets"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         panel_h = (
             alt.layer(
                 base.mark_boxplot(size=26, opacity=0.75, color="#e0e0e0").encode(
-                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets", axis=alt.Axis(labelAngle=0)),
                     y=alt.Y("pancancer_multivariate_auc:Q", title="Pan-Cancer AUC", scale=alt.Scale(domain=[0.54, 0.68])),
                 ),
                 base.mark_circle(size=32, opacity=0.65).encode(
-                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
-                    xOffset=alt.XOffset("resolution:Q", scale=alt.Scale(range=[-10, 10])),
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets", axis=alt.Axis(labelAngle=0)),
+                    xOffset=alt.XOffset("dataset_jitter:Q", scale=alt.Scale(domain=[-1, 1])),
                     y=alt.Y("pancancer_multivariate_auc:Q", scale=alt.Scale(domain=[0.54, 0.68])),
                     color=alt.Color("reference_type:N", scale=color_scale, legend=None),
                     tooltip=["reference_type", "n_datasets", "resolution", "pancancer_multivariate_auc"],
@@ -1462,18 +1497,18 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                     y=alt.Y("mean_pan_auc:Q"),
                 ),
             )
-            .properties(title="H. Pan-Cancer AUC vs. Number of Integrated Datasets", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Pan-Cancer AUC vs.", "Number of Integrated Datasets"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         panel_i = (
             alt.layer(
                 base.mark_boxplot(size=26, opacity=0.75, color="#e0e0e0").encode(
-                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets", axis=alt.Axis(labelAngle=0)),
                     y=alt.Y("mean_cohort_multivariate_auc:Q", title="Mean Cohort AUC", scale=alt.Scale(domain=[0.58, 0.78])),
                 ),
                 base.mark_circle(size=32, opacity=0.65).encode(
-                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets"),
-                    xOffset=alt.XOffset("resolution:Q", scale=alt.Scale(range=[-10, 10])),
+                    x=alt.X("n_datasets:O", title="Number of Integrated Datasets", axis=alt.Axis(labelAngle=0)),
+                    xOffset=alt.XOffset("dataset_jitter:Q", scale=alt.Scale(domain=[-1, 1])),
                     y=alt.Y("mean_cohort_multivariate_auc:Q", scale=alt.Scale(domain=[0.58, 0.78])),
                     color=alt.Color("reference_type:N", scale=color_scale, legend=None),
                     tooltip=["reference_type", "n_datasets", "resolution", "mean_cohort_multivariate_auc"],
@@ -1483,7 +1518,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                     y=alt.Y("mean_coh_auc:Q"),
                 ),
             )
-            .properties(title="I. Mean Cohort AUC vs. Number of Integrated Datasets", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Mean Cohort AUC vs.", "Number of Integrated Datasets"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         # ---------------------------------------------------------------------------
@@ -1503,8 +1538,8 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 ),
                 chart_reg_mel,
             )
-            .properties(title="J. Melanoma AUC vs. Single Cells (Saturation Curve)", width=PANEL_WIDTH, height=PANEL_HEIGHT)
-        ) + rule_05
+            .properties(title=["Melanoma AUC vs. Single Cells", "(Saturation Curve)"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
 
         chart_reg_pan = alt.Chart(df_reg_pan).mark_line(color="#ff7f0e", strokeWidth=2.2, strokeDash=[4, 3]).encode(
             x="n_cells:Q",
@@ -1520,8 +1555,8 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 ),
                 chart_reg_pan,
             )
-            .properties(title="K. Pan-Cancer AUC vs. Single Cells (Saturation Curve)", width=PANEL_WIDTH, height=PANEL_HEIGHT)
-        ) + rule_05
+            .properties(title=["Pan-Cancer AUC vs. Single Cells", "(Saturation Curve)"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
 
         chart_reg_coh = alt.Chart(df_reg_coh).mark_line(color="#2ca02c", strokeWidth=2.2, strokeDash=[4, 3]).encode(
             x="n_cells:Q",
@@ -1537,7 +1572,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 ),
                 chart_reg_coh,
             )
-            .properties(title="L. Mean Cohort AUC vs. Single Cells (Saturation Curve)", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Mean Cohort AUC vs. Single Cells", "(Saturation Curve)"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         # ---------------------------------------------------------------------------
@@ -1562,38 +1597,47 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
             domain=["Combined-Atlas", "All-Datasets-Combined", "Random-Triplet-1"],
             range=["#d95f02", "#7570b3", "#1b9e77"],
         )
+        series_legend = alt.Legend(
+            orient="bottom",
+            direction="horizontal",
+            titleAnchor="middle",
+            title="Atlas Series",
+            labelFontSize=13,
+            titleFontSize=14,
+            titleFontWeight="bold",
+        )
 
         panel_m = (
             base_sub.mark_line(strokeWidth=2.2, point=alt.OverlayMarkDef(size=50, filled=True))
             .encode(
                 x=alt.X("subsample_fraction:Q", title="Cell Subsampling Fraction", axis=alt.Axis(format="%", tickMinStep=0.1)),
                 y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
-                color=alt.Color("subsample_series:N", title="Atlas Series", scale=series_scale),
+                color=alt.Color("subsample_series:N", scale=series_scale, legend=series_legend),
                 tooltip=["subsample_series", "subsample_fraction", "n_cells", "melanoma_multivariate_auc"],
             )
-            .properties(title="M. Melanoma AUC vs. Cell Subsampling Fraction", width=PANEL_WIDTH, height=PANEL_HEIGHT)
-        ) + rule_05
+            .properties(title=["Melanoma AUC vs.", "Cell Subsampling Fraction"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
 
         panel_n = (
             base_sub.mark_line(strokeWidth=2.2, point=alt.OverlayMarkDef(size=50, filled=True))
             .encode(
                 x=alt.X("subsample_fraction:Q", title="Cell Subsampling Fraction", axis=alt.Axis(format="%", tickMinStep=0.1)),
                 y=alt.Y("pancancer_multivariate_auc:Q", title="Pan-Cancer AUC", scale=alt.Scale(domain=[0.54, 0.68])),
-                color=alt.Color("subsample_series:N", title="Atlas Series", scale=series_scale),
+                color=alt.Color("subsample_series:N", scale=series_scale, legend=None),
                 tooltip=["subsample_series", "subsample_fraction", "n_cells", "pancancer_multivariate_auc"],
             )
-            .properties(title="N. Pan-Cancer AUC vs. Cell Subsampling Fraction", width=PANEL_WIDTH, height=PANEL_HEIGHT)
-        ) + rule_05
+            .properties(title=["Pan-Cancer AUC vs.", "Cell Subsampling Fraction"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
+        )
 
         panel_o = (
             base_sub.mark_line(strokeWidth=2.2, point=alt.OverlayMarkDef(size=50, filled=True))
             .encode(
                 x=alt.X("subsample_fraction:Q", title="Cell Subsampling Fraction", axis=alt.Axis(format="%", tickMinStep=0.1)),
                 y=alt.Y("mean_cohort_multivariate_auc:Q", title="Mean Cohort AUC", scale=alt.Scale(domain=[0.58, 0.78])),
-                color=alt.Color("subsample_series:N", title="Atlas Series", scale=series_scale),
+                color=alt.Color("subsample_series:N", scale=series_scale, legend=None),
                 tooltip=["subsample_series", "subsample_fraction", "n_cells", "mean_cohort_multivariate_auc"],
             )
-            .properties(title="O. Mean Cohort AUC vs. Cell Subsampling Fraction", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Mean Cohort AUC vs.", "Cell Subsampling Fraction"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         # ---------------------------------------------------------------------------
@@ -1603,7 +1647,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
             alt.layer(
                 base.mark_boxplot(size=28, outliers=False, opacity=0.8).encode(
                     x=alt.X("reference_category:N", title="Strategy", sort=cat_order),
-                    y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma AUC", scale=alt.Scale(domain=[0.55, 0.74])),
+                    y=alt.Y("melanoma_multivariate_auc:Q", title="Melanoma Response AUC", scale=alt.Scale(domain=[0.55, 0.74])),
                     color=alt.Color("reference_category:N", title="Strategy", legend=None),
                 ),
                 base.mark_circle(size=25, opacity=0.5, xOffset=8).encode(
@@ -1613,7 +1657,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                     tooltip=["reference_type", "resolution", "melanoma_multivariate_auc"],
                 ),
             )
-            .properties(title="P. Melanoma AUC Distribution by Strategy", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Melanoma AUC Distribution", "by Strategy"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         panel_q = (
@@ -1630,7 +1674,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                     tooltip=["reference_type", "resolution", "pancancer_multivariate_auc"],
                 ),
             )
-            .properties(title="Q. Pan-Cancer AUC Distribution by Strategy", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Pan-Cancer AUC Distribution", "by Strategy"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         df_delta = (
@@ -1655,7 +1699,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
             .mark_bar()
             .encode(
                 x=alt.X("resolution:Q", title="Leiden Resolution", axis=alt.Axis(tickMinStep=0.25)),
-                y=alt.Y("mean_delta_auc:Q", title="Mean ΔAUC vs Previous Resolution"),
+                y=alt.Y("mean_delta_auc:Q", title="Mean ΔAUC vs Prev. Res."),
                 color=alt.condition(
                     alt.datum.mean_delta_auc > 0,
                     alt.value("#4daf4a"),
@@ -1663,33 +1707,99 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
                 ),
                 tooltip=["resolution", "mean_delta_auc"],
             )
-            .properties(title="R. Marginal AUC Gain per Resolution Step", width=PANEL_WIDTH, height=PANEL_HEIGHT)
+            .properties(title=["Marginal AUC Gain", "per Resolution Step"], width=PANEL_WIDTH, height=PANEL_HEIGHT)
         )
 
         row1 = (panel_a | panel_b | panel_c).resolve_scale(color="shared", strokeDash="shared")
         row2 = (panel_d | panel_e | panel_f).resolve_scale(color="shared", strokeDash="shared")
         row3 = (panel_g | panel_h | panel_i).resolve_scale(color="shared")
         row4 = (panel_j | panel_k | panel_l).resolve_scale(color="shared")
+
+        # Group main multi-resolution comparison rows (Rows 1-4) with shared reference color/strokeDash
+        main_rows = (
+            alt.vconcat(row1, row2, row3, row4, spacing=25)
+            .resolve_scale(color="shared", strokeDash="shared")
+        )
+
+        # Row 5 maintains isolated subsampling titration series
         row5 = (panel_m | panel_n | panel_o).resolve_scale(color="shared")
         row6 = (panel_p | panel_q | panel_r).resolve_scale(color="independent")
 
+        # Hierarchical assembly: isolates main_rows from Row 5 titration series to prevent scale clobbering
         final_chart = (
-            alt.vconcat(row1, row2, row3, row4, row5, row6, spacing=25)
-            .properties(
-                title="Figure 1 — Predictive Capacity Benchmark: Multi-Resolution Reference & Subsampling Comparison"
-            )
-            .configure_title(fontSize=16, anchor="start", font="Helvetica")
-            .configure_axis(labelFontSize=10, titleFontSize=11, titleFontWeight="bold")
+            alt.vconcat(main_rows, row5, row6, spacing=32)
+            .resolve_scale(color="independent", strokeDash="independent")
+            .configure_axisY(minExtent=65, maxExtent=65, titlePadding=10)
+            .configure_axis(labelFontSize=13, titleFontSize=14, titleFontWeight="bold")
+            .configure_legend(labelFontSize=13, titleFontSize=14, titleFontWeight="bold")
+            .configure_title(fontSize=16, fontWeight="bold")
         )
 
         out_path = results_dir / "fig1_predictive_capacity_benchmark.svg"
         results_dir.mkdir(parents=True, exist_ok=True)
         final_chart.save(str(out_path))
+
+        # Post-process SVG to enforce 180mm width, minimum 13pt font size, and inject (a)-(r) labels
+        svg_content = out_path.read_text(encoding="utf-8")
+
+        # Inject panel letters (a) through (r) in top-left corner of each subpanel
+        letters = [f"({chr(ord('a') + i)})" for i in range(18)]
+        letter_idx = 0
+
+        def inject_panel_letter(m: re.Match[str]) -> str:
+            nonlocal letter_idx
+            letter = letters[letter_idx] if letter_idx < len(letters) else ""
+            letter_idx += 1
+            content = m.group(0)
+            prefix = '<g class="mark-group role-title">'
+            label_xml = (
+                '<g class="mark-text role-panel-letter" pointer-events="none">'
+                f'<text text-anchor="start" transform="translate(-60,-28)" '
+                'font-family="sans-serif" font-size="16px" font-weight="bold" '
+                f'fill="#000" opacity="1">{letter}</text></g>'
+            )
+            return prefix + label_xml + content[len(prefix):]
+
+        svg_content = re.sub(
+            r'<g class="mark-group role-title">.*?</g></g></g>',
+            inject_panel_letter,
+            svg_content,
+        )
+
+        # Enforce minimum font size of 13.0 (13 pt, 30% increase)
+        svg_content = re.sub(
+            r'font-size="([0-9\.]+)px"',
+            lambda m: f'font-size="{max(13.0, float(m.group(1))):.1f}px"',
+            svg_content,
+        )
+        svg_content = re.sub(
+            r'font-size:\s*([0-9\.]+)px',
+            lambda m: f'font-size: {max(13.0, float(m.group(1))):.1f}px',
+            svg_content,
+        )
+        # Set exact 180mm width with unconstrained height
+        match_dims = re.search(
+            r'<svg([^>]+)width="([0-9\.]+)"\s+height="([0-9\.]+)"([^>]*)viewBox="0\s+0\s+([0-9\.]+)\s+([0-9\.]+)"',
+            svg_content,
+        )
+        if match_dims:
+            w = float(match_dims.group(2))
+            h = float(match_dims.group(3))
+            prefix = f'<svg{match_dims.group(1)}width="180.00mm"{match_dims.group(4)}viewBox="0 0 {w} {h}"'
+            svg_content = svg_content[:match_dims.start()] + prefix + svg_content[match_dims.end():]
+        out_path.write_text(svg_content, encoding="utf-8")
+
         png_path = results_dir / "fig1_predictive_capacity_benchmark.png"
         try:
-            final_chart.save(str(png_path), scale_factor=2.0)
+            subprocess.run(
+                ["rsvg-convert", "-d", "300", "-p", "300", str(out_path), "-o", str(png_path)],
+                check=True,
+            )
         except Exception:
-            pass
+            try:
+                final_chart.save(str(png_path), scale_factor=2.0)
+            except Exception:
+                pass
         return Success(out_path)
     except Exception as exc:
         return Failure(f"Failed to generate Figure 1: {exc}")
