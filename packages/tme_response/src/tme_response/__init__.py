@@ -119,11 +119,21 @@ from .perturbations import (
 
 # Visualization
 from .visualization import (
+    CANONICAL_CANCER_ORDER,
+    CLINICAL_DEFAULT_PREDICTORS,
+    COHORT_METADATA_MAP,
+    PREDICTOR_DISPLAY_MAP,
+    AggregationMode,
+    ClinicalBarPlotConfig,
     UncertaintyMode,
+    aggregate_clinical_predictors,
     create_auc_heatmap,
     create_benchmark_bar_chart,
     create_c_index_forest_plot,
+    create_cancer_group_track,
+    create_clinical_selection_bar_chart,
     create_cohort_predictability_forest_plot,
+    create_combined_summary_forest_plot,
     create_cox_hr_forest_plot,
     create_cross_cohort_resilience_heatmap,
     create_dca_net_benefit_chart,
@@ -135,6 +145,10 @@ from .visualization import (
     create_roc_chart,
     create_summary_forest_plot,
     export_chart_svg,
+    get_canonical_cohort_order,
+    get_cohort_display_label,
+    get_predictor_display_label,
+    with_display_labels,
 )
 
 
@@ -228,10 +242,17 @@ __all__ = [
     "compute_standard_cohort_predictors",
     "run_cohort_perturbation_sweep",
     # Visualization
+    "CLINICAL_DEFAULT_PREDICTORS",
+    "AggregationMode",
+    "ClinicalBarPlotConfig",
+    "aggregate_clinical_predictors",
     "create_roc_chart",
     "create_benchmark_bar_chart",
+    "create_clinical_selection_bar_chart",
     "create_auc_heatmap",
+    "create_cancer_group_track",
     "create_summary_forest_plot",
+    "create_combined_summary_forest_plot",
     "create_cohort_predictability_forest_plot",
     "create_pooling_comparison_chart",
     "create_perturbation_decay_chart",
@@ -243,4 +264,12 @@ __all__ = [
     "create_cox_hr_forest_plot",
     "create_dca_net_benefit_chart",
     "export_chart_svg",
+    "PREDICTOR_DISPLAY_MAP",
+    "COHORT_METADATA_MAP",
+    "get_predictor_display_label",
+    "get_cohort_display_label",
+    "with_display_labels",
+    "CANONICAL_CANCER_ORDER",
+    "get_canonical_cohort_order",
 ]
+

@@ -366,9 +366,9 @@ def compute_jiang_tams_score(
 
 def compute_jiang_texh_score(
     cohort: MultiOmicCohort,
-    invert_for_response: bool = True,
+    invert_for_response: bool = False,
 ) -> Result[PredictionResult, str]:
-    """Giordano / Jiang 2018 T-cell exhaustion (Texh) 50-gene mean (inverted for response)."""
+    """Giordano / Jiang 2018 T-cell exhaustion (Texh) 50-gene mean (COMPASS Table S2 positive orientation)."""
     p_name = "Jiang_Texh_Inverted" if invert_for_response else "Jiang_Texh"
     return _compute_mean_log2_score(
         cohort,

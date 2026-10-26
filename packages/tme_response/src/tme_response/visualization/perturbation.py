@@ -7,6 +7,8 @@ import altair as alt
 import polars as pl
 from returns.result import Failure, Result, Success
 
+from .display_labels import get_cohort_display_label, with_display_labels
+
 UncertaintyMode = Literal["shaded", "errorbars", "none"]
 
 
@@ -29,10 +31,12 @@ def create_perturbation_decay_chart(
     unaffected by shaded area opacity.
     """
     try:
-        sub_df = perturbation_df.filter(pl.col("perturbation_type") == perturbation_type)
+        df_enriched = with_display_labels(perturbation_df)
+        sub_df = df_enriched.filter(pl.col("perturbation_type") == perturbation_type)
         if sub_df.is_empty():
             return Failure(f"No records found for perturbation_type='{perturbation_type}'.")
 
+        pred_label_col = "predictor_display" if "predictor_display" in sub_df.columns else "predictor_name"
         is_pr = metric == "pr_auc"
         metric_col = "pr_auc" if is_pr else "roc_auc"
         lower_col = "pr_auc_ci_lower" if is_pr else "roc_auc_ci_lower"
@@ -47,7 +51,7 @@ def create_perturbation_decay_chart(
         x_title = x_title_map.get(perturbation_type, "Perturbation Intensity")
 
         cohort_ids = sub_df["cohort_id"].unique().to_list()
-        cohort_str = cohort_ids[0] if len(cohort_ids) == 1 else f"{len(cohort_ids)} Cohorts"
+        cohort_str = get_cohort_display_label(cohort_ids[0]) if len(cohort_ids) == 1 else f"{len(cohort_ids)} Cohorts"
 
         p_name = perturbation_type.replace("_", " ").title()
         main_title = title or f"Predictor Decay under {p_name} ({cohort_str})"
@@ -81,12 +85,13 @@ def create_perturbation_decay_chart(
             symbolOpacity=1.0,
             symbolSize=70,
             symbolStrokeWidth=0,
+            labelLimit=300,
         )
 
         base = alt.Chart(sub_df).encode(
             x=alt.X("intensity:Q", title=x_title),
             color=alt.Color(
-                "predictor_name:N",
+                f"{pred_label_col}:N",
                 title="Predictor",
                 scale=color_scale,
                 legend=pred_legend,
@@ -105,7 +110,7 @@ def create_perturbation_decay_chart(
             y=f"{metric_col}:Q",
             tooltip=[
                 "cohort_id",
-                "predictor_name",
+                pred_label_col,
                 "perturbation_type",
                 alt.Tooltip("intensity:Q", format=".2f", title="Intensity"),
                 alt.Tooltip(f"{metric_col}:Q", format=".3f", title="Score"),
@@ -164,12 +169,15 @@ def create_resilience_ranking_chart(
         if resilience_df.is_empty():
             return Failure("Resilience DataFrame is empty.")
 
-        annotated = resilience_df.with_columns(
-            pl.format("{}", pl.col("pri_score").round(2)).alias("display_text")
-        )
+        df_enriched = with_display_labels(resilience_df)
+        pred_label_col = "predictor_display" if "predictor_display" in df_enriched.columns else "predictor_name"
+        annotated = df_enriched.with_columns([
+            pl.format("{}", pl.col("pri_score").round(2)).alias("display_text"),
+            pl.col("perturbation_type").str.replace_all("_", " ").str.to_titlecase().alias("perturbation_type"),
+        ])
 
         cohort_ids = resilience_df["cohort_id"].unique().to_list()
-        cohort_str = cohort_ids[0] if len(cohort_ids) == 1 else f"{len(cohort_ids)} Cohorts"
+        cohort_str = get_cohort_display_label(cohort_ids[0]) if len(cohort_ids) == 1 else f"{len(cohort_ids)} Cohorts"
         sub_title = subtitle or f"Cohort: {cohort_str} | Metric: Normalized Trapezoidal AUC Retention (1.0 = Complete Resilience)"
 
         plot_title = alt.TitleParams(
@@ -182,9 +190,10 @@ def create_resilience_ranking_chart(
 
         base = alt.Chart(annotated).encode(
             y=alt.Y(
-                "predictor_name:N",
+                f"{pred_label_col}:N",
                 title="Predictor / Biomarker",
                 sort=alt.EncodingSortField(field="pri_score", op="mean", order="descending"),
+                axis=alt.Axis(labelLimit=380, labelFontSize=10),
             ),
             color=alt.Color("perturbation_type:N", title="Perturbation Modality", scale=alt.Scale(scheme="tableau10")),
             xOffset=alt.XOffset("perturbation_type:N"),
@@ -198,7 +207,7 @@ def create_resilience_ranking_chart(
             ),
             tooltip=[
                 "cohort_id",
-                "predictor_name",
+                pred_label_col,
                 "perturbation_type",
                 alt.Tooltip("baseline_roc_auc:Q", format=".3f", title="Baseline AUC"),
                 alt.Tooltip("min_roc_auc:Q", format=".3f", title="Min AUC"),
@@ -246,9 +255,13 @@ def create_pan_cohort_faceted_decay_chart(
     Legend symbols strictly reflect the solid, full-opacity colors of the points.
     """
     try:
-        sub_df = perturbation_df.filter(pl.col("perturbation_type") == perturbation_type)
+        df_enriched = with_display_labels(perturbation_df)
+        sub_df = df_enriched.filter(pl.col("perturbation_type") == perturbation_type)
         if sub_df.is_empty():
             return Failure(f"No records found for perturbation_type='{perturbation_type}'.")
+
+        pred_label_col = "predictor_display" if "predictor_display" in sub_df.columns else "predictor_name"
+        cohort_label_col = "cohort_display" if "cohort_display" in sub_df.columns else "cohort_id"
 
         is_pr = metric == "pr_auc"
         metric_col = "pr_auc" if is_pr else "roc_auc"
@@ -305,12 +318,13 @@ def create_pan_cohort_faceted_decay_chart(
             symbolOpacity=1.0,
             symbolSize=65,
             symbolStrokeWidth=0,
+            labelLimit=300,
         )
 
         base = alt.Chart(sub_df).encode(
             x=alt.X("intensity:Q", title=x_title),
             color=alt.Color(
-                "predictor_name:N",
+                f"{pred_label_col}:N",
                 title="Predictor",
                 scale=color_scale,
                 legend=pred_legend,
@@ -329,7 +343,8 @@ def create_pan_cohort_faceted_decay_chart(
             y=f"{metric_col}:Q",
             tooltip=[
                 "cohort_id",
-                "predictor_name",
+                cohort_label_col,
+                pred_label_col,
                 "perturbation_type",
                 alt.Tooltip("intensity:Q", format=".2f", title="Intensity"),
                 alt.Tooltip(f"{metric_col}:Q", format=".3f", title="Score"),
@@ -366,7 +381,7 @@ def create_pan_cohort_faceted_decay_chart(
             (core + ref_line)
             .properties(width=220, height=160)
             .facet(
-                facet=alt.Facet("cohort_id:N", title=None, header=alt.Header(labelFontSize=11, labelFontWeight="bold")),
+                facet=alt.Facet(f"{cohort_label_col}:N", title=None, header=alt.Header(labelFontSize=10.5, labelFontWeight="bold")),
                 columns=columns,
             )
             .properties(title=plot_title)
@@ -387,9 +402,14 @@ def create_cross_cohort_resilience_heatmap(
         if resilience_df.is_empty():
             return Failure("Resilience DataFrame is empty.")
 
+        # Enrich with human-readable display labels
+        df_enriched = with_display_labels(resilience_df)
+        c_label = "cohort_display" if "cohort_display" in df_enriched.columns else "cohort_id"
+        p_label = "predictor_display" if "predictor_display" in df_enriched.columns else "predictor_name"
+
         # Aggregate across perturbation types per cohort and predictor
         agg_df = (
-            resilience_df.group_by(["cohort_id", "predictor_name", "category"])
+            df_enriched.group_by([c_label, p_label, "cohort_id", "predictor_name", "category"])
             .agg(
                 pl.col("pri_score").mean().alias("mean_pri"),
                 pl.col("relative_auc_retained").mean().alias("mean_retention"),
@@ -411,11 +431,16 @@ def create_cross_cohort_resilience_heatmap(
         )
 
         base = alt.Chart(agg_df).encode(
-            x=alt.X("cohort_id:N", title="Clinical Cohort", axis=alt.Axis(labelAngle=-40)),
+            x=alt.X(
+                f"{c_label}:N",
+                title="Clinical Cohort",
+                axis=alt.Axis(labelAngle=-40, labelLimit=320, labelFontSize=10),
+            ),
             y=alt.Y(
-                "predictor_name:N",
+                f"{p_label}:N",
                 title="Predictor / Biomarker",
                 sort=alt.EncodingSortField(field="mean_pri", op="mean", order="descending"),
+                axis=alt.Axis(labelLimit=380, labelFontSize=10),
             ),
         )
 
@@ -426,6 +451,8 @@ def create_cross_cohort_resilience_heatmap(
                 scale=alt.Scale(scheme="viridis", domain=[0.80, 1.02]),
             ),
             tooltip=[
+                c_label,
+                p_label,
                 "cohort_id",
                 "predictor_name",
                 "category",
@@ -475,16 +502,18 @@ def create_meta_analytic_decay_chart(
     Legend symbols strictly reflect the solid, full-opacity colors of the points.
     """
     try:
-        sub_df = perturbation_df.filter(pl.col("perturbation_type") == perturbation_type)
+        df_enriched = with_display_labels(perturbation_df)
+        sub_df = df_enriched.filter(pl.col("perturbation_type") == perturbation_type)
         if sub_df.is_empty():
             return Failure(f"No records found for perturbation_type='{perturbation_type}'.")
 
+        pred_label_col = "predictor_display" if "predictor_display" in sub_df.columns else "predictor_name"
         is_pr = metric == "pr_auc"
         metric_col = "pr_auc" if is_pr else "roc_auc"
 
-        # Compute mean +/- SEM across cohorts per (intensity, predictor_name)
+        # Compute mean +/- SEM across cohorts per (intensity, predictor_display)
         agg_df = (
-            sub_df.group_by(["intensity", "predictor_name"])
+            sub_df.group_by(["intensity", pred_label_col])
             .agg(
                 pl.col(metric_col).mean().alias("mean_score"),
                 pl.col(metric_col).std().alias("std_score"),
@@ -549,12 +578,13 @@ def create_meta_analytic_decay_chart(
             symbolOpacity=1.0,
             symbolSize=70,
             symbolStrokeWidth=0,
+            labelLimit=300,
         )
 
         base = alt.Chart(agg_df).encode(
             x=alt.X("intensity:Q", title=x_title),
             color=alt.Color(
-                "predictor_name:N",
+                f"{pred_label_col}:N",
                 title="Predictor",
                 scale=color_scale,
                 legend=pred_legend,
@@ -572,7 +602,7 @@ def create_meta_analytic_decay_chart(
         points = base.mark_point(size=50, filled=True, opacity=1.0).encode(
             y="mean_score:Q",
             tooltip=[
-                "predictor_name",
+                pred_label_col,
                 alt.Tooltip("intensity:Q", format=".2f", title="Intensity"),
                 alt.Tooltip("mean_score:Q", format=".3f", title="Mean Score"),
                 alt.Tooltip("ci_lo:Q", format=".3f", title="-1 SEM"),

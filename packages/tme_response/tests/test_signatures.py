@@ -145,18 +145,18 @@ def mock_cohort() -> MultiOmicCohort:
         "PALLD": [0.0, 5.0, 10.0],
         "GALNT18": [0.0, 5.0, 10.0],
         "MAOA": [0.0, 5.0, 10.0],
-        # T-cell exhaustion markers
-        "HSPA1B": [0.0, 5.0, 10.0],
-        "HSPA1A": [0.0, 5.0, 10.0],
-        "NR4A2": [0.0, 5.0, 10.0],
-        "RGS1": [0.0, 5.0, 10.0],
-        "TNFAIP3": [0.0, 5.0, 10.0],
-        "CAMK2N1": [0.0, 5.0, 10.0],
-        "DUSP1": [0.0, 5.0, 10.0],
-        "NR4A3": [0.0, 5.0, 10.0],
-        "IFIT3": [0.0, 5.0, 10.0],
-        "IFIT1B": [0.0, 5.0, 10.0],
-        "FOSB": [0.0, 5.0, 10.0],
+        # T-cell exhaustion markers (expressed on infiltrating T cells)
+        "HSPA1B": [10.0, 5.0, 0.0],
+        "HSPA1A": [10.0, 5.0, 0.0],
+        "NR4A2": [10.0, 5.0, 0.0],
+        "RGS1": [10.0, 5.0, 0.0],
+        "TNFAIP3": [10.0, 5.0, 0.0],
+        "CAMK2N1": [10.0, 5.0, 0.0],
+        "DUSP1": [10.0, 5.0, 0.0],
+        "NR4A3": [10.0, 5.0, 0.0],
+        "IFIT3": [10.0, 5.0, 0.0],
+        "IFIT1B": [10.0, 5.0, 0.0],
+        "FOSB": [10.0, 5.0, 0.0],
         # Roh IS / Wu MIAS / NRS
         "GNLY": [5.0, 2.0, 0.0],
         "HLA-A": [5.0, 2.0, 0.0],
@@ -329,10 +329,15 @@ def test_jiang_ctl_and_resistance_inversion(mock_cohort: MultiOmicCohort) -> Non
     scores_tam = res_tam.unwrap().predictions["score"].to_list()
     assert scores_tam[0] > scores_tam[1] > scores_tam[2]
 
-    res_texh = compute_jiang_texh_score(mock_cohort, invert_for_response=True)
+    res_texh = compute_jiang_texh_score(mock_cohort, invert_for_response=False)
     assert isinstance(res_texh, Success)
     scores_texh = res_texh.unwrap().predictions["score"].to_list()
     assert scores_texh[0] > scores_texh[1] > scores_texh[2]
+
+    res_texh_inv = compute_jiang_texh_score(mock_cohort, invert_for_response=True)
+    assert isinstance(res_texh_inv, Success)
+    scores_texh_inv = res_texh_inv.unwrap().predictions["score"].to_list()
+    assert scores_texh_inv[2] > scores_texh_inv[1] > scores_texh_inv[0]
 
     res_caf = compute_nurmik_cafs_score(mock_cohort, invert_for_response=True)
     assert isinstance(res_caf, Success)
@@ -394,7 +399,7 @@ def test_consolidate_signatures_all_baselines(mock_cohort: MultiOmicCohort) -> N
     assert "score_Ayers_IFNG_6" in df.columns
     assert "score_Jiang_CTLs" in df.columns
     assert "score_Jiang_TAMs_Inverted" in df.columns
-    assert "score_Jiang_Texh_Inverted" in df.columns
+    assert "score_Jiang_Texh" in df.columns
     assert "score_Messina_CKS" in df.columns
     assert "score_Nurmik_CAFs_Inverted" in df.columns
     assert "score_Roh_IS" in df.columns

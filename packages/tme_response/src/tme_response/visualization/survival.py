@@ -8,6 +8,9 @@ import polars as pl
 from returns.result import Failure, Result, Success
 
 
+from .display_labels import get_predictor_display_label, with_display_labels
+
+
 def create_c_index_forest_plot(
     survival_df: pl.DataFrame,
     endpoint: str = "OS",
@@ -29,14 +32,18 @@ def create_c_index_forest_plot(
         if sub_df.is_empty():
             return Failure(f"No survival records found for endpoint '{endpoint}'.")
 
+        # Enrich with human-readable display labels
+        df_enriched = with_display_labels(sub_df)
+        pred_label_col = "predictor_display" if "predictor_display" in df_enriched.columns else "predictor_name"
+
         # If data is cohort-specific, average across cohorts per predictor; if already summarized, use as-is
-        group_cols = ["predictor_name"]
-        if "category" in sub_df.columns:
+        group_cols = [pred_label_col]
+        if "category" in df_enriched.columns:
             group_cols.append("category")
 
-        if "cohort_id" in sub_df.columns and sub_df["cohort_id"].n_unique() > 1:
+        if "cohort_id" in df_enriched.columns and df_enriched["cohort_id"].n_unique() > 1:
             summary_df = (
-                sub_df.group_by(group_cols)
+                df_enriched.group_by(group_cols)
                 .agg([
                     pl.col("c_index").mean().alias("mean_c_index"),
                     pl.col("ci_lower").mean().alias("mean_ci_lower"),
@@ -49,7 +56,7 @@ def create_c_index_forest_plot(
             lower_col = "mean_ci_lower"
             upper_col = "mean_ci_upper"
         else:
-            summary_df = sub_df.sort("c_index", descending=True)
+            summary_df = df_enriched.sort("c_index", descending=True)
             val_col = "c_index"
             lower_col = "ci_lower"
             upper_col = "ci_upper"
@@ -57,7 +64,12 @@ def create_c_index_forest_plot(
         plot_title = title or f"Predictor Discrimination for {endpoint} (Harrell's C-index ± 95% CI)"
 
         base = alt.Chart(summary_df).encode(
-            y=alt.Y("predictor_name:N", title="Predictor / Biomarker", sort="-x"),
+            y=alt.Y(
+                f"{pred_label_col}:N",
+                title="Predictor / Biomarker",
+                sort="-x",
+                axis=alt.Axis(labelLimit=380, labelFontSize=10),
+            ),
         )
         if "category" in summary_df.columns:
             base = base.encode(color=alt.Color("category:N", title="Category"))
@@ -73,7 +85,7 @@ def create_c_index_forest_plot(
         )
 
         tooltip_cols = [
-            "predictor_name",
+            pred_label_col,
             alt.Tooltip(f"{val_col}:Q", format=".3f", title="C-index"),
             alt.Tooltip(f"{lower_col}:Q", format=".3f", title="CI Lower"),
             alt.Tooltip(f"{upper_col}:Q", format=".3f", title="CI Upper"),
@@ -120,13 +132,17 @@ def create_cox_hr_forest_plot(
         if sub_df.is_empty():
             return Failure(f"No Cox regression records found for endpoint '{endpoint}'.")
 
-        group_cols = ["predictor_name"]
-        if "category" in sub_df.columns:
+        # Enrich with human-readable display labels
+        df_enriched = with_display_labels(sub_df)
+        pred_label_col = "predictor_display" if "predictor_display" in df_enriched.columns else "predictor_name"
+
+        group_cols = [pred_label_col]
+        if "category" in df_enriched.columns:
             group_cols.append("category")
 
-        if "cohort_id" in sub_df.columns and sub_df["cohort_id"].n_unique() > 1:
+        if "cohort_id" in df_enriched.columns and df_enriched["cohort_id"].n_unique() > 1:
             summary_df = (
-                sub_df.group_by(group_cols)
+                df_enriched.group_by(group_cols)
                 .agg([
                     # Geometric mean for hazard ratios
                     pl.col("hazard_ratio").log().mean().exp().alias("mean_hr"),
@@ -140,7 +156,7 @@ def create_cox_hr_forest_plot(
             lower_col = "mean_hr_lower"
             upper_col = "mean_hr_upper"
         else:
-            summary_df = sub_df.sort("hazard_ratio")
+            summary_df = df_enriched.sort("hazard_ratio")
             hr_col = "hazard_ratio"
             lower_col = "hr_ci_lower"
             upper_col = "hr_ci_upper"
@@ -148,7 +164,12 @@ def create_cox_hr_forest_plot(
         plot_title = title or f"Hazard Ratio per 1-SD Increase in Score for {endpoint} (Univariable Cox Model)"
 
         base = alt.Chart(summary_df).encode(
-            y=alt.Y("predictor_name:N", title="Predictor / Biomarker", sort="x"),
+            y=alt.Y(
+                f"{pred_label_col}:N",
+                title="Predictor / Biomarker",
+                sort="x",
+                axis=alt.Axis(labelLimit=380, labelFontSize=10),
+            ),
         )
         if "category" in summary_df.columns:
             base = base.encode(color=alt.Color("category:N", title="Category"))
@@ -164,7 +185,7 @@ def create_cox_hr_forest_plot(
         )
 
         tooltip_cols = [
-            "predictor_name",
+            pred_label_col,
             alt.Tooltip(f"{hr_col}:Q", format=".3f", title="Hazard Ratio"),
             alt.Tooltip(f"{lower_col}:Q", format=".3f", title="95% CI Lower"),
             alt.Tooltip(f"{upper_col}:Q", format=".3f", title="95% CI Upper"),
@@ -186,7 +207,7 @@ def create_cox_hr_forest_plot(
         )
 
         chart = (error_bars + points + ref_line).properties(
-            title=plot_title,
+            title=alt.TitleParams(text=plot_title, fontSize=13, anchor="start"),
             width=380,
             height=alt.Step(26),
         )
@@ -205,16 +226,26 @@ def create_dca_net_benefit_chart(
         if dca_df.is_empty():
             return Failure("DCA DataFrame is empty.")
 
+        # Map model strategies to human-readable labels
+        mapped_dca = dca_df.with_columns(
+            pl.col("strategy")
+            .map_elements(
+                lambda s: get_predictor_display_label(str(s)) if str(s) not in ("Treat All", "Treat None") else str(s),
+                return_dtype=pl.String,
+            )
+            .alias("strategy_display")
+        )
+
         # Identify models vs reference baselines
-        strategies = dca_df["strategy"].unique().to_list()
+        strategies = mapped_dca["strategy_display"].unique().to_list()
         model_strategies = [s for s in strategies if s not in ("Treat All", "Treat None")]
 
         # Determine y scale range
-        max_nb = float(dca_df["net_benefit"].max())
+        max_nb = float(mapped_dca["net_benefit"].max())
         y_max = max(0.40, round(max_nb + 0.05, 2))
 
         # Model lines
-        model_df = dca_df.filter(pl.col("strategy").is_in(model_strategies))
+        model_df = mapped_dca.filter(pl.col("strategy_display").is_in(model_strategies))
         model_lines = (
             alt.Chart(model_df)
             .mark_line(strokeWidth=2.2)
@@ -232,12 +263,12 @@ def create_dca_net_benefit_chart(
                     axis=alt.Axis(titleFontSize=12, labelFontSize=11),
                 ),
                 color=alt.Color(
-                    "strategy:N",
+                    "strategy_display:N",
                     title="Strategy / Model",
                     legend=alt.Legend(symbolOpacity=1.0, titleFontSize=11, labelFontSize=10),
                 ),
                 tooltip=[
-                    "strategy",
+                    "strategy_display",
                     alt.Tooltip("threshold:Q", format=".2f", title="Threshold pt"),
                     alt.Tooltip("net_benefit:Q", format=".3f", title="Net Benefit"),
                     alt.Tooltip("interventions_avoided_per_100:Q", format=".1f", title="Avoided / 100 pts"),
@@ -246,7 +277,7 @@ def create_dca_net_benefit_chart(
         )
 
         # Baseline: Treat All
-        treat_all_df = dca_df.filter(pl.col("strategy") == "Treat All")
+        treat_all_df = mapped_dca.filter(pl.col("strategy_display") == "Treat All")
         treat_all_line = (
             alt.Chart(treat_all_df)
             .mark_line(strokeWidth=1.8, strokeDash=[5, 5], color="#6b7280")
