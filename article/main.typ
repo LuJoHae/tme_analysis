@@ -29,4 +29,7 @@
 #bibliography("references.bib", style: "nature")
 
 #pagebreak()
-#include "chapters/11_extended_data.typ"
+#include "chapters/11_main_figures.typ"
+
+#pagebreak()
+#include "chapters/12_supplementary_figures.typ"

@@ -3,12 +3,6 @@ High-dimensional transcriptomic biomarker discovery in immuno-oncology is notori
 
 To overcome this fundamental limitation, we deployed finite-sample controlled stability selection with complementary pairs subsampling ($B=100$ cycles, $2B=200$ subsamples of size $floor(n/2)$) across a compendium of 12 clinical datasets spanning 1,015 pre-treatment immunotherapy patients (@fig-stability-paths-composite, @tab-stability-cohorts). By imposing rigorous regularization budgeting ($q_("budget") = floor(sqrt("PFER"_("target") dot p dot (2 pi_("thr") - 1)))$ with nominal PFER bound $<= 2.5$), the feature search space ($p = 822$ immune-oncology genes) was swept systematically across ordered regularization paths without risking active set runaway.
 
-#figure(
-  placement: auto,
-  image("../figures/stability-selection/all_cohorts_stability_paths_composite.png", height: 205mm, fit: "contain"),
-  caption: [Finite-sample controlled stability paths across 12 clinical immunotherapy cohorts ($n=1,015$ total patients). Each panel depicts empirical feature selection probabilities $hat(Pi)_k^lambda$ across the budgeted regularization path for an individual cohort or multi-cohort pooled setting. The horizontal dashed red line marks the stability selection threshold ($pi_("thr") = 0.60$ for single cohorts, $pi_("thr") = 0.70$ for multi-cohort pooled regimes). Solid colored paths denote stable biomarkers surpassing $pi_("thr")$ under strict PFER error control ($"PFER" <= 2.5$), while faint gray paths denote unselected noise features. The universal chemokine marker _CXCL13_ (highlighted in gold/orange) consistently achieves maximum stability across indications.]
-) <fig-stability-paths-composite>
-
 In the pooled Pan-Cancer cohort ($n=1,015$ across melanoma, renal cell carcinoma, urothelial bladder carcinoma, and pancreatic ductal adenocarcinoma), stability selection uncovered a highly focused, statistically unassailable core signature consisting of _CXCL13_, _CD8A_, _CXCL9_, _IFNG_, _LAG3_, and _TIGIT_ ($hat(Pi)_k >= 0.70$, PFER $< 1.8$). Rather than selecting dozens of spurious correlates, regularization budgeting curtailed exploration once the active set size reached capacity, preserving finite-sample error bounds.
 
 Analyzing individual disease indications and independent clinical trials confirmed remarkable biological convergence alongside indication-specific nuances (@tab-stability-cohorts):
@@ -41,12 +35,6 @@ Analyzing individual disease indications and independent clinical trials confirm
 
 == 3.23 Benchmark of 13 Machine Learning and Econometric Fitters
 To ascertain whether transcriptomic stability depends on specific functional parameterizations or model inductive biases, we benchmarked 13 machine learning and econometric fitters across 5 methodological paradigms on the multi-cohort benchmark dataset (@fig-fitter-overlap).
-
-#figure(
-  placement: auto,
-  image("../figures/stability-selection/fitter_gene_overlap_nature.png", width: 100%),
-  caption: [Cross-paradigm benchmark of 13 machine learning and econometric fitters in stability selection. (A) Gene selection frequency across all 13 fitters. _CXCL13_ emerged as the invariant, model-agnostic driver of response, selected by 12 out of 13 algorithms. Core immune effectors (_CD8A_, _CXCL9_, _CXCL10_, _IFNG_, _LAG3_, _TIGIT_) were recurrently recovered across multiple paradigms. (B) Fitter paradigm classification highlighting convex GLMs (Lasso, ElasticNet), non-convex/adaptive estimators (SCAD, MCP, AdaptiveLasso, HardThresholding), tree ensembles (LightGBM, XGBoost, RandomForest), cohort-aware econometric models (LassoFWL, MERF), and ordered weighted $ell_1$ estimators (OSCAR, SLOPE). (C) Gene selection matrix across all fitters, demonstrating consensus patterns and method-specific inductive biases.]
-) <fig-fitter-overlap>
 
 1. *Universal Invariance of _CXCL13_ Across 12 of 13 Fitters*:
 Strikingly, _CXCL13_ was selected by 12 out of 13 fitters across all five paradigms (selected by Lasso, ElasticNet, SCAD, MCP, AdaptiveLasso, HardThresholding, LightGBM, XGBoost, RandomForest, LassoFWL, OSCAR, and SLOPE; only MERF prioritized alternative non-linear splits). This unanimous cross-paradigm concordance establishes that _CXCL13_ is not an artifact of coordinate descent, $ell_1$ geometry, or tree split heuristics, but an invariant, robust biological marker of immunotherapy sensitivity.

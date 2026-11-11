@@ -7,17 +7,5 @@ To characterize these multi-layered signatures, bulk deconvolution algorithms ha
 2. Machine learning classifiers predicting response from somatic mutations and identifying specific gene alterations (such as _TGM6_).
 3. Quantitative subclonal dynamics modeling using Variant Allele Frequencies (VAF) to optimize TMB thresholds and predict TMB reliability.
 4. Direct concordance benchmarking against continuous single-cell graph differential abundance (Milo) and multi-replicate perturbation stress-testing (@fig-study-overview).
-5. Pan-cancer cross-modality translation spanning 9 single-cell ICB atlases ($3.60 times 10^6$ cells, 13 hierarchical reference matrices, and the 42-state `Consensus-Meta42` consensus atlas) across 15 bulk clinical cohorts and pooled strata ($N = 1,058$ evaluable patients), resolving non-linear lymphoid–humoral synergy and myofibroblastic stromal exclusion gating via the unified `tme_datasets` computational provenance architecture (@fig-tme-datasets-pipeline-dag).
-
-#figure(
-  placement: auto,
-  image("../figures/dataset_overview/figure1_study_cohorts_overview.png", width: 100%),
-  caption: [
-    *Figure 1: Comprehensive multi-omic immunotherapy dataset compendium, single-cell references, and analytical deconvolution framework.*
-    *(a)* Multi-cohort dataset ecosystem comprising a 40,002-cell pan-cancer scRNA-seq reference (6 major lineages, 22 cell types, 58 fine-grained sub-clusters) alongside the matched clinical validation cohort (Sade-Feldman et al., $n=51$ pre/post ICB melanoma biopsies, 16,291 CD45+ cells), 9 clinical trial cohorts ($n = 1,097$ patients) across melanoma, bladder, renal, pancreatic, and breast cancers, and 5 untreated primary tumor baseline cohorts from TCGA ($n = 2,932$ bulk tumors) defining $K=100$ unperturbed microenvironmental compositional centroids.
-    *(b)* Multi-omic profiling layers spanning single-cell and bulk transcriptomics, whole-exome somatic mutations, subclonal variant allele frequency (VAF) spectra, tumor mutational burden (TMB), predictive response drivers (such as _TGM6_ alterations), standardized RECIST v1.1 clinical response criteria, and longitudinal treatment timing.
-    *(c)* Unified analytical architecture executing single-cell continuous neighborhood testing (Milo kNN graph GLM), high-resolution pseudobulk deconvolution (`instaprism`), an automated multi-replicate distortion simulation suite ($N=5$, 485 runs across 8 single-variable modes, 4 compound regimes, and 2D interaction surfaces), and subclonal VAF joint optimization.
-    *(d)* Key biomarker and methodological synthesis, illustrating empirical clinical concordance in matched melanoma ($rho = 0.853$), identification of concordant responder (naive B cells) and non-responder (macrophages) biomarkers alongside collinear cytotoxic T-cell discordance, primary deconvolution failure modes (patient marker dysregulation and cell size asymmetry), and quantification of the metastatic composition generalization gap.
-  ]
-) <fig-study-overview>
+5. Pan-cancer cross-modality translation spanning 9 single-cell ICB atlases ($3.60 times 10^6$ cells, 13 hierarchical reference matrices, and the 42-state `Consensus-Meta42` consensus atlas) across 15 bulk clinical cohorts and pooled strata ($N = 1,058$ evaluable patients), resolving calibrated cellular epistasis and zero-leakage stromal exclusion gating via the unified `tme_datasets` computational provenance architecture (@fig-tme-datasets-pipeline-dag).
 

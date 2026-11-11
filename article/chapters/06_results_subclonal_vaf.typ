@@ -7,12 +7,6 @@ Joint optimization of the VAF calculation cutoff and TMB stratification threshol
 - `Padron-iAtlas` (Pancreatic): Optimal separation emerged at *VAF = 0.42* ($p = 0.0075$, Cohen's $d = -0.522$), where elevated clonal TMB paradoxically associated with non-response, consistent with immunosuppressive desmoplastic exclusion.
 
 #figure(
-  placement: auto,
-  image("../figures/vaf-tmb/Rosenberg-iAtlas_vaf_tmb_association.png", width: 90%),
-  caption: [Subclonal VAF and TMB response association landscape in the Rosenberg bladder cancer cohort, illustrating optimal separation at VAF = 0.05 and TMB = 10.0 mut/Mb.]
-) <fig-vaf-peaks>
-
-#figure(
   table(
     columns: (1.4fr, 1fr, 1fr, 1.6fr),
     inset: 4.5pt,
