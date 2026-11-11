@@ -365,9 +365,11 @@ def run_harmony_integration(
 
 
 def run_melanoma_tier(dirs: DataDirectories) -> dict[str, Any]:
-    """Tier 1: Melanoma benchmark integration (GSE115978 + GSE120575)."""
-    ad1 = ad.read_h5ad(dirs.preprocessed_dir / "GSE115978_processed.h5ad")
-    ad2 = ad.read_h5ad(dirs.preprocessed_dir / "GSE120575_processed.h5ad")
+    """Tier 1: Melanoma benchmark integration (GSE115978 + GSE120575) via tme_datasets."""
+    from tme_datasets import load_dataset
+
+    ad1 = load_dataset("GSE115978", base_dir=dirs.base_dir, auto_download=False, normalize_ensembl=False).unwrap()
+    ad2 = load_dataset("GSE120575", base_dir=dirs.base_dir, auto_download=False, normalize_ensembl=False).unwrap()
     out_dir = dirs.base_dir / "results" / "milopy" / "integrated_melanoma"
     return run_harmony_integration(
         adatas=[ad1, ad2],
@@ -380,11 +382,13 @@ def run_melanoma_tier(dirs: DataDirectories) -> dict[str, Any]:
 
 
 def run_cutaneous_tier(dirs: DataDirectories) -> dict[str, Any]:
-    """Tier 2: Cutaneous TME integration (GSE115978 + GSE120575 + GSE123139 + GSE123813)."""
-    ad1 = ad.read_h5ad(dirs.preprocessed_dir / "GSE115978_processed.h5ad")
-    ad2 = ad.read_h5ad(dirs.preprocessed_dir / "GSE120575_processed.h5ad")
-    ad3 = ad.read_h5ad(dirs.preprocessed_dir / "GSE123139_processed.h5ad")
-    ad4 = ad.read_h5ad(dirs.preprocessed_dir / "GSE123813_processed.h5ad")
+    """Tier 2: Cutaneous TME integration (GSE115978 + GSE120575 + GSE123139 + GSE123813) via tme_datasets."""
+    from tme_datasets import load_dataset
+
+    ad1 = load_dataset("GSE115978", base_dir=dirs.base_dir, auto_download=False, normalize_ensembl=False).unwrap()
+    ad2 = load_dataset("GSE120575", base_dir=dirs.base_dir, auto_download=False, normalize_ensembl=False).unwrap()
+    ad3 = load_dataset("GSE123139", base_dir=dirs.base_dir, auto_download=False, normalize_ensembl=False).unwrap()
+    ad4 = load_dataset("GSE123813", base_dir=dirs.base_dir, auto_download=False, normalize_ensembl=False).unwrap()
     out_dir = dirs.base_dir / "results" / "milopy" / "integrated_cutaneous"
     return run_harmony_integration(
         adatas=[ad1, ad2, ad3, ad4],
@@ -397,7 +401,9 @@ def run_cutaneous_tier(dirs: DataDirectories) -> dict[str, Any]:
 
 
 def run_pancancer_immune_tier(dirs: DataDirectories) -> dict[str, Any]:
-    """Tier 3: Pan-Cancer Immune integration (all 6 cohorts, immune filtered)."""
+    """Tier 3: Pan-Cancer Immune integration (all 6 cohorts, immune filtered) via tme_datasets."""
+    from tme_datasets import load_dataset
+
     cohort_specs = [
         ("GSE115978", "Melanoma"),
         ("GSE120575", "Melanoma"),
@@ -411,9 +417,8 @@ def run_pancancer_immune_tier(dirs: DataDirectories) -> dict[str, Any]:
     cancers: list[str] = []
 
     for acc, cancer in cohort_specs:
-        h5ad_path = dirs.preprocessed_dir / f"{acc}_processed.h5ad"
-        print(f"Loading {acc} ({cancer}) for immune subsetting...")
-        raw_ad = ad.read_h5ad(h5ad_path)
+        print(f"Loading {acc} ({cancer}) via tme_datasets.load_dataset() for immune subsetting...")
+        raw_ad = load_dataset(acc, base_dir=dirs.base_dir, auto_download=False, normalize_ensembl=False).unwrap()
         imm_ad = filter_immune_cells(raw_ad, acc)
         immune_adatas.append(imm_ad)
         names.append(acc)

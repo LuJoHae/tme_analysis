@@ -20,7 +20,7 @@ Strict functional Python: immutability, returns Result, Polars, and Altair.
 from __future__ import annotations
 
 import argparse
-import gzip
+import os
 import re
 import sys
 from pathlib import Path
@@ -30,11 +30,22 @@ import altair as alt  # type: ignore
 import anndata as ad  # type: ignore
 import numpy as np
 import polars as pl
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Result, Success
 from scipy import sparse as sp  # type: ignore
 from scipy import stats  # type: ignore
 import vl_convert as vlc  # type: ignore
+
+from tme_datasets import (
+    EmpiricalPseudobulkConfig,
+    aggregate_empirical_pseudobulk,
+    compute_empirical_cell_fractions,
+    load_dataset,
+    load_empirical_pseudobulk,
+    resolve_adata_gene_symbols,
+)
+from tme_datasets.paths import get_data_paths
 
 try:
     import instaprism  # type: ignore
@@ -83,14 +94,15 @@ class BenchmarkConfig(BaseModel):
     leiden_resolution: float = 2.0
     max_cells: int = 15000
     adata_path: Path | None = None
-    adata_dir: Path = Path("data/preprocessed")
-    tpm_gz_path: Path = Path("data/raw/GSE120575/GSE120575_tpm.txt.gz")
+    adata_dir: Path = Field(default_factory=lambda: get_data_paths().preprocessed_dir)
+    pseudobulk_cache_dir: Path = Field(default_factory=lambda: get_data_paths().pseudobulk_dir)
+    force_recompute_pseudobulk: bool = False
     cell_scores_path: Path | None = None
     phi_path: Path | None = None
     marker_genes_path: Path | None = None
     milo_da_dir: Path = Path("output/manuscript_pipeline/2a1_sample_and_analyze_cohorts")
-    out_dir: Path = Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
-    results_dir: Path = Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
+    out_dir: Path = Path("output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark")
+    results_dir: Path = Path("output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark")
     deconv_backend: str = "instaprism"
     deconv_iters: int = 100
     use_marker_genes: bool = True
@@ -133,17 +145,23 @@ def parse_args() -> BenchmarkConfig:
         default=None,
         help="Explicit path to single-cell AnnData (.h5ad)",
     )
+    default_paths = get_data_paths()
     parser.add_argument(
         "--adata-dir",
         type=Path,
-        default=Path("data/preprocessed"),
+        default=default_paths.preprocessed_dir,
         help="Directory containing preprocessed AnnData files",
     )
     parser.add_argument(
-        "--tpm-path",
+        "--pseudobulk-cache-dir",
         type=Path,
-        default=Path("data/raw/GSE120575/GSE120575_tpm.txt.gz"),
-        help="Path to raw TPM gzip (legacy GSE120575)",
+        default=default_paths.pseudobulk_dir,
+        help="Directory for caching empirical pseudobulk parquets via tme_datasets",
+    )
+    parser.add_argument(
+        "--force-recompute-pseudobulk",
+        action="store_true",
+        help="Recompute empirical pseudobulk even if cached in pseudobulk_cache_dir",
     )
     parser.add_argument(
         "--cell-scores",
@@ -172,13 +190,13 @@ def parse_args() -> BenchmarkConfig:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"),
+        default=Path("output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark"),
         help="Output directory for data parquets",
     )
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"),
+        default=Path("output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark"),
         help="Results directory for plots and vector SVGs",
     )
     parser.add_argument(
@@ -226,7 +244,8 @@ def parse_args() -> BenchmarkConfig:
         max_cells=args.max_cells,
         adata_path=args.adata_path,
         adata_dir=args.adata_dir,
-        tpm_gz_path=args.tpm_path,
+        pseudobulk_cache_dir=args.pseudobulk_cache_dir,
+        force_recompute_pseudobulk=args.force_recompute_pseudobulk,
         cell_scores_path=args.cell_scores,
         phi_path=args.phi_path,
         marker_genes_path=args.markers_path,
@@ -243,220 +262,19 @@ def parse_args() -> BenchmarkConfig:
 
 
 # ------------------------------------------------------------------------------
-# 1. Ground Truth Single-Cell Proportions
+# 1. Ground Truth Single-Cell Proportions & Empirical Pseudobulk (via tme_datasets)
 # ------------------------------------------------------------------------------
 
 def compute_true_cell_fractions(
     df_cells: pl.DataFrame,
 ) -> pl.DataFrame:
-    """Pure function computing true cell state fractions per sample directly from cell annotations."""
-    # Standardize column mappings if needed
-    col_mapping: dict[str, str] = {}
-    if "patient_id" in df_cells.columns and "sample_id" not in df_cells.columns:
-        col_mapping["patient_id"] = "sample_id"
-    if "clinical_response" in df_cells.columns and "response" not in df_cells.columns:
-        col_mapping["clinical_response"] = "response"
-    if "cell_type" in df_cells.columns and "cell_state" not in df_cells.columns:
-        col_mapping["cell_type"] = "cell_state"
+    """Delegate true cell state fraction calculation to tme_datasets.compute_empirical_cell_fractions."""
+    return compute_empirical_cell_fractions(df_cells).unwrap()
 
-    std_df = df_cells.rename(col_mapping) if col_mapping else df_cells
-    if "treatment_status" not in std_df.columns:
-        std_df = std_df.with_columns(pl.lit("Combined").alias("treatment_status"))
-
-    sample_meta = (
-        std_df.select(["sample_id", "response", "treatment_status"])
-        .unique(subset=["sample_id"])
-    )
-    sample_totals = std_df.group_by("sample_id").agg(pl.len().alias("n_total"))
-    state_counts = std_df.group_by(["sample_id", "cell_state"]).agg(pl.len().alias("n_cells"))
-
-    unique_samples = sample_meta["sample_id"].to_list()
-    unique_states = std_df["cell_state"].unique().sort().to_list()
-
-    grid = pl.DataFrame({
-        "sample_id": [s for s in unique_samples for _ in unique_states],
-        "cell_state": [st for _ in unique_samples for st in unique_states],
-    })
-
-    joined = (
-        grid.join(state_counts, on=["sample_id", "cell_state"], how="left")
-        .with_columns(pl.col("n_cells").fill_null(0))
-        .join(sample_totals, on="sample_id", how="left")
-        .join(sample_meta, on="sample_id", how="left")
-        .with_columns(
-            (pl.col("n_cells") / pl.col("n_total")).alias("true_fraction")
-        )
-    )
-    return joined
-
-
-# ------------------------------------------------------------------------------
-# 2. Patient Pseudobulk Construction (Fast Vectorized & Legacy Streamed)
-# ------------------------------------------------------------------------------
 
 def resolve_adata_gene_names(adata: ad.AnnData) -> list[str]:
-    """Extract upper-case gene symbols or identifiers from AnnData .var metadata."""
-    for col in ("gene_name", "gene_symbols", "GeneSymbol", "feature_name", "symbol"):
-        if col in adata.var.columns:
-            return [str(g).strip().upper() for g in adata.var[col]]
-    if "original_id" in adata.var.columns and not str(adata.var_names[0]).startswith("ENSG"):
-        return [str(g).strip().upper() for g in adata.var_names]
-    if "original_id" in adata.var.columns:
-        return [str(g).strip().upper() for g in adata.var["original_id"]]
-    return [str(g).strip().upper() for g in adata.var_names]
-
-
-def extract_pseudobulk_from_anndata(
-    adata: ad.AnnData,
-    sample_col: str = "sample_id",
-    target_genes: set[str] | None = None,
-) -> tuple[list[str], list[str], np.ndarray]:
-    """Fast vectorized aggregation of AnnData single cells into patient-level pseudobulk in linear scale."""
-    raw_samples = adata.obs[sample_col].astype(str).to_numpy()
-    unique_samples = sorted(list(set(raw_samples)))
-    sample_to_idx = {s: i for i, s in enumerate(unique_samples)}
-    row_ind = np.array([sample_to_idx[s] for s in raw_samples], dtype=np.int32)
-    col_ind = np.arange(adata.n_obs, dtype=np.int32)
-
-    M = sp.csr_matrix(
-        (np.ones(adata.n_obs, dtype=np.float32), (row_ind, col_ind)),
-        shape=(len(unique_samples), adata.n_obs),
-    )
-
-    all_genes = resolve_adata_gene_names(adata)
-
-    # Deduplicate genes if multiple transcripts map to same symbol
-    valid_indices: list[int] = []
-    genes: list[str] = []
-    seen_genes: set[str] = set()
-
-    for idx, g in enumerate(all_genes):
-        if target_genes is not None and g not in target_genes:
-            continue
-        if g not in seen_genes and len(g) > 0 and g != "NONE" and g != "NAN":
-            valid_indices.append(idx)
-            genes.append(g)
-            seen_genes.add(g)
-
-    X = adata.X[:, valid_indices]
-    if sp.issparse(X):
-        X = X.tocsr()
-
-    # Check if values are already linear (e.g. CP10k where median row sum > 500) vs log-transformed
-    row_sums_check = np.asarray(X[: min(200, X.shape[0])].sum(axis=1)).flatten() if X.shape[0] > 0 else np.array([0.0])
-    med_row_sum = float(np.median(row_sums_check)) if len(row_sums_check) > 0 else 0.0
-    max_val = float(X.max() if not sp.issparse(X) else X.data.max()) if X.shape[0] > 0 and (not sp.issparse(X) or len(X.data) > 0) else 0.0
-    if max_val < 30.0 and med_row_sum < 500.0:
-        if sp.issparse(X):
-            X_lin = X.copy()
-            X_lin.data = np.expm1(np.clip(X_lin.data, 0.0, 14.0))
-        else:
-            X_lin = np.expm1(np.clip(X, 0.0, 14.0))
-    else:
-        X_lin = X
-
-    bulk_mat = M @ X_lin
-    if sp.issparse(bulk_mat):
-        bulk_mat = bulk_mat.toarray()
-
-    return unique_samples, genes, bulk_mat.astype(np.float64)
-
-
-def generate_pseudobulk_matrix(
-    tpm_path: Path,
-    df_cells: pl.DataFrame,
-    out_parquet: Path,
-    target_genes: set[str] | None = None,
-) -> Result[tuple[list[str], list[str], np.ndarray], str]:
-    """Extract patient-level pseudobulk by streaming raw log2(TPM+1) and aggregating in linear scale."""
-    if out_parquet.exists():
-        print(f"Loading cached pseudobulk matrix from {out_parquet}...")
-        try:
-            bulk_df = pl.read_parquet(out_parquet)
-            sample_ids = bulk_df["sample_id"].to_list()
-            gene_cols = [c for c in bulk_df.columns if c != "sample_id"]
-            if target_genes is not None:
-                gene_cols = [g for g in gene_cols if g in target_genes]
-            bulk_mat = bulk_df.select(gene_cols).to_numpy().astype(np.float64)
-            return Success((sample_ids, gene_cols, bulk_mat))
-        except Exception as exc:  # noqa: BLE001
-            print(f"Failed to read cached pseudobulk ({exc}); recomputing from {tpm_path}...")
-
-    if not tpm_path.exists():
-        return Failure(f"TPM raw file not found at {tpm_path}")
-
-    print(f"Generating pseudobulk from {tpm_path}...")
-    sample_col_name = "sample_id" if "sample_id" in df_cells.columns else "patient_id"
-    cell_to_sample = dict(zip(df_cells["cell_id"].to_list(), df_cells[sample_col_name].to_list(), strict=False))
-    unique_samples = sorted(list(set(cell_to_sample.values())))
-    sample_to_idx = {s: i for i, s in enumerate(unique_samples)}
-
-    try:
-        with gzip.open(tpm_path, "rt") as f:
-            cell_ids = f.readline().strip().split("\t")
-            _ = f.readline()  # skip sample metadata row
-
-            sample_indices = np.array([sample_to_idx.get(cell_to_sample.get(cid), -1) for cid in cell_ids], dtype=np.int32)
-            valid_cell_mask = sample_indices >= 0
-            valid_sample_indices = sample_indices[valid_cell_mask]
-
-            n_valid = int(np.sum(valid_cell_mask))
-            row_ind = valid_sample_indices
-            col_ind = np.arange(n_valid)
-            m_mat = sp.csr_matrix(
-                (np.ones(n_valid, dtype=np.float32), (row_ind, col_ind)),
-                shape=(len(unique_samples), n_valid),
-            )
-
-            genes: list[str] = []
-            sample_bulk_rows: list[np.ndarray] = []
-
-            chunk_size = 2000
-            chunk_genes: list[str] = []
-            chunk_lines: list[list[float]] = []
-
-            for line in f:
-                parts = line.strip().split("\t")
-                gene = parts[0].strip().upper()
-                if target_genes is not None and gene not in target_genes:
-                    continue
-
-                chunk_genes.append(gene)
-                chunk_lines.append([float(x) for x in parts[1:]])
-
-                if len(chunk_lines) >= chunk_size:
-                    chunk_arr = np.array(chunk_lines, dtype=np.float32)[:, valid_cell_mask]
-                    lin_arr = np.expm1(chunk_arr * np.log(2.0))
-                    b_chunk = lin_arr @ m_mat.T
-                    sample_bulk_rows.append(b_chunk)
-                    genes.extend(chunk_genes)
-                    chunk_genes = []
-                    chunk_lines = []
-
-            if chunk_lines:
-                chunk_arr = np.array(chunk_lines, dtype=np.float32)[:, valid_cell_mask]
-                lin_arr = np.expm1(chunk_arr * np.log(2.0))
-                b_chunk = lin_arr @ m_mat.T
-                sample_bulk_rows.append(b_chunk)
-                genes.extend(chunk_genes)
-
-        if not sample_bulk_rows:
-            return Failure("No matching genes extracted from TPM file.")
-
-        full_bulk_mat = np.vstack(sample_bulk_rows).T.astype(np.float64)
-
-        out_parquet.parent.mkdir(parents=True, exist_ok=True)
-        col_dict: dict[str, object] = {"sample_id": unique_samples}
-        for g_idx, g_name in enumerate(genes):
-            col_dict[g_name] = full_bulk_mat[:, g_idx]
-
-        pseudobulk_df = pl.DataFrame(col_dict)
-        pseudobulk_df.write_parquet(out_parquet)
-        print(f"Successfully cached pseudobulk matrix with {len(unique_samples)} samples and {len(genes)} genes to {out_parquet}.")
-
-        return Success((unique_samples, genes, full_bulk_mat))
-    except Exception as exc:  # noqa: BLE001
-        return Failure(f"Failed to extract pseudobulk: {exc}")
+    """Delegate upper-case gene symbol extraction to tme_datasets.resolve_adata_gene_symbols."""
+    return list(resolve_adata_gene_symbols(adata))
 
 
 # ------------------------------------------------------------------------------
@@ -933,27 +751,7 @@ def resolve_cohort_data(
     if milo_cell_parquet is None:
         return Failure(f"Milopy cell-level scores parquet not found for {cohort_id} at {config.milo_da_dir / cohort_id}")
 
-    # 2. Determine AnnData path
-    adata_file: Path | None = None
-    candidate_adata_paths = [
-        config.adata_path,
-        config.adata_dir / f"{cohort_id}.h5ad",
-        _scratch_data_dir / f"preprocessed/{cohort_id}.h5ad",
-        Path(f"data/preprocessed/{cohort_id}.h5ad"),
-    ]
-    for cand_a in candidate_adata_paths:
-        if cand_a is not None and cand_a.exists():
-            adata_file = cand_a
-            break
-
-    if adata_file is None:
-        return Failure(
-            f"Empirical AnnData (.h5ad) not found for cohort '{cohort_id}'. "
-            f"Checked {config.adata_dir / f'{cohort_id}.h5ad'} and {_scratch_data_dir / f'preprocessed/{cohort_id}.h5ad'}. "
-            f"Synthetic fallback is strictly disabled."
-        )
-
-    # 3. Load cell scores parquet first
+    # 2. Load cell scores parquet first
     df_cells = pl.read_parquet(milo_cell_parquet)
     col_mapping: dict[str, str] = {}
     if "patient_id" in df_cells.columns and "sample_id" not in df_cells.columns:
@@ -966,12 +764,20 @@ def resolve_cohort_data(
     if "treatment_status" not in df_cells.columns:
         df_cells = df_cells.with_columns(pl.lit("Combined").alias("treatment_status"))
 
-    # 4. Load empirical AnnData and immediately subset to evaluated cells
-    try:
-        print(f"Loading empirical single-cell AnnData for {cohort_id} from {adata_file}...")
-        full_adata = ad.read_h5ad(adata_file)
-    except Exception as exc:  # noqa: BLE001
-        return Failure(f"Failed to load empirical AnnData {adata_file}: {exc}")
+    # 3. Load empirical AnnData strictly via tme_datasets.load_dataset API
+    from tme_datasets import load_dataset
+
+    print(f"Loading empirical single-cell AnnData for {cohort_id} via tme_datasets.load_dataset()...")
+    match load_dataset(
+        cohort_id,
+        base_dir=config.adata_dir,
+        auto_download=False,
+        normalize_ensembl=False,
+    ):
+        case Failure(load_err):
+            return Failure(f"Failed to load empirical AnnData for '{cohort_id}' via tme_datasets: {load_err}")
+        case Success(loaded_adata):
+            full_adata = loaded_adata
 
     cell_to_sample = dict(
         zip(
@@ -984,7 +790,7 @@ def resolve_cohort_data(
     valid_mask = np.array([s != "Unknown" for s in sample_labels], dtype=bool)
     valid_indices = np.where(valid_mask)[0]
     if len(valid_indices) == 0:
-        return Failure(f"Zero overlapping cell barcodes between {adata_file} and {milo_cell_parquet}")
+        return Failure(f"Zero overlapping cell barcodes between tme_datasets({cohort_id}) and {milo_cell_parquet}")
 
     if len(valid_indices) > config.max_cells:
         print(
@@ -1495,19 +1301,39 @@ def run_cohort_benchmark(
             phi_df.write_parquet(cohort_out_dir / "reference_phi.parquet")
             pl.DataFrame({"gene": marker_genes}).write_parquet(cohort_out_dir / "reference_marker_genes.parquet")
 
-        target_genes = set(marker_genes) if config.use_marker_genes else None
-
-        # 6. Extract Patient Pseudobulk Matrix directly from empirical single-cell counts
-        sample_ids, bulk_genes, bulk_mat = extract_pseudobulk_from_anndata(
-            adata_sweep,
+        pb_config = EmpiricalPseudobulkConfig(
             sample_col="sample_id",
-            target_genes=target_genes,
+            target_genes=Some(frozenset(marker_genes)) if config.use_marker_genes else Nothing,
         )
+
+        # 6. Generate/Load Patient Pseudobulk Matrix strictly via tme_datasets API
         if sweep_idx == 0:
-            col_dict: dict[str, object] = {"sample_id": sample_ids}
-            for g_idx, g_name in enumerate(bulk_genes):
-                col_dict[g_name] = bulk_mat[:, g_idx]
-            pl.DataFrame(col_dict).write_parquet(cohort_out_dir / "pseudobulk.parquet")
+            sample_meta_override = df_cells_sweep.select(
+                ["sample_id", "response", "treatment_status"]
+            ).unique(subset=["sample_id"], keep="first", maintain_order=True)
+            pb_res = load_empirical_pseudobulk(
+                cohort_id,
+                config=pb_config,
+                cache=True,
+                force_recompute=config.force_recompute_pseudobulk,
+                cache_dir=Some(config.pseudobulk_cache_dir),
+                adata=Some(adata_sweep),
+                sample_metadata_override=Some(sample_meta_override),
+            )
+        else:
+            pb_res = aggregate_empirical_pseudobulk(
+                adata_sweep,
+                config=pb_config,
+                dataset_id=cohort_id,
+            )
+
+        match pb_res:
+            case Failure(pb_err):
+                return Failure(pb_err)
+            case Success(pb_bundle):
+                sample_ids = list(pb_bundle.sample_ids)
+                bulk_genes = list(pb_bundle.genes)
+                bulk_mat = pb_bundle.bulk_matrix
 
         # 7. Run Pseudobulk Deconvolution
         match run_pseudobulk_deconvolution(

@@ -2,7 +2,7 @@
 """
 Selected Predictive Capacity Subplots from Sade-Feldman Multi-Resolution Deconvolution Benchmark.
 
-Derived from scripts/sade_feldman_deconv_validation/06_plot_figures.py (lines 1228-1696).
+Derived from scripts/manuscript_pipeline/4d1_plot_sf_multires_validation_figures.py.
 Plots exclusively in a single 1-row layout:
   - Subplot A: Mean Cohort AUC by Resolution
   - Subplot B: Mean Cohort AUC vs. Number of Cell States
@@ -14,6 +14,8 @@ Strict functional Python: Polars, Altair, returns.result, Pydantic (frozen=True)
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Final
@@ -21,7 +23,14 @@ from typing import Any, Final
 import altair as alt  # type: ignore[import-untyped]
 import polars as pl
 from pydantic import BaseModel, ConfigDict
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Result, Success
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.manuscript_pipeline._helpers.paths import (  # noqa: E402
+    MULTIRES_ALL_UPSTREAM_STAGES,
+    resolve_upstream_artifact,
+)
 
 # Disable row limit for single-cell data rendering
 alt.data_transformers.disable_max_rows()
@@ -72,12 +81,22 @@ REF_METADATA: Final[dict[str, dict[str, Any]]] = {
 
 def load_and_enrich_benchmark_data(data_dir: Path) -> Result[pl.DataFrame, str]:
     """Load benchmark summary parquet and enrich metadata attributes."""
-    primary_path = data_dir / "multi_resolution_benchmark_summary.parquet"
-    fallback_path = Path("output/output/sade_feldman_deconv_validation/multi_resolution_benchmark_summary.parquet")
-
-    bench_file = primary_path if primary_path.exists() else fallback_path
-    if not bench_file.exists():
-        return Failure(f"Benchmark summary not found in {data_dir} or fallback {fallback_path}")
+    fallback_dirs = (
+        Path("output/output/sade_feldman_deconv_validation"),
+        Path("output/sade_feldman_deconv_validation"),
+    )
+    match resolve_upstream_artifact(
+        "multi_resolution_benchmark_summary.parquet",
+        MULTIRES_ALL_UPSTREAM_STAGES,
+        explicit_dirs=(data_dir,),
+        fallback_dirs=fallback_dirs,
+    ):
+        case Some(found):
+            bench_file = found
+        case Nothing:
+            return Failure(
+                f"Benchmark summary not found in {data_dir} or upstream stages {MULTIRES_ALL_UPSTREAM_STAGES}"
+            )
 
     try:
         df = pl.read_parquet(bench_file)
@@ -378,11 +397,16 @@ def export_selected_figure(
 
         chart.save(str(svg_path))
 
-        try:
-            chart.save(str(png_path), scale_factor=2.0)
-        except Exception:
-            # Fallback via vl-convert if scale_factor param is not available
-            pass
+        from plotting_utils import rasterize_svg_to_png
+
+        match rasterize_svg_to_png(svg_path, png_path, scale=3.125, background="white"):
+            case Success(_):
+                pass
+            case Failure(_):
+                try:
+                    chart.save(str(png_path), scale_factor=2.0)
+                except Exception:
+                    pass
 
         return Success((svg_path, png_path))
     except Exception as exc:
@@ -409,13 +433,13 @@ def main() -> None:
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f8_compare_concordance_multires",
         help="Directory containing benchmark summary parquet file",
     )
     parser.add_argument(
         "--results-dir",
         type=str,
-        default="results/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/4d2_plot_cohort_auc_reference_selection",
         help="Directory to save generated SVG and PNG figures",
     )
     parser.add_argument(

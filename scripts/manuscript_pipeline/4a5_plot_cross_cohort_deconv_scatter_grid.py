@@ -61,7 +61,7 @@ MIN_FONT_PX: Final[float] = 13.5  # 10.125 pt at 96 DPI (strictly >= 10pt)
 class PlotConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     benchmark_dir: Path = Path(
-        "output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"
+        "output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark"
     )
     out_svg: Path = Path(
         "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
@@ -380,7 +380,7 @@ def main() -> None:
         "--benchmark-dir",
         type=Path,
         default=Path(
-            "output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"
+            "output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark"
         ),
         help="Root benchmark output directory containing cohort subfolders",
     )

@@ -58,13 +58,21 @@ def parse_args() -> TriangulationConfig:
     parser.add_argument(
         "--milo",
         type=Path,
-        default=Path("output/output/sade_feldman_deconv_validation/milopy_cell_state_da_all_resolutions.parquet"),
+        default=(
+            Path("output/manuscript_pipeline/3f7_analyze_milopy_multires/milopy_cell_state_da_all_resolutions.parquet")
+            if Path("output/manuscript_pipeline/3f7_analyze_milopy_multires/milopy_cell_state_da_all_resolutions.parquet").exists()
+            else Path("output/output/sade_feldman_deconv_validation/milopy_cell_state_da_all_resolutions.parquet")
+        ),
         help="Path to milopy_cell_state_da_all_resolutions.parquet",
     )
     parser.add_argument(
         "--bulk-dir",
         type=Path,
-        default=Path("output/output/sade_feldman_deconv_validation"),
+        default=(
+            Path("output/manuscript_pipeline/3f6_logistic_regression_multires")
+            if Path("output/manuscript_pipeline/3f6_logistic_regression_multires").exists()
+            else Path("output/output/sade_feldman_deconv_validation")
+        ),
         help="Directory containing bulk logistic regression results (logistic_results_sf_res*.parquet)",
     )
     parser.add_argument(

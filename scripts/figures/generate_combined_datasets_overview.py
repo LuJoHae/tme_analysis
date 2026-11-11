@@ -747,31 +747,13 @@ def validate_and_export(svg_content: str, out_paths: tuple[Path, ...]) -> Result
         written.append(svg_path)
 
         png_path = svg_path.with_suffix(".png")
-        try:
-            subprocess.run(
-                [
-                    "rsvg-convert",
-                    "-d",
-                    "300",
-                    "-p",
-                    "300",
-                    "-w",
-                    "2126",
-                    "-b",
-                    "white",
-                    str(svg_path),
-                    "-o",
-                    str(png_path),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            written.append(png_path)
-        except FileNotFoundError:
-            pass
-        except subprocess.CalledProcessError as exc:
-            return Failure(f"rsvg-convert failed for {svg_path}: {exc.stderr}")
+        from plotting_utils import rasterize_svg_to_png
+
+        match rasterize_svg_to_png(svg_path, png_path, width_px=2126, background="white"):
+            case Success(_):
+                written.append(png_path)
+            case Failure(err):
+                return Failure(err)
 
     return Success(tuple(written))
 

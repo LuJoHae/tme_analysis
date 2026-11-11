@@ -142,11 +142,17 @@ def export_dataset_svgs(
 
 
 def process_single_dataset_plotting(h5_file: Path, output_dir: Path, n_hvg: int, n_pcs: int) -> Result[list[Path], str]:
-    """Helper function to compute embeddings and export SVG plots for a single dataset."""
+    """Helper function to compute embeddings and export SVG plots for a single dataset via tme_datasets."""
     try:
+        from tme_datasets import load_dataset
+
         dataset_name = h5_file.stem.replace("_processed", "")
-        print(f"Generating PCA/UMAP plots for dataset '{dataset_name}'...")
-        adata = ad.read_h5ad(h5_file)
+        print(f"Generating PCA/UMAP plots for dataset '{dataset_name}' via tme_datasets.load_dataset()...")
+        match load_dataset(dataset_name, base_dir=h5_file.parent, auto_download=False, normalize_ensembl=False):
+            case Failure(err):
+                return Failure(f"tme_datasets load failed for {dataset_name}: {err}")
+            case Success(loaded):
+                adata = loaded
         if adata.n_obs < 3:
             return Success([])
 
@@ -165,8 +171,11 @@ def run_plotting_pipeline(config: PlotConfig, n_jobs: int = -1) -> Result[list[P
         from concurrent.futures import ProcessPoolExecutor
         import os
 
+        from tme_datasets import list_preprocessed_datasets, Modality
+
         config.output_dir.mkdir(parents=True, exist_ok=True)
-        h5_files = list(config.input_dir.glob("*.h5ad"))
+        prep_specs = list_preprocessed_datasets(modality=Modality.SINGLE_CELL, repo_root=config.input_dir)
+        h5_files = [spec.h5ad_path for spec in prep_specs]
         
         if not h5_files:
             return Failure(f"No preprocessed .h5ad files found in: {config.input_dir}")

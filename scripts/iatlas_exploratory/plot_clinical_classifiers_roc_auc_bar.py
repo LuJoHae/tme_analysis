@@ -221,18 +221,10 @@ def parse_cli_args(argv: Sequence[str]) -> ScriptConfig:
 
 
 def rasterize_svg_preview(svg_path: Path) -> Result[Path, str]:
-    """Render a 300 DPI PNG raster alongside the SVG using rsvg-convert if available."""
-    png_path = svg_path.with_suffix(".png")
-    try:
-        subprocess.run(
-            ["rsvg-convert", "-d", "300", "-p", "300", str(svg_path), "-o", str(png_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return Success(png_path)
-    except Exception as exc:
-        return Failure(f"rsvg-convert rasterization skipped: {exc}")
+    """Render a 300 DPI PNG raster alongside the SVG using rsvg-convert or vl_convert fallback."""
+    from plotting_utils import rasterize_svg_to_png
+
+    return rasterize_svg_to_png(svg_path, svg_path.with_suffix(".png"), scale=3.125, background=None)
 
 
 def main(argv: Sequence[str] = ()) -> int:

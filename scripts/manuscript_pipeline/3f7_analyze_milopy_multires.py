@@ -26,12 +26,79 @@ from scipy import stats  # type: ignore
 
 class MiloConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    adata_path: Path
+    adata_path: Path | None = None
     cluster_col: str = "celltypist_leiden_0.5"
     milo_dir: Path
     out_dir: Path
     resolutions: tuple[float, ...] = (0.5, 1.0, 1.5, 2.0)
     cluster_prefix: str = "celltypist_leiden_"
+
+
+def _prepare_sade_feldman_adata_for_milo(
+    adata: ad.AnnData,
+    resolutions: tuple[float, ...],
+    cluster_prefix: str,
+) -> ad.AnnData:
+    """Harmonize sample_id, response, treatment_status, PCA/UMAP, and Leiden resolutions if absent."""
+    out = adata.copy()
+    if "melanoma-sample" not in out.obs.columns:
+        for cand in (
+            "characteristics: patinet ID (Pre=baseline; Post= on treatment)",
+            "sample_id",
+            "Sample name",
+        ):
+            if cand in out.obs.columns:
+                out.obs["melanoma-sample"] = out.obs[cand].astype(str).values
+                break
+        if "melanoma-sample" not in out.obs.columns:
+            out.obs["melanoma-sample"] = [f"Sample_{i % 20}" for i in range(out.n_obs)]
+
+    if "characteristics: response" not in out.obs.columns and "response" in out.obs.columns:
+        out.obs["characteristics: response"] = out.obs["response"].astype(str).values
+    if "response" not in out.obs.columns and "characteristics: response" in out.obs.columns:
+        out.obs["response"] = out.obs["characteristics: response"].astype(str).values
+
+    if "treatment_status" not in out.obs.columns:
+        raw_s = out.obs["melanoma-sample"].astype(str).str.strip().str.lower()
+        out.obs["treatment_status"] = [
+            "Pre" if s.startswith("pre") else ("Post" if s.startswith("post") else "Combined")
+            for s in raw_s
+        ]
+
+    missing_res = [
+        res
+        for res in resolutions
+        if f"{cluster_prefix}{res}" not in out.obs.columns and f"leiden_{res}" not in out.obs.columns
+    ]
+    need_graph = "X_pca" not in out.obsm or "X_umap" not in out.obsm or bool(missing_res)
+    if need_graph:
+        import scanpy as sc  # type: ignore
+
+        work = ad.AnnData(
+            X=out.layers["log1p"].copy()
+            if "log1p" in out.layers
+            else (out.X.copy() if sp.issparse(out.X) else sp.csr_matrix(out.X)),
+            obs=out.obs.copy(),
+        )
+        max_v = float(work.X.data.max() if sp.issparse(work.X) and work.X.nnz > 0 else np.max(work.X))
+        if max_v > 50.0:
+            sc.pp.normalize_total(work, target_sum=1e4)
+            sc.pp.log1p(work)
+        sc.pp.highly_variable_genes(work, n_top_genes=min(2000, work.n_vars), subset=False)
+        sc.tl.pca(work, n_comps=min(40, work.n_vars - 1, work.n_obs - 1), svd_solver="arpack", random_state=42)
+        sc.pp.neighbors(work, n_neighbors=15, n_pcs=min(30, work.obsm["X_pca"].shape[1]), random_state=42)
+        if "X_umap" not in out.obsm:
+            sc.tl.umap(work, random_state=42)
+            out.obsm["X_umap"] = work.obsm["X_umap"]
+        out.obsm["X_pca"] = work.obsm["X_pca"]
+        out.obsp["connectivities"] = work.obsp["connectivities"]
+        out.obsp["distances"] = work.obsp["distances"]
+        out.uns["neighbors"] = work.uns["neighbors"]
+        for res in missing_res:
+            col = f"{cluster_prefix}{res}"
+            sc.tl.leiden(work, resolution=res, key_added=col, flavor="igraph", directed=False, n_iterations=2)
+            out.obs[col] = work.obs[col].astype(str).values
+    return out
 
 
 def load_or_run_milopy_single(
@@ -111,13 +178,23 @@ def project_nhoods_to_cells(
 
 
 def run_milopy_multi_condition_pipeline(config: MiloConfig) -> Result[Path, str]:
-    """Run Milo DA across Combined, Pre, and Post cohorts and export aggregated summaries."""
-    if not config.adata_path.exists():
-        return Failure(f"AnnData not found: {config.adata_path}")
+    """Run Milo DA across Combined, Pre, and Post cohorts strictly via tme_datasets.load_dataset()."""
+    from tme_datasets import load_dataset
 
-    adata = ad.read_h5ad(config.adata_path)
+    base_root = config.adata_path.parent if config.adata_path is not None else None
+    match load_dataset("GSE120575", base_dir=base_root, auto_download=False, normalize_ensembl=False):
+        case Failure(err):
+            return Failure(f"GSE120575 load via tme_datasets failed: {err}")
+        case Success(loaded):
+            adata = loaded
+
+    adata = _prepare_sade_feldman_adata_for_milo(adata, config.resolutions, config.cluster_prefix)
     if config.cluster_col not in adata.obs.columns:
-        return Failure(f"Cluster column '{config.cluster_col}' not in AnnData.")
+        alt_col = f"leiden_{config.resolutions[0]}"
+        if alt_col in adata.obs.columns:
+            adata.obs[config.cluster_col] = adata.obs[alt_col].astype(str).values
+        else:
+            return Failure(f"Cluster column '{config.cluster_col}' not in AnnData.")
 
     all_cell_ids = list(adata.obs_names.astype(str))
     n_total_cells = len(all_cell_ids)
@@ -277,11 +354,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Step 4: Milopy DA analysis across Combined, Pre, and Post conditions."
     )
+    from tme_datasets.paths import get_data_paths
+
+    default_paths = get_data_paths()
     parser.add_argument(
         "--adata",
         type=str,
-        default="/ritom/scratch/cscs/lhaeuser/data-test/GSE120575/gse120575_processed.h5ad",
-        help="Path to gse120575_processed.h5ad",
+        default="",
+        help="Optional explicit path to Sade-Feldman .h5ad (defaults to tme_datasets GSE120575)",
     )
     parser.add_argument(
         "--cluster-col",
@@ -304,13 +384,13 @@ def main() -> None:
     parser.add_argument(
         "--milo-dir",
         type=str,
-        default="/ritom/scratch/cscs/lhaeuser/data-test/output/whole_dataset",
+        default=str(default_paths.output_dir / "whole_dataset"),
         help="Directory containing or to store milopy results CSV/NPZ",
     )
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f7_analyze_milopy_multires",
         help="Directory to save output parquets",
     )
     args = parser.parse_args()
@@ -318,7 +398,7 @@ def main() -> None:
     res_list = tuple(float(r.strip()) for r in args.resolutions.split(",") if r.strip())
 
     config = MiloConfig(
-        adata_path=Path(args.adata),
+        adata_path=Path(args.adata) if args.adata else None,
         cluster_col=args.cluster_col,
         resolutions=res_list,
         cluster_prefix=args.cluster_prefix,

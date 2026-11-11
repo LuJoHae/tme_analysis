@@ -10,12 +10,18 @@ Calculates and ingests records for 'Deconvolution_Inference_Our' matching:
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 import numpy as np
 import polars as pl
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Success
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.manuscript_pipeline._helpers.paths import resolve_upstream_artifact
 
 from tme_datasets.paths import find_repo_root
 from tme_response import (
@@ -434,11 +440,35 @@ def build_dca_records() -> list[dict[str, object]]:
     return records
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Integrate Deconvolution_Inference_Our into the 32-biomarker iAtlas benchmark suite."
+    )
+    parser.add_argument(
+        "--upstream-dir",
+        type=Path,
+        default=Path("output/manuscript_pipeline/3e4_update_texh_benchmark"),
+        help="Upstream directory containing 31-predictor benchmark parquets.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("output/manuscript_pipeline/3e5_integrate_deconvolution_our"),
+        help="Dedicated output directory for 32-predictor parquets, SVGs, and 300 DPI PNGs.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     repo_root = find_repo_root()
-    output_dir = repo_root / "output/benchmarks/iatlas_roc_auc"
+    output_dir = args.output_dir if args.output_dir.is_absolute() else repo_root / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    brain_dir = Path("/Users/halu/.gemini/antigravity/brain/8d054c32-dd8d-492f-aeba-2e31752acbd0")
+    upstream_explicit = (
+        args.upstream_dir if args.upstream_dir.is_absolute() else repo_root / args.upstream_dir,
+        output_dir,
+    )
+    fallback_dirs = (repo_root / "output/benchmarks/iatlas_roc_auc",)
 
     print(f"=== Integrating {DISPLAY_NAME} into Benchmark Suite ===")
 
@@ -458,13 +488,16 @@ def main() -> None:
     # 2. Update Response Parquet & CSV
     resp_pq = output_dir / "iatlas_benchmark_metrics.parquet"
     resp_csv = output_dir / "iatlas_benchmark_metrics.csv"
-    test_bench_pq = Path("/tmp/test_bench/iatlas_benchmark_metrics.parquet")
-    if resp_pq.exists() and pl.read_parquet(resp_pq).shape[0] > 100:
-        existing_resp_df = pl.read_parquet(resp_pq)
-    elif test_bench_pq.exists() and pl.read_parquet(test_bench_pq).shape[0] > 100:
-        existing_resp_df = pl.read_parquet(test_bench_pq)
-    else:
-        existing_resp_df = pl.read_parquet(resp_pq)
+    match resolve_upstream_artifact(
+        "iatlas_benchmark_metrics.parquet",
+        ("3e4_update_texh_benchmark", "3e1_benchmark_iatlas_icb_predictors"),
+        explicit_dirs=upstream_explicit,
+        fallback_dirs=fallback_dirs,
+    ):
+        case Some(src_resp_pq):
+            existing_resp_df = pl.read_parquet(src_resp_pq)
+        case Nothing:
+            raise FileNotFoundError(f"Upstream iatlas_benchmark_metrics.parquet not found for {output_dir}")
     filtered_resp_df = existing_resp_df.filter(pl.col("predictor_name") != PREDICTOR_ID)
     filtered_resp_df = filtered_resp_df.with_columns([
         pl.when(pl.col("predictor_name").is_in(["MCP_CD8_T_cells", "TIDE_Inverted"]))
@@ -496,36 +529,52 @@ def main() -> None:
     # 4. Update Survival Parquet
     surv_pq = output_dir / "survival_benchmark_metrics.parquet"
     surv_csv = output_dir / "survival_benchmark_metrics.csv"
-    if surv_pq.exists():
-        existing_surv_df = pl.read_parquet(surv_pq)
-        filtered_surv_df = existing_surv_df.filter(pl.col("predictor_name") != PREDICTOR_ID)
-        filtered_surv_df = filtered_surv_df.with_columns([
-            pl.when(pl.col("predictor_name").is_in(["MCP_CD8_T_cells", "TIDE_Inverted"]))
-            .then(pl.lit("Signature"))
-            .otherwise(pl.col("category"))
-            .alias("category"),
-            pl.when(pl.col("cancer_type") == "Clear Cell Renal Cell")
-            .then(pl.lit("Clear Cell Renal Cell Carcinoma"))
-            .otherwise(pl.col("cancer_type"))
-            .alias("cancer_type"),
-        ])
-        new_surv_df = pl.DataFrame(build_survival_records())
-        updated_surv_df = pl.concat([filtered_surv_df, new_surv_df])
-        updated_surv_df.write_parquet(surv_pq)
-        updated_surv_df.write_csv(surv_csv)
-        print(f"Saved: {surv_pq}")
+    match resolve_upstream_artifact(
+        "survival_benchmark_metrics.parquet",
+        ("3e4_update_texh_benchmark", "3e3_benchmark_survival_and_dca", "3e1_benchmark_iatlas_icb_predictors"),
+        explicit_dirs=upstream_explicit,
+        fallback_dirs=fallback_dirs,
+    ):
+        case Some(src_surv_pq):
+            existing_surv_df = pl.read_parquet(src_surv_pq)
+            filtered_surv_df = existing_surv_df.filter(pl.col("predictor_name") != PREDICTOR_ID)
+            filtered_surv_df = filtered_surv_df.with_columns([
+                pl.when(pl.col("predictor_name").is_in(["MCP_CD8_T_cells", "TIDE_Inverted"]))
+                .then(pl.lit("Signature"))
+                .otherwise(pl.col("category"))
+                .alias("category"),
+                pl.when(pl.col("cancer_type") == "Clear Cell Renal Cell")
+                .then(pl.lit("Clear Cell Renal Cell Carcinoma"))
+                .otherwise(pl.col("cancer_type"))
+                .alias("cancer_type"),
+            ])
+            new_surv_df = pl.DataFrame(build_survival_records())
+            updated_surv_df = pl.concat([filtered_surv_df, new_surv_df])
+            updated_surv_df.write_parquet(surv_pq)
+            updated_surv_df.write_csv(surv_csv)
+            print(f"Saved: {surv_pq}")
+        case Nothing:
+            pass
 
     # 5. Update DCA Parquet
     dca_pq = output_dir / "dca_benchmark_metrics.parquet"
     dca_csv = output_dir / "dca_benchmark_metrics.csv"
-    if dca_pq.exists():
-        existing_dca_df = pl.read_parquet(dca_pq)
-        filtered_dca_df = existing_dca_df.filter(pl.col("strategy") != PREDICTOR_ID)
-        new_dca_df = pl.DataFrame(build_dca_records())
-        updated_dca_df = pl.concat([filtered_dca_df, new_dca_df])
-        updated_dca_df.write_parquet(dca_pq)
-        updated_dca_df.write_csv(dca_csv)
-        print(f"Saved: {dca_pq}")
+    match resolve_upstream_artifact(
+        "dca_benchmark_metrics.parquet",
+        ("3e4_update_texh_benchmark", "3e3_benchmark_survival_and_dca", "3e1_benchmark_iatlas_icb_predictors"),
+        explicit_dirs=upstream_explicit,
+        fallback_dirs=fallback_dirs,
+    ):
+        case Some(src_dca_pq):
+            existing_dca_df = pl.read_parquet(src_dca_pq)
+            filtered_dca_df = existing_dca_df.filter(pl.col("strategy") != PREDICTOR_ID)
+            new_dca_df = pl.DataFrame(build_dca_records())
+            updated_dca_df = pl.concat([filtered_dca_df, new_dca_df])
+            updated_dca_df.write_parquet(dca_pq)
+            updated_dca_df.write_csv(dca_csv)
+            print(f"Saved: {dca_pq}")
+        case Nothing:
+            pass
 
     # 6. Regenerate Publication Altair Figures
     print("\n=== Regenerating Publication Altair Figures ===")
@@ -780,67 +829,63 @@ def main() -> None:
 
     # 7. Update Perturbation Benchmark Parquet & Regenerate Perturbation Figures
     pert_pq = output_dir / "perturbation_benchmark_metrics.parquet"
-    if pert_pq.exists():
-        pert_df = pl.read_parquet(pert_pq)
-        pert_df = pert_df.with_columns(
-            pl.when(pl.col("cancer_type") == "Clear Cell Renal Cell")
-            .then(pl.lit("Clear Cell Renal Cell Carcinoma"))
-            .otherwise(pl.col("cancer_type"))
-            .alias("cancer_type")
-        )
-        pert_df.write_parquet(pert_pq)
-        for p_type in ["jitter", "dropout", "dilution", "label_noise"]:
-            for u_mode, suffix in [("shaded", "_shaded"), ("none", "_no_uncertainty"), ("errorbars", "_errorbars"), ("shaded", "")]:
-                match create_pan_cohort_faceted_decay_chart(pert_df, perturbation_type=p_type, columns=3, uncertainty=u_mode):
-                    case Success(chart):
-                        export_chart_svg(chart, output_dir / f"fig_perturbation_decay_{p_type}_all_cohorts{suffix}.svg")
-                match create_meta_analytic_decay_chart(pert_df, perturbation_type=p_type, uncertainty=u_mode):
-                    case Success(chart):
-                        export_chart_svg(chart, output_dir / f"fig_perturbation_decay_pan_cohort_mean_{p_type}{suffix}.svg")
-        match compute_perturbation_resilience(pert_df):
-            case Success(resil_df):
-                match create_cross_cohort_resilience_heatmap(resil_df):
-                    case Success(chart):
-                        export_chart_svg(chart, output_dir / "fig_perturbation_resilience_cross_cohort_heatmap.svg")
-        print(f"Updated and saved perturbation benchmark metrics & figures.")
+    match resolve_upstream_artifact(
+        "perturbation_benchmark_metrics.parquet",
+        ("3e4_update_texh_benchmark", "3e1_benchmark_iatlas_icb_predictors"),
+        explicit_dirs=upstream_explicit,
+        fallback_dirs=fallback_dirs,
+    ):
+        case Some(src_pert_pq):
+            pert_df = pl.read_parquet(src_pert_pq)
+            pert_df = pert_df.with_columns(
+                pl.when(pl.col("cancer_type") == "Clear Cell Renal Cell")
+                .then(pl.lit("Clear Cell Renal Cell Carcinoma"))
+                .otherwise(pl.col("cancer_type"))
+                .alias("cancer_type")
+            )
+            pert_df.write_parquet(pert_pq)
+            for p_type in ["jitter", "dropout", "dilution", "label_noise"]:
+                for u_mode, suffix in [("shaded", "_shaded"), ("none", "_no_uncertainty"), ("errorbars", "_errorbars"), ("shaded", "")]:
+                    match create_pan_cohort_faceted_decay_chart(pert_df, perturbation_type=p_type, columns=3, uncertainty=u_mode):
+                        case Success(chart):
+                            export_chart_svg(chart, output_dir / f"fig_perturbation_decay_{p_type}_all_cohorts{suffix}.svg")
+                    match create_meta_analytic_decay_chart(pert_df, perturbation_type=p_type, uncertainty=u_mode):
+                        case Success(chart):
+                            export_chart_svg(chart, output_dir / f"fig_perturbation_decay_pan_cohort_mean_{p_type}{suffix}.svg")
+            match compute_perturbation_resilience(pert_df):
+                case Success(resil_df):
+                    match create_cross_cohort_resilience_heatmap(resil_df):
+                        case Success(chart):
+                            export_chart_svg(chart, output_dir / "fig_perturbation_resilience_cross_cohort_heatmap.svg")
+            print("Updated and saved perturbation benchmark metrics & figures.")
+        case Nothing:
+            pass
 
-    # 8. Copy to Conversation Artifacts Directory
-    copy_map = {
-        "fig_roc_auc_heatmap_pre_standard.svg": "fig_table_s2_roc_auc_heatmap.svg",
-        "fig_roc_auc_heatmap_transcriptomic_pre_standard.svg": "fig_table_s2_roc_auc_heatmap_transcriptomic.svg",
-        "fig_pr_auc_heatmap_pre_standard.svg": "fig_table_s2_pr_auc_heatmap.svg",
-        "fig_pr_auc_heatmap_transcriptomic_pre_standard.svg": "fig_table_s2_pr_auc_heatmap_transcriptomic.svg",
-        "fig_forest_summary_pre_standard.svg": "fig_table_s2_forest_summary_roc_auc.svg",
-        "fig_forest_summary_prauc_pre_standard.svg": "fig_table_s2_forest_summary_pr_auc.svg",
-        "fig_table_s2_combined_forest_summary.svg": "fig_table_s2_combined_forest_summary.svg",
-        "fig_survival_c_index_os_forest.svg": "fig_table_s2_survival_c_index_os.svg",
-        "fig_dca_net_benefit_pan_cohort.svg": "fig_table_s2_dca_net_benefit_pan_cohort.svg",
-        "fig_cohort_predictability_forest.svg": "fig_cohort_predictability_forest.svg",
-        "fig_benchmark_bars_pre_standard.svg": "fig_benchmark_bars_pre_standard.svg",
-    }
+    # 8. Render 300 DPI PNG rasters directly into output_dir for all primary figures
+    primary_png_targets = (
+        "fig_roc_auc_heatmap_pre_standard.svg",
+        "fig_roc_auc_heatmap_transcriptomic_pre_standard.svg",
+        "fig_pr_auc_heatmap_pre_standard.svg",
+        "fig_pr_auc_heatmap_transcriptomic_pre_standard.svg",
+        "fig_forest_summary_pre_standard.svg",
+        "fig_forest_summary_prauc_pre_standard.svg",
+        "fig_table_s2_combined_forest_summary.svg",
+        "fig_survival_c_index_os_forest.svg",
+        "fig_dca_net_benefit_pan_cohort.svg",
+        "fig_cohort_predictability_forest.svg",
+        "fig_benchmark_bars_pre_standard.svg",
+    )
+    from plotting_utils import rasterize_svg_to_png
 
-    print("\n=== Copying Updated SVGs to Conversation Artifacts ===")
-    for src_name, dst_name in copy_map.items():
-        src_path = output_dir / src_name
-        if src_path.exists():
-            dst_path = brain_dir / dst_name
-            shutil.copy2(src_path, dst_path)
-            print(f"Copied {src_name} -> {dst_path.name}")
-
-    # Also copy all generated fig_*.svg files with their native filenames
-    for svg_file in output_dir.glob("fig_*.svg"):
-        shutil.copy2(svg_file, brain_dir / svg_file.name)
-
-    # Render 300 DPI PNG rasters for validation
-    for fname in ["fig_table_s2_roc_auc_heatmap_transcriptomic.svg", "fig_table_s2_pr_auc_heatmap_transcriptomic.svg"]:
-        f_svg = brain_dir / fname
+    for fname in primary_png_targets:
+        f_svg = output_dir / fname
         if f_svg.exists():
-            f_png = brain_dir / fname.replace(".svg", ".png")
-            try:
-                subprocess.run(["rsvg-convert", "-d", "300", "-p", "300", str(f_svg), "-o", str(f_png)], check=True)
-                print(f"Rendered 300 DPI raster: {f_png.name}")
-            except Exception as exc:
-                print(f"Warning: Failed to render PNG for {fname}: {exc}")
+            f_png = f_svg.with_suffix(".png")
+            match rasterize_svg_to_png(f_svg, f_png, scale=3.125, background="white"):
+                case Success(_):
+                    print(f"Rendered 300 DPI raster: {f_png.name}")
+                case Failure(err):
+                    print(f"Warning: Failed to render PNG for {fname}: {err}")
 
     print("\n=== Integration and Figure Export Completed Successfully ===")
 

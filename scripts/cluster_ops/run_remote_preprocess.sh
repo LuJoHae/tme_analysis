@@ -30,7 +30,7 @@ TMP_DIR="${TMPDIR:-$SCRATCH_BASE/tmp}"
 LOG_DIR="$SCRATCH_BASE/slurm_logs"
 OUTPUT_DIR="$WORK_DIR/output"
 LOG_FILE="$LOG_DIR/tme_preprocess.log"
-PROGRESS_FILE="$OUTPUT_DIR/manuscript_pipeline/1a_download_and_preprocess_all/preprocessing_progress.json"
+PROGRESS_FILE="$OUTPUT_DIR/tme_datasets/ingest/preprocessing_progress.json"
 
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR" "$TMP_DIR"
 

@@ -35,7 +35,7 @@ stitch_composite_grid_and_bars = _stage4a6.stitch_composite_grid_and_bars
 
 @pytest.fixture
 def benchmark_dir() -> Path:
-    return Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
+    return Path("output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark")
 
 
 @pytest.fixture

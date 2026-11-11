@@ -18,13 +18,19 @@ import pandas as pd
 import polars as pl
 from joblib import Parallel, delayed  # type: ignore
 from pydantic import BaseModel, ConfigDict
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Result, Success
 
 # Local repo packages
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent / "packages"))
-import datalair  # type: ignore
-import ici_datasets  # type: ignore
+from scripts.manuscript_pipeline._helpers.paths import (  # noqa: E402
+    MULTIRES_REF_STAGES,
+    discover_upstream_glob,
+    resolve_upstream_artifact,
+)
 import instaprism  # type: ignore
+from tme_datasets import load_dataset  # noqa: E402
 
 
 COHORT_CANCER_MAP: Final[dict[str, str]] = {
@@ -43,7 +49,7 @@ COHORT_CANCER_MAP: Final[dict[str, str]] = {
 class DeconvConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     reference_path: Path
-    lair_dir: Path
+    lair_dir: Path | None = None
     cohorts: tuple[str, ...]
     out_dir: Path
     output_name: str = "deconv_fractions.parquet"
@@ -65,46 +71,48 @@ def load_reference(ref_path: Path) -> Result[tuple[tuple[str, ...], tuple[str, .
         return Failure(f"Failed to load reference from {ref_path}: {exc}")
 
 
-def load_cohort_bulk_expression(cohort_name: str, lair: datalair.Lair) -> Result[pd.DataFrame, str]:
-    """Load bulk RNA-seq expression for a cohort from cBioPortal via datalair."""
-    try:
-        ds_class = ici_datasets.cbioportal_datasets.CBioPortalDataset
-        ds = ds_class(name=cohort_name)
-        lair.safe_derive(ds)
-        filepaths = lair.get_dataset_filepaths(ds)
+def load_cohort_bulk_expression(
+    cohort_name: str,
+    lair_dir: Path | None = None,
+) -> Result[pd.DataFrame, str]:
+    """Load bulk RNA-seq expression (genes x samples, 1e6 TPM) via tme_datasets H5AD."""
+    match load_dataset(cohort_name, auto_download=False):
+        case Success(adata):
+            try:
+                x_raw = (
+                    adata.X.toarray()
+                    if hasattr(adata.X, "toarray")
+                    else np.asarray(adata.X, dtype=np.float64)
+                )
+                x_mat = np.nan_to_num(
+                    np.asarray(x_raw, dtype=np.float64),
+                    nan=0.0,
+                    posinf=0.0,
+                    neginf=0.0,
+                )
+                raw_genes = (
+                    adata.var["gene_name"].astype(str).str.strip().str.upper().tolist()
+                    if "gene_name" in adata.var.columns
+                    else [str(g).strip().upper() for g in adata.var_names]
+                )
+                sample_ids = [str(s) for s in adata.obs_names]
+                df = pd.DataFrame(x_mat.T, index=raw_genes, columns=sample_ids)
+                df = df[~df.index.isin(["", "NAN", "NONE", "<NA>", "UNKNOWN"])]
+                df = df.groupby(level=0).mean()
 
-        unpacked_key = next(f for f in filepaths.keys() if not f.endswith(".tar.gz"))
-        p_dir = filepaths[unpacked_key] / filepaths[unpacked_key].name
+                if float(df.to_numpy().max()) < 50.0:
+                    df = np.maximum(np.power(2.0, np.clip(df, 0.0, 32.0)) - 1.0, 0.0)
+                else:
+                    df = np.maximum(df, 0.0)
 
-        dispatch_map = {
-            "data_mrna_seq_expression.txt": True,
-            "data_mrna_seq_tpm.txt": True,
-            "data_mrna_seq_rpkm.txt": True,
-        }
-        existing = [f for f in dispatch_map if (p_dir / f).is_file()]
-        if not existing:
-            return Failure(f"No bulk mRNA expression file found in {p_dir} for {cohort_name}")
-
-        target = existing[0]
-        df = pd.read_csv(p_dir / target, sep="\t", index_col=0)
-
-        # Normalize index to uppercase gene symbols
-        df.index = df.index.astype(str).str.upper()
-        # Deduplicate multiple rows with same gene by averaging
-        df = df.groupby(level=0).mean()
-
-        # If log-transformed (max value < 50), linearize
-        if df.max().max() < 50:
-            df = np.power(2.0, df) - 1.0
-
-        # Size-factor normalize to sum to 1e6 (TPM-like)
-        col_sums = df.sum(axis=0)
-        col_sums[col_sums == 0] = 1.0
-        df = df.div(col_sums, axis=1) * 1e6
-
-        return Success(df)
-    except Exception as exc:
-        return Failure(f"Error loading bulk data for {cohort_name}: {exc}")
+                col_sums = df.sum(axis=0).replace(0.0, 1.0)
+                df = df.div(col_sums, axis=1) * 1e6
+                return Success(df)
+            except Exception as exc:
+                return Failure(f"Error formatting tme_datasets H5AD for {cohort_name}: {exc}")
+        case Failure(tme_err):
+            _ = lair_dir
+            return Failure(f"Failed to load {cohort_name} via tme_datasets.load_dataset(): {tme_err}")
 
 
 def deconvolute_single_sample(
@@ -180,13 +188,12 @@ def process_cohort_deconvolution(
 def run_deconv_pipeline(config: DeconvConfig) -> Result[Path, str]:
     """Orchestrates deconvolution across cohorts, supporting single reference or multi-resolution benchmark mode."""
     config.out_dir.mkdir(parents=True, exist_ok=True)
-    lair = datalair.Lair(str(config.lair_dir))
 
     # Preload bulk expression for all valid cohorts once to maximize efficiency
-    print("Loading bulk RNA-seq cohorts from cBioPortal / datalair...")
+    print("Loading bulk RNA-seq cohorts via tme_datasets...")
     bulk_cache: dict[str, pd.DataFrame] = {}
     for cohort in config.cohorts:
-        bulk_res = load_cohort_bulk_expression(cohort, lair)
+        bulk_res = load_cohort_bulk_expression(cohort, config.lair_dir)
         match bulk_res:
             case Failure(err):
                 print(f"Warning: Skipping {cohort}: {err}")
@@ -199,20 +206,44 @@ def run_deconv_pipeline(config: DeconvConfig) -> Result[Path, str]:
 
     if config.benchmark_mode:
         print("\n=== RUNNING MULTI-RESOLUTION BENCHMARK DECONVOLUTION ===")
-        # Dynamically identify all generated multi-resolution reference parquet files
+        # Dynamically identify all generated multi-resolution reference parquet files across 3f1..3f4
         ref_targets: list[tuple[str, Path, str]] = []
-        
+        explicit_ref_dirs = (config.out_dir, config.reference_path.parent)
+        fallback_ref_dirs = (
+            Path("output/output/sade_feldman_deconv_validation"),
+            Path("output/sade_feldman_deconv_validation"),
+        )
+
         # 1. Standard Sade-Feldman & Integrated Multi-Atlas
         for res in (0.5, 1.0, 1.5, 2.0):
-            sf_file = config.out_dir / f"reference_phi_res{res}.parquet"
-            if sf_file.exists():
-                ref_targets.append((f"sf_res{res}", sf_file, f"deconv_fractions_sf_res{res}.parquet"))
-            comb_file = config.out_dir / f"integrated_reference_phi_res{res}.parquet"
-            if comb_file.exists():
-                ref_targets.append((f"comb_res{res}", comb_file, f"deconv_fractions_comb_res{res}.parquet"))
+            match resolve_upstream_artifact(
+                f"reference_phi_res{res}.parquet",
+                MULTIRES_REF_STAGES,
+                explicit_dirs=explicit_ref_dirs,
+                fallback_dirs=fallback_ref_dirs,
+            ):
+                case Some(sf_file):
+                    ref_targets.append((f"sf_res{res}", sf_file, f"deconv_fractions_sf_res{res}.parquet"))
+                case Nothing:
+                    pass
+            match resolve_upstream_artifact(
+                f"integrated_reference_phi_res{res}.parquet",
+                MULTIRES_REF_STAGES,
+                explicit_dirs=explicit_ref_dirs,
+                fallback_dirs=fallback_ref_dirs,
+            ):
+                case Some(comb_file):
+                    ref_targets.append((f"comb_res{res}", comb_file, f"deconv_fractions_comb_res{res}.parquet"))
+                case Nothing:
+                    pass
 
-        # 2. Any additional dataset references: reference_phi_{dataset_id}_res{res}.parquet
-        for phi_file in sorted(config.out_dir.glob("reference_phi_*_res*.parquet")):
+        # 2. Any additional dataset/combined references: reference_phi_{dataset_id}_res{res}.parquet
+        for phi_file in discover_upstream_glob(
+            "reference_phi_*_res*.parquet",
+            MULTIRES_REF_STAGES,
+            explicit_dirs=explicit_ref_dirs,
+            fallback_dirs=fallback_ref_dirs,
+        ):
             fname = phi_file.name
             # parse {dataset_id} and {res}, explicitly ignoring tidy files
             m = re.match(r"^reference_phi_(?!tidy_)([a-zA-Z0-9_\.-]+)_res([0-9\.]+)\.parquet$", fname)
@@ -220,7 +251,7 @@ def run_deconv_pipeline(config: DeconvConfig) -> Result[Path, str]:
                 d_id, r_val = m.group(1), m.group(2)
                 tag = f"{d_id}_res{r_val}"
                 out_name = f"deconv_fractions_{d_id}_res{r_val}.parquet"
-                if (tag, phi_file, out_name) not in ref_targets:
+                if not any(t[0] == tag for t in ref_targets):
                     ref_targets.append((tag, phi_file, out_name))
 
         if not ref_targets:
@@ -325,14 +356,14 @@ def main() -> None:
     parser.add_argument(
         "--reference",
         type=str,
-        default="output/sade_feldman_deconv_validation/reference_phi.parquet",
+        default="output/manuscript_pipeline/3f1_build_sf_reference/reference_phi.parquet",
         help="Path to reference_phi.parquet",
     )
     parser.add_argument(
         "--lair-dir",
         type=str,
-        default="scratch/lair" if Path("scratch/lair").exists() else "/ritom/scratch/cscs/lhaeuser/data-test/lair",
-        help="Path to datalair directory",
+        default="",
+        help="Unused deprecated CLI flag retained for backward compatibility",
     )
     parser.add_argument(
         "--cohorts",
@@ -343,7 +374,7 @@ def main() -> None:
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f5_deconvolute_iatlas_multires",
         help="Directory to save deconv fractions",
     )
     parser.add_argument(
@@ -374,7 +405,7 @@ def main() -> None:
     cohort_list = tuple(c.strip() for c in args.cohorts.split(",") if c.strip())
     config = DeconvConfig(
         reference_path=Path(args.reference),
-        lair_dir=Path(args.lair_dir),
+        lair_dir=Path(args.lair_dir) if args.lair_dir else None,
         cohorts=cohort_list,
         out_dir=Path(args.out_dir),
         output_name=args.output_name,

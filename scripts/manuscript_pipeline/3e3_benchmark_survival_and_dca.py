@@ -101,7 +101,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("output/benchmarks/iatlas_roc_auc"),
+        default=Path("output/manuscript_pipeline/3e3_benchmark_survival_and_dca"),
         help="Output directory for tabular results and publication SVGs.",
     )
     parser.add_argument(

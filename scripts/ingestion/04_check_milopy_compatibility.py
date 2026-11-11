@@ -75,8 +75,11 @@ def main() -> None:
     parser.add_argument("--base-dir", type=str, default="/ritom/scratch/cscs/lhaeuser/data-test", help="Base directory (default: /ritom/scratch/cscs/lhaeuser/data-test)")
     args = parser.parse_args()
 
+    from tme_datasets import list_preprocessed_datasets, Modality
+
     dirs = DataDirectories.with_base(Path(args.base_dir))
-    h5ad_files = sorted(list(dirs.preprocessed_dir.glob("*.h5ad")))
+    prep_specs = list_preprocessed_datasets(modality=Modality.SINGLE_CELL, repo_root=Path(args.base_dir))
+    h5ad_files = sorted([spec.h5ad_path for spec in prep_specs])
 
     if not h5ad_files:
         print(f"Error: No .h5ad files found in {dirs.preprocessed_dir}")

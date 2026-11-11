@@ -192,22 +192,10 @@ def stitch_master_2x2_figure(
 
 
 def rasterize_svg_with_rsvg(svg_path: Path, png_path: Path, width_px: int = 2126) -> Result[Path, str]:
-    """Rasterizes SVG to high-resolution 300 DPI PNG via rsvg-convert."""
-    cmd = [
-        "rsvg-convert",
-        "-w", str(width_px),
-        "-o", str(png_path),
-        str(svg_path),
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        if not png_path.exists() or png_path.stat().st_size == 0:
-            return Failure(f"rsvg-convert produced empty PNG at {png_path}")
-        return Success(png_path)
-    except subprocess.CalledProcessError as exc:
-        return Failure(f"rsvg-convert failed: {exc.stderr}")
-    except FileNotFoundError:
-        return Failure("rsvg-convert executable not found in PATH")
+    """Rasterizes SVG to high-resolution 300 DPI PNG via rsvg-convert or headless vl_convert fallback."""
+    from plotting_utils import rasterize_svg_to_png
+
+    return rasterize_svg_to_png(svg_path, png_path, width_px=width_px, background=None)
 
 
 def execute_assembly(config: AssemblerConfig) -> Result[Path, str]:

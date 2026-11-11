@@ -36,7 +36,7 @@ import vl_convert as vlc  # type: ignore
 # Disable Altair row limit for large single-cell datasets
 alt.data_transformers.disable_max_rows()
 
-from tme_datasets import find_dataset_h5ad, load_backed
+from tme_datasets import load_backed
 from milopy import project_nhoods_to_cells
 from plotting_utils import (
     COLOR_BG_WHITE,
@@ -130,15 +130,9 @@ def recompute_cohort_umap(
     cell_ids = cell_df["cell_id"].to_list()
     n_cells = len(cell_ids)
 
-    h5ad_maybe = find_dataset_h5ad(accession, repo_root=config.base_dir)
-    h5ad_file: Path | None = h5ad_maybe.value_or(None)
-
-    if h5ad_file is None:
-        return Failure(f"Could not locate preprocessed H5AD for {accession} via tme_datasets API")
-
-    print(f"[{accession}] Streaming {n_cells:,} cells from {h5ad_file} via tme_datasets backed loader to recompute fresh UMAP...")
+    print(f"[{accession}] Streaming {n_cells:,} cells via tme_datasets.load_backed() to recompute fresh UMAP...")
     try:
-        backed_res = load_backed(h5ad_file, mode="r")
+        backed_res = load_backed(accession, mode="r", base_dir=config.base_dir)
         if not isinstance(backed_res, Success):
             return Failure(f"Failed to open backed H5AD for {accession}: {backed_res.failure()}")
         backed_adata = backed_res.unwrap()

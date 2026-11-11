@@ -30,7 +30,7 @@ load_cohort_panel_data = _stage4a5.load_cohort_panel_data
 
 @pytest.fixture
 def benchmark_dir() -> Path:
-    return Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
+    return Path("output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark")
 
 
 @pytest.fixture

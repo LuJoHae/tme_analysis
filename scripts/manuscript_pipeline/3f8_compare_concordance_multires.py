@@ -20,10 +20,20 @@ from typing import Final
 import numpy as np
 import polars as pl
 from pydantic import BaseModel, ConfigDict
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Result, Success
 from scipy import stats  # type: ignore
 from sklearn.metrics import cohen_kappa_score  # type: ignore
 import statsmodels.api as sm  # type: ignore
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.manuscript_pipeline._helpers.paths import (  # noqa: E402
+    MULTIRES_ALL_UPSTREAM_STAGES,
+    MULTIRES_REF_STAGES,
+    discover_upstream_glob,
+    resolve_upstream_artifact,
+    stage_search_dirs,
+)
 
 
 COHORT_CANCER_MAP: Final[dict[str, str]] = {
@@ -214,10 +224,24 @@ def compute_pair_concordance(
 
 def run_full_concordance(config: ConcordanceConfig) -> Result[Path, str]:
     """Orchestrates comprehensive concordance testing across cohorts and timepoints."""
-    if not config.logistic_path.exists():
-        return Failure(f"Logistic regression results missing: {config.logistic_path}")
+    fallback_dirs = (
+        Path("output/output/sade_feldman_deconv_validation"),
+        Path("output/sade_feldman_deconv_validation"),
+    )
+    logistic_path = config.logistic_path
+    if not logistic_path.exists():
+        match resolve_upstream_artifact(
+            logistic_path.name,
+            ("3f6_logistic_regression_multires",),
+            explicit_dirs=(config.out_dir, config.logistic_path.parent),
+            fallback_dirs=fallback_dirs,
+        ):
+            case Some(found_log):
+                logistic_path = found_log
+            case Nothing:
+                return Failure(f"Logistic regression results missing: {config.logistic_path}")
 
-    df_log = pl.read_parquet(config.logistic_path)
+    df_log = pl.read_parquet(logistic_path)
     all_strata = sorted(df_log["stratum"].unique().to_list())
     print(f"Loaded logistic results with {len(all_strata)} strata: {all_strata}")
 
@@ -228,9 +252,26 @@ def run_full_concordance(config: ConcordanceConfig) -> Result[Path, str]:
     for cname in conditions:
         p_path = config.milo_dir / f"milopy_cell_state_da_{cname}.parquet"
         if not p_path.exists():
-            # Fallback for Combined
-            if cname == "Combined":
-                p_path = config.milo_dir / "milopy_cell_state_da.parquet"
+            match resolve_upstream_artifact(
+                f"milopy_cell_state_da_{cname}.parquet",
+                ("3f7_analyze_milopy_multires",),
+                explicit_dirs=(config.milo_dir, config.out_dir),
+                fallback_dirs=fallback_dirs,
+            ):
+                case Some(found_milo):
+                    p_path = found_milo
+                case Nothing:
+                    if cname == "Combined":
+                        match resolve_upstream_artifact(
+                            "milopy_cell_state_da.parquet",
+                            ("3f7_analyze_milopy_multires",),
+                            explicit_dirs=(config.milo_dir, config.out_dir),
+                            fallback_dirs=fallback_dirs,
+                        ):
+                            case Some(found_comb):
+                                p_path = found_comb
+                            case Nothing:
+                                pass
 
         if p_path.exists():
             milo_condition_dfs[cname] = pl.read_parquet(p_path)
@@ -360,20 +401,32 @@ def run_full_concordance(config: ConcordanceConfig) -> Result[Path, str]:
     # 6. Multi-Resolution Benchmark Compilation — all references × all resolutions
     benchmark_records: list[dict[str, object]] = []
 
-    search_dirs = [config.out_dir]
-    nested_dir = Path("output/output/sade_feldman_deconv_validation")
-    if nested_dir.exists() and nested_dir not in search_dirs:
-        search_dirs.append(nested_dir)
+    explicit_search = (config.out_dir, config.logistic_path.parent, config.milo_dir)
+    fallback_search = (
+        Path("output/output/sade_feldman_deconv_validation"),
+        Path("output/sade_feldman_deconv_validation"),
+    )
+    search_dirs = list(
+        stage_search_dirs(
+            MULTIRES_ALL_UPSTREAM_STAGES,
+            explicit_dirs=explicit_search,
+            fallback_dirs=fallback_search,
+        )
+    )
 
     # Load condition number and cluster metrics across all references
     metrics_map: dict[str, dict[float, dict[str, object]]] = {}
-    for s_dir in search_dirs:
-        for mf in s_dir.glob("reference_resolution_metrics_*.parquet"):
-            m_tag = mf.stem.replace("reference_resolution_metrics_", "")
-            if m_tag not in metrics_map:
-                metrics_map[m_tag] = {}
-            for r in pl.read_parquet(mf).iter_rows(named=True):
-                metrics_map[m_tag][float(r["resolution"])] = r
+    for mf in discover_upstream_glob(
+        "reference_resolution_metrics_*.parquet",
+        MULTIRES_REF_STAGES,
+        explicit_dirs=explicit_search,
+        fallback_dirs=fallback_search,
+    ):
+        m_tag = mf.stem.replace("reference_resolution_metrics_", "")
+        if m_tag not in metrics_map:
+            metrics_map[m_tag] = {}
+        for r in pl.read_parquet(mf).iter_rows(named=True):
+            metrics_map[m_tag][float(r["resolution"])] = r
 
     name_map: dict[str, str] = {
         "sf": "Sade-Feldman",
@@ -496,8 +549,27 @@ def run_full_concordance(config: ConcordanceConfig) -> Result[Path, str]:
         pct_conc = float("nan")
         if ref_id == "sf":
             milo_res_file = config.milo_dir / f"milopy_cell_state_da_Combined_res{res}.parquet"
-            if not milo_res_file.exists() and abs(res - 0.5) < 1e-4:
-                milo_res_file = config.milo_dir / "milopy_cell_state_da.parquet"
+            if not milo_res_file.exists():
+                match resolve_upstream_artifact(
+                    f"milopy_cell_state_da_Combined_res{res}.parquet",
+                    ("3f7_analyze_milopy_multires",),
+                    explicit_dirs=(config.milo_dir, config.out_dir),
+                    fallback_dirs=fallback_search,
+                ):
+                    case Some(found_mr):
+                        milo_res_file = found_mr
+                    case Nothing:
+                        if abs(res - 0.5) < 1e-4:
+                            match resolve_upstream_artifact(
+                                "milopy_cell_state_da.parquet",
+                                ("3f7_analyze_milopy_multires",),
+                                explicit_dirs=(config.milo_dir, config.out_dir),
+                                fallback_dirs=fallback_search,
+                            ):
+                                case Some(found_m05):
+                                    milo_res_file = found_m05
+                                case Nothing:
+                                    pass
             if milo_res_file.exists():
                 df_milo_res = pl.read_parquet(milo_res_file)
                 j_sf = sub_mel.join(df_milo_res, on="cell_state", how="inner")
@@ -538,8 +610,6 @@ def run_full_concordance(config: ConcordanceConfig) -> Result[Path, str]:
         df_bench = pl.DataFrame(benchmark_records)
         out_bench = config.out_dir / "multi_resolution_benchmark_summary.parquet"
         df_bench.write_parquet(out_bench)
-        if nested_dir.exists() and nested_dir != config.out_dir:
-            df_bench.write_parquet(nested_dir / "multi_resolution_benchmark_summary.parquet")
         print(f"\nSaved multi-resolution benchmark summary ({df_bench.height} configurations) to: {out_bench}")
         print(df_bench)
 
@@ -565,19 +635,19 @@ def main() -> None:
     parser.add_argument(
         "--logistic-results",
         type=str,
-        default="output/sade_feldman_deconv_validation/logistic_regression_results.parquet",
+        default="output/manuscript_pipeline/3f6_logistic_regression_multires/logistic_regression_results.parquet",
         help="Path to logistic_regression_results.parquet",
     )
     parser.add_argument(
         "--milo-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f7_analyze_milopy_multires",
         help="Directory containing milopy_cell_state_da parquets",
     )
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f8_compare_concordance_multires",
         help="Directory to save output parquets",
     )
     args = parser.parse_args()

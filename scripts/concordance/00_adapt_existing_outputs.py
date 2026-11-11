@@ -23,13 +23,21 @@ import sys
 from pathlib import Path
 import polars as pl
 
-SFDV = Path("output/output/sade_feldman_deconv_validation")
+SFDV_LEGACY = Path("output/output/sade_feldman_deconv_validation")
+MP_MILO = Path("output/manuscript_pipeline/3f7_analyze_milopy_multires")
+MP_LR = Path("output/manuscript_pipeline/3f6_logistic_regression_multires")
+MP_REF = Path("output/manuscript_pipeline/3f1_build_sf_reference")
 OUT = Path("output/concordance")
 OUT.mkdir(parents=True, exist_ok=True)
 
 # ─── 1. Single-cell effects: Milo DA log-fold-change ─────────────────────────
 print("=== Preparing SC effects from Milo DA ===")
-milo = pl.read_parquet(SFDV / "milopy_cell_state_da.parquet")
+milo_file = (
+    MP_MILO / "milopy_cell_state_da.parquet"
+    if (MP_MILO / "milopy_cell_state_da.parquet").exists()
+    else SFDV_LEGACY / "milopy_cell_state_da.parquet"
+)
+milo = pl.read_parquet(milo_file)
 # Use Combined condition, resolution 0.5 as canonical
 milo_sub = (
     milo
@@ -62,7 +70,12 @@ print(milo_sub.select(["cell_state","beta_sc","p_value_sc"]).to_pandas().to_stri
 
 # ─── 2. Bulk effects: logistic regression -> all strata as fraction_type ────
 print("\n=== Preparing Bulk effects from logistic results ===")
-lr = pl.read_parquet(SFDV / "logistic_results_sf_res0.5.parquet")
+lr_file = (
+    MP_LR / "logistic_results_sf_res0.5.parquet"
+    if (MP_LR / "logistic_results_sf_res0.5.parquet").exists()
+    else SFDV_LEGACY / "logistic_results_sf_res0.5.parquet"
+)
+lr = pl.read_parquet(lr_file)
 
 # Map each stratum to a fraction_type to show range of bulk associations
 strata_to_fracttype = {
@@ -107,7 +120,11 @@ print(bulk_df.select(["cell_state","fraction_type","beta_bulk","p_value_bulk"]).
 
 # ─── 3. Reference collinearity (from existing output or stub) ───────────────
 print("\n=== Preparing Reference Collinearity ===")
-coll_path = SFDV / "reference_collinearity.parquet"
+coll_path = (
+    MP_REF / "reference_collinearity.parquet"
+    if (MP_REF / "reference_collinearity.parquet").exists()
+    else SFDV_LEGACY / "reference_collinearity.parquet"
+)
 if coll_path.exists():
     coll = pl.read_parquet(coll_path)
     coll.write_parquet(OUT / "reference_collinearity.parquet")

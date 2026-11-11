@@ -34,14 +34,11 @@ class PlotConfig(BaseModel):
 
 
 def load_unified_dataset(h5ad_path: Path) -> Result[ad.AnnData, str]:
-    """Loads the unified AnnData dataset from disk."""
-    try:
-        if not h5ad_path.exists():
-            return Failure(f"Input AnnData file not found: {h5ad_path}")
-        adata = ad.read_h5ad(h5ad_path)
-        return Success(adata)
-    except Exception as e:
-        return Failure(f"Failed to load AnnData from {h5ad_path}: {str(e)}")
+    """Load the unified AnnData dataset strictly via tme_datasets.load_dataset()."""
+    from tme_datasets import load_dataset
+
+    cohort_id = h5ad_path.stem.replace("_processed", "")
+    return load_dataset(cohort_id, base_dir=h5ad_path.parent, auto_download=False, normalize_ensembl=False)
 
 
 def apply_gene_length_scaling(adata: ad.AnnData) -> ad.AnnData:

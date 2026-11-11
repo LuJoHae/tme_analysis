@@ -50,7 +50,11 @@ def parse_args() -> BenchmarkConfig:
     parser.add_argument(
         "--ref",
         type=Path,
-        default=Path("output/output/sade_feldman_deconv_validation/reference_phi_res0.5.parquet"),
+        default=(
+            Path("output/manuscript_pipeline/3f1_build_sf_reference/reference_phi_res0.5.parquet")
+            if Path("output/manuscript_pipeline/3f1_build_sf_reference/reference_phi_res0.5.parquet").exists()
+            else Path("output/output/sade_feldman_deconv_validation/reference_phi_res0.5.parquet")
+        ),
         help="Path to single-cell reference phi parquet",
     )
     parser.add_argument(

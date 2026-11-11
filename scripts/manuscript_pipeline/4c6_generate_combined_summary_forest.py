@@ -14,9 +14,12 @@ import subprocess
 import sys
 
 import polars as pl
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Success
 
-from tme_response.visualization import create_combined_summary_forest_plot, export_chart_svg
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.manuscript_pipeline._helpers.paths import resolve_upstream_artifact  # noqa: E402
+from tme_response.visualization import create_combined_summary_forest_plot, export_chart_svg  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,20 +29,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--parquet",
         type=Path,
-        default=Path("output/benchmarks/iatlas_roc_auc/iatlas_benchmark_metrics.parquet"),
-        help="Path to iAtlas benchmark metrics parquet file.",
+        default=Path(
+            "output/manuscript_pipeline/3e5_integrate_deconvolution_our/iatlas_benchmark_metrics.parquet"
+        ),
+        help="Path to iAtlas 32-biomarker benchmark metrics parquet file.",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("output/benchmarks/iatlas_roc_auc"),
-        help="Directory to save the generated SVG.",
-    )
-    parser.add_argument(
-        "--brain-dir",
-        type=Path,
-        default=Path("/Users/halu/.gemini/antigravity/brain/8d054c32-dd8d-492f-aeba-2e31752acbd0"),
-        help="Artifact directory to synchronize SVG and PNG.",
+        default=Path("output/manuscript_pipeline/4c6_generate_combined_summary_forest"),
+        help="Directory to save the generated SVG and 300 DPI PNG.",
     )
     parser.add_argument(
         "--sort",
@@ -66,12 +65,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    if not args.parquet.exists():
-        print(f"Error: Parquet file not found at {args.parquet}", file=sys.stderr)
-        sys.exit(1)
+    parquet_path = args.parquet
+    if not parquet_path.exists():
+        match resolve_upstream_artifact(
+            "iatlas_benchmark_metrics.parquet",
+            ("3e5_integrate_deconvolution_our", "3e4_update_texh_benchmark", "3e1_benchmark_iatlas_icb_predictors"),
+            fallback_dirs=(Path("output/benchmarks/iatlas_roc_auc"),),
+        ):
+            case Some(found):
+                parquet_path = found
+            case Nothing:
+                print(f"Error: Parquet file not found at {args.parquet}", file=sys.stderr)
+                sys.exit(1)
 
-    print(f"Loading benchmark metrics from: {args.parquet}")
-    raw_df = pl.read_parquet(args.parquet)
+    print(f"Loading benchmark metrics from: {parquet_path}")
+    raw_df = pl.read_parquet(parquet_path)
 
     # Filter to pan-cancer standardized pre-treatment benchmark stratum
     pancan_df = raw_df.filter(
@@ -111,22 +119,14 @@ def main() -> None:
                 case Success(saved_path):
                     print(f"Successfully saved SVG: {saved_path}")
 
-            # Copy to brain artifact directory
-            if args.brain_dir.exists():
-                dst_svg = args.brain_dir / args.filename
-                shutil.copy2(svg_path, dst_svg)
-                print(f"Copied to artifact directory: {dst_svg}")
+            png_path = svg_path.with_suffix(".png")
+            from plotting_utils import rasterize_svg_to_png
 
-                # Render 300 DPI PNG raster for validation
-                dst_png = args.brain_dir / (args.filename.replace(".svg", ".png"))
-                try:
-                    subprocess.run(
-                        ["rsvg-convert", "-d", "300", "-p", "300", str(dst_svg), "-o", str(dst_png)],
-                        check=True,
-                    )
-                    print(f"Rendered 300 DPI raster: {dst_png}")
-                except Exception as exc:
-                    print(f"Warning: Failed to render PNG via rsvg-convert: {exc}", file=sys.stderr)
+            match rasterize_svg_to_png(svg_path, png_path, scale=3.125, background="white"):
+                case Success(_):
+                    print(f"Rendered 300 DPI raster: {png_path}")
+                case Failure(err):
+                    print(f"Warning: Failed to render PNG: {err}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -215,14 +215,15 @@ def fit_patient_association(
 
 
 def run_pipeline(config: AssociationConfig) -> Result[pl.DataFrame, str]:
-    """Execute Step 1 pure pipeline."""
-    if not config.adata_path.exists():
-        return Failure(f"AnnData file does not exist: {config.adata_path}")
+    """Execute Step 1 pure pipeline strictly loading via tme_datasets.load_dataset()."""
+    from tme_datasets import load_dataset
 
-    try:
-        adata = ad.read_h5ad(config.adata_path, backed=False)
-    except Exception as exc:  # noqa: BLE001
-        return Failure(f"Failed to read AnnData: {exc}")
+    cohort_id = config.adata_path.stem.replace("_processed", "")
+    match load_dataset(cohort_id, base_dir=config.adata_path.parent, auto_download=False, normalize_ensembl=False):
+        case Failure(err):
+            return Failure(f"Failed to load AnnData for '{cohort_id}' via tme_datasets: {err}")
+        case Success(loaded_adata):
+            adata = loaded_adata
 
     match extract_patient_contingency(adata, config.patient_col, config.response_col, config.cluster_col):
         case Failure(err):

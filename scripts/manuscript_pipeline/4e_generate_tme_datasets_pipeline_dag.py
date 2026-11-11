@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Publication Vector Diagram: tme_datasets Registry Queries & Script-to-Script Provenance DAG.
+"""Generate Publication Vector Diagram: tme_datasets Package & 37-Script Provenance DAG.
 
 Constructs a 180.0mm double-column vector diagram adhering strictly to Nature Methods
 minimalist wireframe and Inkscape multi-layer standards:
@@ -8,8 +8,11 @@ minimalist wireframe and Inkscape multi-layer standards:
 - Okabe-Ito colorblind-safe accents strictly applied to functional top-bars, node ports, and arrows.
 - Native Inkscape layers (inkscape:groupmode="layer") and semantic groups (<g id="...">).
 - Minimum font size >= 13.5px across all labels.
-- Maps all datasets and gene panels queried from `packages/tme_datasets` by Stage 1/2 scripts,
-  and all intermediate `.h5ad` / `.parquet` handoffs consumed by Stage 2, 3, and 4 scripts.
+- Tier I maps all 6 domains in `packages/tme_datasets` (`SC-9`, `BULK-15`, `SC-REF`, `TCGA-5`,
+  `IO-SETS`, and `PIPE` = `tme_datasets.pipeline`).
+- Zero arrows are drawn for `tme_datasets` API loads; instead, each script card explicitly
+  states which `tme_datasets` API function(s) it calls, while directed arrows strictly denote
+  script-to-script `.parquet` and `.svg` artifact handoffs across the 37 scripts (`2a1`–`4e`).
 """
 
 from __future__ import annotations
@@ -47,10 +50,11 @@ from scripts.figures.nature_style_config import (  # noqa: E402
 )
 
 VIEWBOX_W: Final[int] = 1400
-VIEWBOX_H: Final[int] = 1188
+VIEWBOX_H: Final[int] = 1664
 FIG_WIDTH_MM: Final[float] = 180.0
 FIG_HEIGHT_MM: Final[float] = round(FIG_WIDTH_MM * (VIEWBOX_H / VIEWBOX_W), 2)
 MIN_FONT_PX: Final[float] = 13.5
+API_PREFIX: Final[str] = "tme_datasets API: "
 
 
 class DagCardSpec(BaseModel):
@@ -116,10 +120,10 @@ class DagExportConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     results_svg_path: Path = Path(
-        "output/manuscript_pipeline/4d_generate_tme_datasets_pipeline_dag/figure_tme_datasets_pipeline_dag.svg"
+        "output/manuscript_pipeline/4e_generate_tme_datasets_pipeline_dag/figure_tme_datasets_pipeline_dag.svg"
     )
     results_png_path: Path = Path(
-        "output/manuscript_pipeline/4d_generate_tme_datasets_pipeline_dag/figure_tme_datasets_pipeline_dag.png"
+        "output/manuscript_pipeline/4e_generate_tme_datasets_pipeline_dag/figure_tme_datasets_pipeline_dag.png"
     )
     article_svg_path: Path = Path("article/figures/dataset_overview/figure_tme_datasets_pipeline_dag.svg")
     article_png_path: Path = Path("article/figures/dataset_overview/figure_tme_datasets_pipeline_dag.png")
@@ -129,34 +133,34 @@ TIER_BANDS: Final[tuple[TierBandSpec, ...]] = (
     TierBandSpec(
         band_id="band-tier-1",
         letter="a",
-        heading="Tier I — packages/tme_datasets Unified Registry, Providers & Gene Panels",
-        right_summary="Typed DatasetSpec · Ensembl v111 · RECIST v1.1",
+        heading="Tier I — packages/tme_datasets: Registry, Asset Pools & Ingestion/QC Pipeline",
+        right_summary="Ensembl v111 · RECIST v1.1 · API-Only Preprocessed Access",
         y=82,
-        height=194,
+        height=344,
     ),
     TierBandSpec(
         band_id="band-tier-2",
         letter="b",
-        heading="Tier II: Primary Query & .h5ad Scripts",
-        right_summary="",
-        y=328,
-        height=190,
+        heading="Tier II: Primary Cohort Analysis Scripts (3 scripts)",
+        right_summary="scripts/manuscript_pipeline/2a1, 2a2, 2b",
+        y=446,
+        height=198,
     ),
     TierBandSpec(
         band_id="band-tier-3",
         letter="c",
         heading="Tier III: Chained Compute Engines",
         right_summary="",
-        y=570,
-        height=352,
+        y=702,
+        height=530,
     ),
     TierBandSpec(
         band_id="band-tier-4",
         letter="d",
         heading="Tier IV: Article Figure & Table Scripts",
         right_summary="",
-        y=968,
-        height=202,
+        y=1286,
+        height=362,
     ),
 )
 
@@ -164,9 +168,9 @@ TIER1_CARDS: Final[tuple[DagCardSpec, ...]] = (
     DagCardSpec(
         card_id="card-t1-sc9",
         x=34,
-        y=120,
-        width=434,
-        height=144,
+        y=122,
+        width=440,
+        height=138,
         accent_color=OKABE_BLUE,
         badge_tag="SC-9",
         title="9 Single-Cell ICB Cohorts (3.60M Cells)",
@@ -175,15 +179,15 @@ TIER1_CARDS: Final[tuple[DagCardSpec, ...]] = (
             "05a8c945 (CRC), 6f9de485 (TNBC), GSE207422 / 243013 /",
             "233203 (NSCLC), GSE200996 (HNSCC), GSE316195 (PDAC)",
         ),
-        footer_label="API: load_dataset() · resolve_milopy_cohorts() · load_backed()",
+        footer_label="API: load_dataset() · load_empirical_pseudobulk() · load_backed()",
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
-        card_id="card-t1-bulk11",
-        x=488,
-        y=120,
-        width=428,
-        height=144,
+        card_id="card-t1-bulk15",
+        x=492,
+        y=122,
+        width=424,
+        height=138,
         accent_color=OKABE_BLUISH_GREEN,
         badge_tag="BULK-15",
         title="11 Bulk ICB Trials + 4 Pools (N = 1,058)",
@@ -196,21 +200,72 @@ TIER1_CARDS: Final[tuple[DagCardSpec, ...]] = (
         footer_color=OKABE_BLUISH_GREEN,
     ),
     DagCardSpec(
-        card_id="card-t1-panels",
-        x=936,
-        y=120,
-        width=430,
-        height=144,
-        accent_color=OKABE_REDDISH_PURPLE,
-        badge_tag="PANELS",
-        title="SC Reference Pool, TCGA & IO Gene Sets",
+        card_id="card-t1-scref",
+        x=934,
+        y=122,
+        width=432,
+        height=138,
+        accent_color=OKABE_SKY_BLUE,
+        badge_tag="SC-REF",
+        title="17+ Single-Cell Reference Atlases",
         body_lines=(
-            "17+ SC Reference Atlases (GSE179994, Maynard_NSCLC, ...)",
-            "5 TCGA Primary Baselines (SKCM, BLCA, KIRC, BRCA, PAAD)",
-            "IMMUNOTHERAPY_GENE_PANEL (101) · Checkpoint · Bagaev",
+            "GSE179994 (NSCLC T), Maynard_NSCLC, GSE115978 (Mel.),",
+            "GSE125449 (HCC/iCCA), GSE123813 (BCC/SCC) + 12 Solid",
+            "Tumor Atlases (providers.single_cell & cellxgene)",
         ),
-        footer_label="API: load_geneset_collection() · list_registered_datasets()",
+        footer_label="API: load_dataset() · sample_single_cell_cohorts()",
+        footer_color=OKABE_BLUE,
+    ),
+    DagCardSpec(
+        card_id="card-t1-tcga5",
+        x=34,
+        y=274,
+        width=440,
+        height=138,
+        accent_color=OKABE_VERMILION,
+        badge_tag="TCGA-5",
+        title="5 TCGA Primary Baselines (N = 2,932)",
+        body_lines=(
+            "Untreated primary tumor RNA-seq baseline cohorts:",
+            "TCGA-SKCM, TCGA-BLCA, TCGA-KIRC, TCGA-BRCA, TCGA-PAAD",
+            "Harmonized TPM & tumor-purity background (providers.tcga)",
+        ),
+        footer_label='API: load_dataset("TCGA_*") · list_registered_datasets()',
+        footer_color=OKABE_VERMILION,
+    ),
+    DagCardSpec(
+        card_id="card-t1-iosets",
+        x=492,
+        y=274,
+        width=424,
+        height=138,
+        accent_color=OKABE_REDDISH_PURPLE,
+        badge_tag="IO-SETS",
+        title="IO Gene Panels & Biomarker Signatures",
+        body_lines=(
+            "IMMUNOTHERAPY_GENE_PANEL (101 curated IO symbols)",
+            "IMMUNE_CHECKPOINT_GENES · Bagaev 29 TME Signatures",
+            "TIDE · Ayers IFN-γ · Jiang Texh · 32-Biomarker Suite",
+        ),
+        footer_label="API: load_geneset_collection() · IO Gene Panels",
         footer_color=OKABE_REDDISH_PURPLE,
+    ),
+    DagCardSpec(
+        card_id="card-t1-pipe",
+        x=934,
+        y=274,
+        width=432,
+        height=138,
+        accent_color=OKABE_ORANGE,
+        badge_tag="PIPE",
+        title="tme_datasets.pipeline (Ingest & QC)",
+        body_lines=(
+            "download_preprocess · batch_preprocess · qc_orchestrator",
+            "Ensembl v111 symbol reconciliation + Luecken–Theis MAD",
+            "outlier/doublet QC -> data/{preprocessed,pseudobulk}/",
+        ),
+        footer_label="CLI: tme-datasets-{ingest,batch-preprocess,qc}",
+        footer_color="#B45309",
     ),
 )
 
@@ -218,52 +273,35 @@ TIER2_CARDS: Final[tuple[DagCardSpec, ...]] = (
     DagCardSpec(
         card_id="card-t2-milopy",
         x=34,
-        y=364,
-        width=434,
-        height=142,
+        y=488,
+        width=654,
+        height=144,
         accent_color=OKABE_BLUE,
         badge_tag="2A",
-        title="2a1_sample_and_analyze_cohorts.py",
+        title="2a1_sample_and_analyze_cohorts.py + 2a2_combine_cohorts_and_analyze.py",
         body_lines=(
-            "+ 2a2_combine_cohorts_and_analyze.py (manuscript_pipeline/)",
-            "Queries SC-9 via resolve_milopy_cohorts() & Harmony",
-            "Fits milopy kNN Negative Binomial GLM response DA",
+            "tme_datasets API: resolve_milopy_cohorts(), load_dataset(), align_and_concatenate()",
+            "Fits patient-aware Harmony + milopy kNN Negative Binomial GLM across SC-9 & 4 pools",
+            "Projects kNN logFC onto single cells (nhood_matrix @ da_logFC -> cell_level_scores)",
         ),
-        footer_label="Out: .../2a1_sample_and_analyze_cohorts/*.parquet",
+        footer_label="Out: output/manuscript_pipeline/2a1_sample_and_analyze_cohorts/*.parquet & 2a2_*/",
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
-        card_id="card-t2-ingest",
-        x=488,
-        y=364,
-        width=428,
-        height=142,
-        accent_color=OKABE_ORANGE,
-        badge_tag="1A–1C",
-        title="1a_download_and_preprocess_all.py",
-        body_lines=(
-            "+ 1b_batch_preprocess_cohorts.py & 1c_run_qc_*.py",
-            "Queries SC-9 & BULK-15 via load_dataset() & Ensembl v111",
-            "Writes atomic QC-validated .h5ad + summary parquets",
-        ),
-        footer_label="Out: data/preprocessed/*.h5ad & .../1a_*/ .../1c_*/",
-        footer_color="#B45309",
-    ),
-    DagCardSpec(
         card_id="card-t2-stability",
-        x=936,
-        y=364,
-        width=430,
-        height=142,
+        x=712,
+        y=488,
+        width=654,
+        height=144,
         accent_color=OKABE_REDDISH_PURPLE,
         badge_tag="2B",
         title="2b_run_stability_selection_iatlas.py",
         body_lines=(
-            "Queries load_iatlas_cohort_or_combined() + IO Panels",
-            "12 cohorts × 13 fitters (Lasso, LassoFWL, MERF, SLOPE)",
-            "Complementary-pairs subsampling under PFER q_budget",
+            "tme_datasets API: load_iatlas_cohort_or_combined(), IMMUNOTHERAPY_GENE_PANEL",
+            "Evaluates 12 bulk cohorts/pools × 13 fitters (Lasso, LassoFWL, MERF, OWL, SLOPE)",
+            "Complementary-pairs subsampling (B = 50) under finite-sample PFER q_budget",
         ),
-        footer_label="Out: .../2b_run_stability_selection_iatlas/*.parquet",
+        footer_label="Out: output/manuscript_pipeline/2b_run_stability_selection_iatlas/{scores,paths}.parquet",
         footer_color=OKABE_REDDISH_PURPLE,
     ),
 )
@@ -272,31 +310,33 @@ TIER3_CARDS: Final[tuple[DagCardSpec, ...]] = (
     DagCardSpec(
         card_id="card-t3-pseudobulk",
         x=34,
-        y=606,
-        width=434,
-        height=142,
+        y=742,
+        width=440,
+        height=148,
         accent_color=OKABE_BLUE,
         badge_tag="3A",
-        title="3a_sade_feldman_pseudobulk_deconv_benchmark.py",
+        title="3a_cross_cohort_pseudobulk_deconv_benchmark.py",
         body_lines=(
-            "Reads 9 SC .h5ad [1A] + cell_level_scores [2A1]",
+            "tme_datasets API: load_dataset(), load_empirical_pseudobulk()",
+            "Pairs SC-9 with cell_level_scores.parquet from [2A1]",
             "Builds 355 Leiden r=2.0 reference centroids (Phi_1..Phi_9)",
             "Evaluates 5-sweep Milo vs. pseudobulk β concordance",
         ),
-        footer_label="Out: .../3a_sade_feldman_pseudobulk_deconv_benchmark/",
+        footer_label="Out: .../3a_cross_cohort_pseudobulk_deconv_benchmark/",
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
         card_id="card-t3-unified",
         x=34,
-        y=768,
-        width=434,
-        height=142,
+        y=906,
+        width=440,
+        height=148,
         accent_color=OKABE_SKY_BLUE,
         badge_tag="3B",
         title="3b_pan_cohort_unified_deconv_benchmark.py",
         body_lines=(
-            "Reads 355 cohort centroids & sweeps from [3A]",
+            "tme_datasets API: load_empirical_pseudobulk() [SC-9 cache]",
+            "Reads 355 centroids & 5-sweep Milo betas from [3A]",
             "Ward-clusters 355 SC states -> 42 Consensus-Meta42",
             "Verifies Unified-All9, Meta42 & LOCO concordance",
         ),
@@ -304,59 +344,85 @@ TIER3_CARDS: Final[tuple[DagCardSpec, ...]] = (
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
+        card_id="card-t3-multires",
+        x=34,
+        y=1070,
+        width=440,
+        height=148,
+        accent_color=OKABE_SKY_BLUE,
+        badge_tag="3F",
+        title="3f1–3f8 Multi-Res Reference Scaling Suite",
+        body_lines=(
+            "tme_datasets API: load_dataset() [SC-9, SC-REF, BULK-15]",
+            "3f1..3f4: SF / Harmony / {2,3,4,16}-dataset references",
+            "3f5..3f6: Multi-res InstaPrism deconv & L2 ROC-AUC",
+            "3f7..3f8: Multi-res Milo DA & 18-strategy saturation",
+        ),
+        footer_label="Out: .../3f1_*/..3f8_*/ (multi_resolution_benchmark_*)",
+        footer_color=OKABE_BLUE,
+    ),
+    DagCardSpec(
         card_id="card-t3-iatlas-bench",
-        x=488,
-        y=606,
-        width=428,
-        height=304,
+        x=492,
+        y=742,
+        width=424,
+        height=476,
         accent_color=OKABE_BLUISH_GREEN,
         badge_tag="3C",
         title="3c_iatlas_instaprism_milopy_benchmark.py",
         body_lines=(
-            "Inputs: 11 Bulk .h5ad [1A] + 355 SC & Meta-42",
-            "  reference/milopy parquets (from [3A] & [3B])",
-            "1. Detects log2 bulk scale, linearizes (2^X - 1 -> 10^6 TPM)",
-            "2. Runs InstaPrism EM across 13 Refs (Tiers 1–3) × 15 Cohorts",
-            "3. Evaluates 5 ML families (Ridge, ENet, Lasso, OLS, RF) + LOCO",
-            "4. DerSimonian–Laird Pan-iAtlas-Meta β vs. milopy logFC",
-            "5. Extracts 168 top-4 HGNC DEGs (14-state & All-42 atlases)",
-            "6. Computes 8×8 & 42×42 epistasis z, RF 2D H & 3×3 regimes",
+            "tme_datasets API: load_dataset() [11 Bulk Trials]",
+            "Upstream: 355 SC [3A] & Meta-42 [3B] .parquet refs",
+            "1. Detects log2 bulk scale, linearizes (2^X - 1 -> TPM)",
+            "2. InstaPrism EM across 13 Refs (Tiers 1–3) × 15 Cohorts",
+            "3. Aitchison CLR + arcsin-sqrt compositional features",
+            "4. Evaluates 5 ML families (Ridge, ENet, Lasso, OLS, RF)",
+            "5. Zero-shot Leave-One-Cohort-Out (LOCO) across 11",
+            "6. DerSimonian–Laird Pan-iAtlas-Meta β vs. Milo logFC",
+            "7. Extracts 168 top-4 HGNC DEGs (14-state & All-42)",
+            "8. Unblended CLR/SC-Markers, OOF Gating & Epistasis",
         ),
-        footer_label="Out: .../3c_iatlas_instaprism_milopy_benchmark/ (11)",
+        footer_label="Out: .../3c_iatlas_instaprism_milopy_benchmark/ (16)",
         footer_color=OKABE_BLUISH_GREEN,
     ),
     DagCardSpec(
         card_id="card-t3-dossier",
-        x=936,
-        y=606,
-        width=430,
-        height=142,
+        x=934,
+        y=742,
+        width=432,
+        height=192,
         accent_color=OKABE_REDDISH_PURPLE,
         badge_tag="3D",
         title="3d_curate_expert_gene_list.py",
         body_lines=(
-            "Reads 2b_run_stability_selection_iatlas/*.parquet [2B]",
-            "+ queries pan-cancer bulk fold-changes via tme_datasets",
-            "Computes composite Evidence Index E(g) across 91 runs",
+            "tme_datasets API: load_iatlas_cohort_or_combined()",
+            "Reads stability {scores,paths}.parquet from [2B]",
+            "Computes pan-cancer bulk fold-changes & Mann–Whitney p",
+            "Synthesizes composite Evidence Index E(g) across 91 runs",
+            "Exports curated biomarker dossier & Typst tables",
         ),
         footer_label="Out: .../3d_curate_expert_gene_list/ & table_*.typ",
         footer_color=OKABE_REDDISH_PURPLE,
     ),
     DagCardSpec(
         card_id="card-t3-predictors",
-        x=936,
-        y=768,
-        width=430,
-        height=142,
+        x=934,
+        y=950,
+        width=432,
+        height=268,
         accent_color=OKABE_ORANGE,
         badge_tag="3E",
-        title="3e1_benchmark_iatlas_icb_predictors.py",
+        title="3e1–3e5 32-Biomarker, Survival & HPO Suite",
         body_lines=(
-            "+ 3e2_run_hpo_pipeline.py (Optuna TPE + LOCO)",
-            "Queries 9 iAtlas & SC cohorts via tme_datasets.load_dataset()",
-            "Benchmarks 27 RNA/multi-omic signatures & HPO sampling",
+            "tme_datasets API: load_dataset() [BULK-15 & SC]",
+            "tme_datasets API: sample_single_cell_cohorts() [3e2]",
+            "3e1_benchmark_iatlas_icb_predictors (27 RNA / 31 all)",
+            "3e2_run_hpo_pipeline · 3e3_benchmark_survival_and_dca",
+            "3e4_update_texh_benchmark (Jiang_Texh orientation)",
+            "3e5_integrate_deconvolution_our (reads [3C] AUC ->",
+            "  32nd biomarker, 28-RNA PR-AUC & forest SVGs/PNGs)",
         ),
-        footer_label="Out: .../3e1_benchmark_*/ & .../3e2_run_hpo_*/",
+        footer_label="Out: .../3e1_*/..3e5_*/ (*.parquet, *.svg, *.png)",
         footer_color="#B45309",
     ),
 )
@@ -365,242 +431,245 @@ TIER4_CARDS: Final[tuple[DagCardSpec, ...]] = (
     DagCardSpec(
         card_id="card-t4-sc-figs",
         x=34,
-        y=1004,
-        width=434,
+        y=1324,
+        width=440,
         height=152,
         accent_color=OKABE_BLUE,
         badge_tag="4A",
-        title="4a1–4a7 Single-Cell & 2×2 Master Figures",
+        title="4a1–4a7 Single-Cell Volcano & 2×2 Figures",
         body_lines=(
-            "4a1_visualize_cohort_umaps · 4a2_generate_combined_*",
-            "4a3..4a6_plot_cross_cohort_{umaps,da,deconv_*}",
-            "4a7_assemble_immunotherapy_2x2_figure (reads 2A1 & 3A)",
+            "tme_datasets API: load_backed() [4a1 UMAPs only]",
+            "4a2: 9-cohort Milo volcano & logFC grids (reads [2A])",
+            "4a3..4a6: UMAP, DA bar & scatter/ρ grids ([2A], [3A])",
+            "4a7: Assembles 180mm 2×2 immunotherapy master figure",
         ),
-        footer_label="Out: .../4a1_*/..4a7_*/ -> article/figures/*",
+        footer_label="Out: .../4a1_*/..4a7_*/ -> figures/single-cell/*",
         footer_color=OKABE_BLUE,
     ),
     DagCardSpec(
         card_id="card-t4-iatlas-figs",
-        x=488,
-        y=1004,
-        width=428,
+        x=492,
+        y=1324,
+        width=424,
         height=152,
         accent_color=OKABE_VERMILION,
         badge_tag="4B",
         title="4b_plot_iatlas_instaprism_milopy_figures.py",
         body_lines=(
-            "Consumes all 11 parquets from [3C] -> renders 11 Figures:",
-            "Focused (8): ROC/PR-AUC, Milo Grid, 14-State Forest/DEG, 8×8",
-            "Full Atlas (3): All-42 Forest, 168-Gene DEG, 42×42 Epistasis",
+            "tme_datasets API: none (reads 16 [3C] .parquet tables)",
+            "Renders 14 cross-modality & epistasis figures + .typ:",
+            "Focused & All-42 Concordance/DEGs (9) + Heading-Free",
+            "  Main Epistasis/Gating (1) & Supp S19–S22 (4)",
         ),
-        footer_label="Out: .../4b_plot_iatlas_*/ -> figures/milo-deconv/",
+        footer_label="Out: .../4b_plot_iatlas_*/ -> figures/ & captions/",
         footer_color=OKABE_VERMILION,
     ),
     DagCardSpec(
         card_id="card-t4-stab-figs",
-        x=936,
-        y=1004,
-        width=430,
+        x=934,
+        y=1324,
+        width=432,
         height=152,
         accent_color=OKABE_REDDISH_PURPLE,
-        badge_tag="4C–4D",
-        title="4c1–4c5 Stability/HPO & 4d Provenance DAG",
+        badge_tag="4C",
+        title="4c1–4c6 Stability, HPO & 32-Biomarker Forest",
         body_lines=(
-            "4c1..4c4_*{stability_paths,cohort_*,fitter_*}_overlap",
-            "4c5_generate_hpo_summary_figures · 4d_generate_*_dag",
-            "article/Makefile: rsvg-convert (300 DPI) + typst compile",
+            "tme_datasets API: none (reads [2B]/[3D]/[3E] parquets)",
+            "4c1..4c4: Stability paths, cohort & fitter overlaps",
+            "4c5: Optuna HPO sampling & benchmark figures ([3E2])",
+            "4c6: Combined 32-biomarker summary forest ([3E5])",
         ),
-        footer_label="Out: .../4c1_*/..4d_*/ -> article/main.pdf",
+        footer_label="Out: .../4c1_*/..4c6_*/ (*.svg & 300 DPI *.png)",
         footer_color=OKABE_REDDISH_PURPLE,
+    ),
+    DagCardSpec(
+        card_id="card-t4-multires-figs",
+        x=34,
+        y=1494,
+        width=654,
+        height=140,
+        accent_color=OKABE_SKY_BLUE,
+        badge_tag="4D",
+        title="4d1–4d2 Multi-Res Validation & Reference Selection Figures",
+        body_lines=(
+            "tme_datasets API: none (reads [3F] multi-res .parquet tables)",
+            "4d1_plot_sf_multires_validation_figures: 18-panel (a)–(r) saturation [3F]",
+            "4d2_plot_cohort_auc_reference_selection: {1, 2, 3, 16}-dataset gain [3F8]",
+        ),
+        footer_label="Out: .../4d1_*/ & .../4d2_*/ (fig1_predictive_capacity_* & fig1_selected_*)",
+        footer_color=OKABE_BLUE,
+    ),
+    DagCardSpec(
+        card_id="card-t4-dag",
+        x=712,
+        y=1494,
+        width=654,
+        height=140,
+        accent_color=OKABE_ORANGE,
+        badge_tag="4E",
+        title="4e_generate_tme_datasets_pipeline_dag.py, Snakefile & Makefile",
+        body_lines=(
+            "tme_datasets API: none (renders 37-script multi-layer provenance DAG)",
+            "Snakefile + workflow/rules/manuscript_pipeline.smk (isolated stage outputs)",
+            "article/Makefile: rsvg-convert 300 DPI rasterization -> Typst article/main.pdf",
+        ),
+        footer_label="Out: .../4e_generate_tme_datasets_pipeline_dag/ -> article/main.pdf",
+        footer_color="#B45309",
     ),
 )
 
-# Orthogonal connectors strictly inside gutters and clear of all tier header text (x > 345).
+# Orthogonal connectors strictly inside gutters and clear of all tier header text (x > 365).
+# ZERO outgoing arrows from Tier I (packages/tme_datasets): only script-to-script handoffs!
 CONNECTORS: Final[tuple[ConnectorSpec, ...]] = (
-    # Tier I -> Tier II queries
-    ConnectorSpec(
-        edge_id="edge-sc9-to-milopy",
-        points=((210, 264), (210, 316), (365, 316), (365, 362)),
-        stroke_color=OKABE_BLUE,
-        marker_id="arr-blue",
-    ),
-    ConnectorSpec(
-        edge_id="edge-sc9-to-ingest",
-        points=((442, 264), (442, 316), (575, 316), (575, 362)),
-        stroke_color=OKABE_ORANGE,
-        marker_id="arr-orange",
-    ),
-    ConnectorSpec(
-        edge_id="edge-bulk11-to-ingest",
-        points=((702, 264), (702, 362)),
-        stroke_color=OKABE_ORANGE,
-        marker_id="arr-orange",
-    ),
-    ConnectorSpec(
-        edge_id="edge-bulk11-to-stability",
-        points=((855, 264), (855, 316), (1045, 316), (1045, 362)),
-        stroke_color=OKABE_REDDISH_PURPLE,
-        marker_id="arr-purple",
-    ),
-    ConnectorSpec(
-        edge_id="edge-panels-to-stability",
-        points=((1210, 264), (1210, 362)),
-        stroke_color=OKABE_REDDISH_PURPLE,
-        marker_id="arr-purple",
-    ),
     # Tier II -> Tier III artifact handoffs
     ConnectorSpec(
         edge_id="edge-milopy-to-pseudobulk",
-        points=((210, 506), (210, 558), (365, 558), (365, 604)),
+        points=((230, 632), (230, 692), (385, 692), (385, 740)),
         stroke_color=OKABE_BLUE,
         marker_id="arr-blue",
     ),
     ConnectorSpec(
-        edge_id="edge-ingest-sc-to-pseudobulk",
-        points=((565, 506), (565, 534), (442, 534), (442, 604)),
-        stroke_color=OKABE_ORANGE,
-        marker_id="arr-orange",
-    ),
-    ConnectorSpec(
-        edge_id="edge-ingest-bulk-to-iatlas-bench",
-        points=((702, 506), (702, 604)),
-        stroke_color=OKABE_BLUISH_GREEN,
-        marker_id="arr-teal",
-    ),
-    ConnectorSpec(
-        edge_id="edge-ingest-to-predictors",
-        points=((855, 506), (855, 534), (926, 534), (926, 838), (934, 838)),
-        stroke_color=OKABE_ORANGE,
-        marker_id="arr-orange",
-        dashed=True,
-    ),
-    ConnectorSpec(
         edge_id="edge-stability-to-dossier",
-        points=((1160, 506), (1160, 604)),
+        points=((1150, 632), (1150, 740)),
         stroke_color=OKABE_REDDISH_PURPLE,
         marker_id="arr-purple",
     ),
     # Intra-Tier III script-to-script handoffs
     ConnectorSpec(
         edge_id="edge-pseudobulk-to-unified",
-        points=((250, 748), (250, 766)),
+        points=((254, 890), (254, 904)),
         stroke_color=OKABE_BLUE,
         marker_id="arr-blue",
     ),
     ConnectorSpec(
         edge_id="edge-pseudobulk-to-iatlas-bench",
-        points=((468, 678), (486, 678)),
+        points=((474, 816), (490, 816)),
         stroke_color=OKABE_BLUE,
         marker_id="arr-blue",
     ),
     ConnectorSpec(
         edge_id="edge-unified-to-iatlas-bench",
-        points=((468, 838), (486, 838)),
+        points=((474, 980), (490, 980)),
         stroke_color=OKABE_BLUE,
         marker_id="arr-blue",
     ),
-    # Left outer gutter from 2A/3A down to 4A (enters at x=365 > 335, clear of Tier IV title)
     ConnectorSpec(
-        edge_id="edge-pseudobulk-to-sc-figs",
-        points=((34, 678), (25, 678), (25, 944), (365, 944), (365, 1002)),
+        edge_id="edge-iatlas-bench-to-predictors",
+        points=((916, 1084), (932, 1084)),
+        stroke_color=OKABE_BLUISH_GREEN,
+        marker_id="arr-teal",
+        dashed=True,
+    ),
+    # Left outer gutter from [2A] & [3A] down to [4A] (enters at x >= 375, clear of Tier IV title)
+    ConnectorSpec(
+        edge_id="edge-milopy-to-sc-figs",
+        points=((34, 560), (22, 560), (22, 1278), (375, 1278), (375, 1322)),
         stroke_color=OKABE_BLUE,
         marker_id="arr-blue",
         dashed=True,
     ),
+    ConnectorSpec(
+        edge_id="edge-pseudobulk-to-sc-figs",
+        points=((34, 816), (28, 816), (28, 1272), (415, 1272), (415, 1322)),
+        stroke_color=OKABE_BLUE,
+        marker_id="arr-blue",
+        dashed=True,
+    ),
+    # Col 1-2 vertical gutter (x=483) from [3F] straight onto [4D] top edge (y=1494)
+    ConnectorSpec(
+        edge_id="edge-multires-to-4d",
+        points=((455, 1218), (455, 1275), (483, 1275), (483, 1492)),
+        stroke_color=OKABE_BLUE,
+        marker_id="arr-blue",
+    ),
     # Tier III -> Tier IV figure & manuscript handoffs
     ConnectorSpec(
         edge_id="edge-iatlas-bench-to-figs",
-        points=((702, 910), (702, 1002)),
+        points=((704, 1218), (704, 1322)),
         stroke_color=OKABE_VERMILION,
         marker_id="arr-vermilion",
     ),
     ConnectorSpec(
         edge_id="edge-predictors-to-stab-figs",
-        points=((1150, 910), (1150, 1002)),
+        points=((1150, 1218), (1150, 1322)),
         stroke_color=OKABE_REDDISH_PURPLE,
         marker_id="arr-purple",
     ),
+    # Right outer gutter from [2B] & [3D] down to [4C]
     ConnectorSpec(
         edge_id="edge-dossier-to-stab-figs",
-        points=((1366, 678), (1375, 678), (1375, 944), (1270, 944), (1270, 1002)),
+        points=((1366, 838), (1372, 838), (1372, 1272), (1295, 1272), (1295, 1322)),
         stroke_color=OKABE_REDDISH_PURPLE,
         marker_id="arr-purple",
+        dashed=True,
+    ),
+    ConnectorSpec(
+        edge_id="edge-stability-to-stab-figs",
+        points=((1366, 560), (1378, 560), (1378, 1278), (1335, 1278), (1335, 1322)),
+        stroke_color=OKABE_REDDISH_PURPLE,
+        marker_id="arr-purple",
+        dashed=True,
+    ),
+    # Intra-Tier IV synthesis handoffs into 4E (Makefile + Typst main.pdf)
+    ConnectorSpec(
+        edge_id="edge-4d-to-4e",
+        points=((688, 1564), (710, 1564)),
+        stroke_color=OKABE_ORANGE,
+        marker_id="arr-orange",
+        dashed=True,
+    ),
+    ConnectorSpec(
+        edge_id="edge-4b-to-4e",
+        points=((800, 1476), (800, 1492)),
+        stroke_color=OKABE_ORANGE,
+        marker_id="arr-orange",
+        dashed=True,
+    ),
+    ConnectorSpec(
+        edge_id="edge-4c-to-4e",
+        points=((1150, 1476), (1150, 1492)),
+        stroke_color=OKABE_ORANGE,
+        marker_id="arr-orange",
         dashed=True,
     ),
 )
 
 GUTTER_PILLS: Final[tuple[PillLabelSpec, ...]] = (
     PillLabelSpec(
-        pill_id="pill-q-sc",
-        cx=210,
-        cy=294,
-        width=194,
-        text="resolve_milopy_cohorts()",
-        border_color=OKABE_BLUE,
-        text_color=OKABE_BLUE,
-    ),
-    PillLabelSpec(
-        pill_id="pill-q-h5ad",
-        cx=702,
-        cy=294,
-        width=188,
-        text="load_dataset() [SC + Bulk]",
-        border_color=OKABE_ORANGE,
-        text_color="#B45309",
-    ),
-    PillLabelSpec(
-        pill_id="pill-q-stab",
-        cx=1210,
-        cy=294,
-        width=220,
-        text="iAtlas Pools + 101-Gene Panel",
-        border_color=OKABE_REDDISH_PURPLE,
-        text_color=OKABE_REDDISH_PURPLE,
-    ),
-    PillLabelSpec(
         pill_id="pill-milo-parquet",
-        cx=210,
-        cy=534,
-        width=206,
-        text="cell_level_scores.parquet",
+        cx=230,
+        cy=666,
+        width=338,
+        text="cell_level_scores.parquet (kNN->cell logFC)",
         border_color=OKABE_BLUE,
         text_color=OKABE_BLUE,
-    ),
-    PillLabelSpec(
-        pill_id="pill-sc-h5ad",
-        cx=504,
-        cy=534,
-        width=106,
-        text="9 SC .h5ad",
-        border_color=OKABE_ORANGE,
-        text_color="#B45309",
-    ),
-    PillLabelSpec(
-        pill_id="pill-bulk-h5ad",
-        cx=702,
-        cy=534,
-        width=136,
-        text="11 Bulk .h5ad",
-        border_color=OKABE_BLUISH_GREEN,
-        text_color=OKABE_BLUISH_GREEN,
     ),
     PillLabelSpec(
         pill_id="pill-stab-parquet",
-        cx=1160,
-        cy=534,
-        width=232,
+        cx=1150,
+        cy=666,
+        width=248,
         text="stability {scores,paths}.parquet",
         border_color=OKABE_REDDISH_PURPLE,
         text_color=OKABE_REDDISH_PURPLE,
     ),
     PillLabelSpec(
-        pill_id="pill-11-parquets",
-        cx=702,
-        cy=942,
-        width=244,
-        text="11 Cross-Modality .parquet Tables",
+        pill_id="pill-16-parquets",
+        cx=704,
+        cy=1256,
+        width=248,
+        text="16 Cross-Modality .parquet Tables",
         border_color=OKABE_VERMILION,
         text_color=OKABE_VERMILION,
+    ),
+    PillLabelSpec(
+        pill_id="pill-32-biomarkers",
+        cx=1150,
+        cy=1256,
+        width=242,
+        text="32-Biomarker & HPO .parquet",
+        border_color=OKABE_REDDISH_PURPLE,
+        text_color=OKABE_REDDISH_PURPLE,
     ),
 )
 
@@ -610,16 +679,36 @@ def _esc(raw: str) -> str:
     return html.escape(raw, quote=True)
 
 
+def _render_body_line(line: str, y_pos: int, accent_color: str) -> str:
+    """Render a body line, highlighting tme_datasets API declarations cleanly."""
+    if line.startswith(API_PREFIX):
+        rest = line[len(API_PREFIX) :]
+        return (
+            f'      <text x="12" y="{y_pos}" font-size="13.5px" fill="{COLOR_TEXT_PRIMARY}">'
+            f'<tspan font-weight="700">tme_datasets API:</tspan>'
+            f'<tspan dx="4" font-weight="600" fill="{accent_color}">{_esc(rest)}</tspan></text>'
+        )
+    return (
+        f'      <text x="12" y="{y_pos}" font-size="13.5px" '
+        f'fill="{COLOR_TEXT_SECONDARY}">{_esc(line)}</text>'
+    )
+
+
 def _render_card(spec: DagCardSpec) -> str:
     """Render a single sharp-cornered Nature Methods card using local (0, 0) coordinates."""
     footer_h = 28
     footer_y = spec.height - footer_h
     line_y_start = 46
-    line_step = 22 if len(spec.body_lines) <= 4 else 21
+    line_step = 22 if len(spec.body_lines) <= 4 else (21 if len(spec.body_lines) <= 8 else 38)
+    if len(spec.body_lines) > 8:
+        line_step = 38
 
     body_svg = "\n".join(
-        f'      <text x="12" y="{line_y_start + idx * line_step}" '
-        f'font-size="13.5px" fill="{COLOR_TEXT_SECONDARY}">{_esc(line)}</text>'
+        _render_body_line(
+            line,
+            line_y_start + idx * line_step,
+            spec.footer_color,
+        )
         for idx, line in enumerate(spec.body_lines)
     )
 
@@ -737,14 +826,14 @@ def build_pipeline_dag_svg() -> str:
   <!-- LAYER 01: HEADER & COLOR LEGEND -->
   <g inkscape:groupmode="layer" id="layer-01-header" inkscape:label="01_Figure_Header_And_Legend">
     <text id="txt-main-title" x="16" y="28" font-size="18.0px" font-weight="700" fill="{COLOR_TEXT_PRIMARY}">
-      Unified tme_datasets Registry Queries &amp; Multi-Stage Script Provenance DAG
+      Unified tme_datasets Package &amp; 37-Script Computational Provenance DAG
     </text>
     <g class="role-title-subtitle" id="grp-subtitle">
       <text x="16" y="50" font-size="13.5px" fill="{COLOR_TEXT_MUTED}">
-        All 26 pipeline scripts reside in scripts/manuscript_pipeline/&lt;tier&gt;_*.py and query packages/tme_datasets
+        Ingestion &amp; QC live in packages/tme_datasets; 37 analytical/figure scripts reside in scripts/manuscript_pipeline/&lt;tier&gt;_*.py
       </text>
       <text x="16" y="68" font-size="13.5px" fill="{COLOR_TEXT_MUTED}">
-        Each script writes to output/manuscript_pipeline/&lt;script_stem&gt;/ (solid = primary .h5ad/.parquet; dashed = aux)
+        Cards annotate exact tme_datasets API loaders; arrows strictly denote script-to-script .parquet/.svg handoffs
       </text>
     </g>
 
@@ -752,23 +841,23 @@ def build_pipeline_dag_svg() -> str:
       <rect x="0" y="0" width="466" height="58" rx="0"
             fill="{COLOR_PANEL_BG}" stroke="{COLOR_BORDER_HAIRLINE}" stroke-width="0.75" />
       <rect x="12" y="11" width="12" height="12" rx="0" fill="{OKABE_BLUE}" />
-      <text x="30" y="22" font-size="13.5px" font-weight="600" fill="{COLOR_TEXT_PRIMARY}">SC Milopy &amp; Pseudobulk</text>
+      <text x="30" y="22" font-size="13.5px" font-weight="600" fill="{COLOR_TEXT_PRIMARY}">SC Milopy &amp; Multi-Res</text>
       <rect x="234" y="11" width="12" height="12" rx="0" fill="{OKABE_BLUISH_GREEN}" />
       <text x="252" y="22" font-size="13.5px" font-weight="600" fill="{COLOR_TEXT_PRIMARY}">Cross-Modality Bulk Deconv.</text>
       <rect x="12" y="35" width="12" height="12" rx="0" fill="{OKABE_ORANGE}" />
-      <text x="30" y="46" font-size="13.5px" font-weight="600" fill="{COLOR_TEXT_PRIMARY}">.h5ad Cache &amp; Signatures</text>
+      <text x="30" y="46" font-size="13.5px" font-weight="600" fill="{COLOR_TEXT_PRIMARY}">Pipeline QC &amp; Biomarkers</text>
       <rect x="234" y="35" width="12" height="12" rx="0" fill="{OKABE_REDDISH_PURPLE}" />
-      <text x="252" y="46" font-size="13.5px" font-weight="600" fill="{COLOR_TEXT_PRIMARY}">Stability Selection &amp; Dossier</text>
+      <text x="252" y="46" font-size="13.5px" font-weight="600" fill="{COLOR_TEXT_PRIMARY}">Stability &amp; Gene Dossier</text>
     </g>
   </g>
 
-  <!-- LAYER 02: TIER I — TME_DATASETS REGISTRY -->
-  <g inkscape:groupmode="layer" id="layer-02-tier1" inkscape:label="02_Tier1_TME_Datasets_Registry">
+  <!-- LAYER 02: TIER I — TME_DATASETS PACKAGE -->
+  <g inkscape:groupmode="layer" id="layer-02-tier1" inkscape:label="02_Tier1_TME_Datasets_Package">
 {t1_svg}
   </g>
 
-  <!-- LAYER 03: TIER II — INGESTION & PRIMARY QUERY SCRIPTS -->
-  <g inkscape:groupmode="layer" id="layer-03-tier2" inkscape:label="03_Tier2_Primary_Query_Scripts">
+  <!-- LAYER 03: TIER II — PRIMARY COHORT ANALYSIS SCRIPTS -->
+  <g inkscape:groupmode="layer" id="layer-03-tier2" inkscape:label="03_Tier2_Primary_Analysis_Scripts">
 {t2_svg}
   </g>
 

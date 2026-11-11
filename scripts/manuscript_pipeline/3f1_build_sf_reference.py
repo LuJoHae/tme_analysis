@@ -36,19 +36,60 @@ class ReferenceConfig(BaseModel):
 
 
 def load_reference_adata(config: ReferenceConfig) -> Result[ad.AnnData, str]:
-    """Pure boundary to load AnnData via unified tme_datasets or explicit path."""
-    if config.adata_path is not None and config.adata_path.exists():
-        try:
-            return Success(ad.read_h5ad(config.adata_path))
-        except Exception as exc:
-            return Failure(f"Failed to read AnnData from {config.adata_path}: {exc}")
-
+    """Pure boundary to load AnnData strictly via unified tme_datasets.load_dataset()."""
     from tme_datasets import load_dataset
-    return load_dataset(config.cohort)
+
+    return load_dataset(config.cohort, auto_download=False, normalize_ensembl=False)
+
+
+def _extract_adata_gene_symbols(adata: ad.AnnData) -> list[str]:
+    """Extract uppercase HGNC gene symbols from AnnData .var['gene_name'] or .var_names."""
+    if "gene_name" in adata.var.columns:
+        return [str(g).strip().upper() for g in adata.var["gene_name"].tolist()]
+    return [str(g).strip().upper() for g in adata.var_names.tolist()]
+
+
+def _ensure_resolutions_clustered(
+    adata: ad.AnnData,
+    resolutions: tuple[float, ...],
+    cluster_prefix: str,
+) -> ad.AnnData:
+    """Compute Leiden clusters on the fly if requested resolution columns are absent from adata.obs."""
+    missing = [
+        res
+        for res in resolutions
+        if f"{cluster_prefix}{res}" not in adata.obs.columns and f"leiden_{res}" not in adata.obs.columns
+    ]
+    if not missing:
+        return adata
+
+    import scanpy as sc  # type: ignore
+    from scipy.sparse import csr_matrix  # type: ignore
+
+    print(f"Computing Scanpy PCA/neighbors and Leiden clusters for missing resolutions: {missing}...")
+    work = ad.AnnData(
+        X=adata.layers["log1p"].copy()
+        if "log1p" in adata.layers
+        else (adata.X.copy() if issparse(adata.X) else csr_matrix(adata.X)),
+        obs=adata.obs.copy(),
+    )
+    max_v = float(work.X.data.max() if issparse(work.X) and work.X.nnz > 0 else np.max(work.X))
+    if max_v > 50.0:
+        sc.pp.normalize_total(work, target_sum=1e4)
+        sc.pp.log1p(work)
+    sc.pp.highly_variable_genes(work, n_top_genes=min(2000, work.n_vars), subset=False)
+    sc.tl.pca(work, svd_solver="arpack", random_state=42)
+    sc.pp.neighbors(work, n_neighbors=15, n_pcs=min(30, work.obsm["X_pca"].shape[1]), random_state=42)
+    out = adata.copy()
+    for res in missing:
+        col = f"{cluster_prefix}{res}"
+        sc.tl.leiden(work, resolution=res, key_added=col, flavor="igraph", directed=False, n_iterations=2)
+        out.obs[col] = work.obs[col].astype(str).values
+    return out
 
 
 def filter_confounding_genes(genes: list[str]) -> tuple[list[int], list[str]]:
-    """Filters out confounding gene families:
+    """Filters out confounding gene families and deduplicates gene symbols:
     - Ribosomal proteins (RPS*, RPL*)
     - Mitochondrial genes (MT-*)
     - Immunoglobulins (IGH*, IGK*, IGL*)
@@ -60,10 +101,17 @@ def filter_confounding_genes(genes: list[str]) -> tuple[list[int], list[str]]:
     )
     valid_indices: list[int] = []
     valid_genes: list[str] = []
+    seen: set[str] = set()
 
     for idx, g in enumerate(genes):
         clean_g = str(g).strip().upper()
-        if len(clean_g) > 2 and not exclude_pattern.search(clean_g):
+        if (
+            len(clean_g) > 2
+            and clean_g not in {"NAN", "NONE", "UNKNOWN"}
+            and clean_g not in seen
+            and not exclude_pattern.search(clean_g)
+        ):
+            seen.add(clean_g)
             valid_indices.append(idx)
             valid_genes.append(clean_g)
 
@@ -151,13 +199,14 @@ def run_reference_pipeline(config: ReferenceConfig) -> Result[Path, str]:
         case Success(adata):
             pass
 
+    adata = _ensure_resolutions_clustered(adata, config.resolutions, config.cluster_prefix)
     cells: list[str] = adata.obs_names.tolist()
     print(f"Loaded AnnData with {adata.n_obs} cells.")
 
     # Determine linear TPM matrix
     if "tpm" in adata.layers:
         print("Extracting linear TPM directly from AnnData.layers['tpm']...")
-        raw_genes = [str(g).upper() for g in adata.var_names]
+        raw_genes = _extract_adata_gene_symbols(adata)
         valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
         print(f"Retained {len(filtered_genes)} protein-coding genes after confounding gene exclusion.")
         tpm_mat = adata.layers["tpm"]
@@ -169,7 +218,7 @@ def run_reference_pipeline(config: ReferenceConfig) -> Result[Path, str]:
         cell_mask = [True] * len(cells)
     elif adata.uns.get("expression_type") == "tpm":
         print("Extracting linear TPM directly from AnnData.X (expression_type=tpm)...")
-        raw_genes = [str(g).upper() for g in adata.var_names]
+        raw_genes = _extract_adata_gene_symbols(adata)
         valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
         print(f"Retained {len(filtered_genes)} protein-coding genes after confounding gene exclusion.")
         if issparse(adata.X):
@@ -179,35 +228,15 @@ def run_reference_pipeline(config: ReferenceConfig) -> Result[Path, str]:
         common_cells = cells
         cell_mask = [True] * len(cells)
     else:
-        # Determine if raw TPM parquet is provided / exists
-        tpm_file = config.tpm_path if config.tpm_path and config.tpm_path.exists() else None
-        if tpm_file is None and config.adata_path is not None:
-            candidate_tpm = config.adata_path.parent / "gse120575_tpm.parquet"
-            if candidate_tpm.exists():
-                tpm_file = candidate_tpm
-
-        if tpm_file is not None:
-            print(f"Loading raw TPM parquet from {tpm_file}...")
-            tpm_df = pl.read_parquet(tpm_file)
-            raw_genes = [str(g).upper() for g in tpm_df["gene"].to_list()]
-            valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
-            print(f"Retained {len(filtered_genes)} protein-coding genes after confounding gene exclusion.")
-            common_cells = [c for c in cells if c in tpm_df.columns]
-            cell_mask = [c in set(common_cells) for c in cells]
-            print(f"Aligning {len(common_cells)} single cells with TPM data...")
-            sub_tpm = tpm_df.select(common_cells).to_numpy()[valid_gene_idx, :]  # (genes, cells)
-            print("Inverting log2(TPM + 1) to linear TPM scale (2^x - 1)...")
-            lin_matrix = np.power(2.0, sub_tpm) - 1.0
+        print("Extracting linear expression from adata.X via expm1...")
+        raw_genes = _extract_adata_gene_symbols(adata)
+        valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
+        if issparse(adata.X):
+            lin_matrix = adata.X[:, valid_gene_idx].expm1().toarray().T  # (genes, cells)
         else:
-            print("Warning: TPM layer or parquet not found. Falling back to linearizing adata.X...")
-            raw_genes = [str(g).upper() for g in adata.var_names]
-            valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
-            if issparse(adata.X):
-                lin_matrix = adata.X[:, valid_gene_idx].expm1().toarray().T  # (genes, cells)
-            else:
-                lin_matrix = np.expm1(adata.X[:, valid_gene_idx]).T
-            common_cells = cells
-            cell_mask = [True] * len(cells)
+            lin_matrix = np.expm1(adata.X[:, valid_gene_idx]).T
+        common_cells = cells
+        cell_mask = [True] * len(cells)
 
     config.out_dir.mkdir(parents=True, exist_ok=True)
     resolution_records: list[dict[str, object]] = []
@@ -352,7 +381,7 @@ def main() -> None:
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f1_build_sf_reference",
         help="Directory to store output parquets",
     )
     parser.add_argument(

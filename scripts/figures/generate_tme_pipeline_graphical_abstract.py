@@ -846,23 +846,15 @@ def embed_into_figure_01_overview(overview_path: Path, standalone_svg: str) -> R
 
 
 def render_png_preview(svg_path: Path, png_path: Path, width_px: int, height_px: int) -> Result[Path, str]:
-    """Render 300 DPI PNG raster using rsvg-convert."""
-    png_path.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        "/opt/homebrew/bin/rsvg-convert",
-        "-w",
-        str(width_px),
-        "-h",
-        str(height_px),
-        str(svg_path),
-        "-o",
-        str(png_path),
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    return (
-        Failure(f"rsvg-convert failed: {res.stderr}")
-        if res.returncode != 0
-        else Success(png_path)
+    """Render 300 DPI PNG raster using rsvg-convert or headless vl_convert fallback."""
+    from plotting_utils import rasterize_svg_to_png
+
+    return rasterize_svg_to_png(
+        svg_path=svg_path,
+        png_path=png_path,
+        width_px=width_px,
+        height_px=height_px,
+        background=None,
     )
 
 

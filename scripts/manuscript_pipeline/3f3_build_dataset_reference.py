@@ -57,10 +57,17 @@ def filter_confounding_genes(genes: list[str]) -> tuple[list[int], list[str]]:
     )
     valid_indices: list[int] = []
     valid_genes: list[str] = []
+    seen: set[str] = set()
 
     for idx, g in enumerate(genes):
         clean_g = str(g).strip().upper()
-        if len(clean_g) > 2 and not exclude_pattern.search(clean_g):
+        if (
+            len(clean_g) > 2
+            and clean_g not in {"NAN", "NONE", "UNKNOWN", "<NA>"}
+            and clean_g not in seen
+            and not exclude_pattern.search(clean_g)
+        ):
+            seen.add(clean_g)
             valid_indices.append(idx)
             valid_genes.append(clean_g)
 
@@ -137,200 +144,88 @@ def select_top_markers(
     return pl.DataFrame(records)
 
 
-def load_jerby_arnon(raw_dir: Path) -> Result[tuple[ad.AnnData, npt.NDArray[np.float64], list[str]], str]:
-    """Loads Jerby-Arnon (GSE115978) single-cell data, clusters cells at resolutions, returns AnnData & linear TPM matrix."""
-    meta_path = raw_dir / "GSE115978" / "GSE115978_meta.gz"
-    tpm_path = raw_dir / "GSE115978" / "GSE115978_tpm.gz"
-
-    if not meta_path.exists() or not tpm_path.exists():
-        return Failure(f"GSE115978 raw files not found in {raw_dir / 'GSE115978'}")
-
+def _load_preprocessed_sc_dataset(
+    dataset_id: str,
+    label: str,
+    max_cells: int | None = None,
+) -> Result[tuple[ad.AnnData, npt.NDArray[np.float64], list[str]], str]:
+    """Load preprocessed single-cell AnnData via tme_datasets, extract linear TPM/CPM, and cluster."""
     try:
-        print(f"Loading GSE115978 metadata from {meta_path}...")
-        meta_df = pd.read_csv(meta_path, index_col="cells")
-        
-        print(f"Loading GSE115978 TPM matrix from {tpm_path}...")
-        df_tpm = pl.read_csv(tpm_path)
-        first_col = df_tpm.columns[0]
-        raw_genes = [str(g).upper() for g in df_tpm[first_col].to_list()]
-        cell_cols = df_tpm.columns[1:]
+        from tme_datasets import load_dataset
 
-        # Filter confounding genes
-        valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
-        print(f"Retained {len(filtered_genes)} genes after filtering confounding families.")
+        match load_dataset(dataset_id, auto_download=False, subsample_n=max_cells):
+            case Failure(err):
+                return Failure(err)
+            case Success(raw_adata):
+                adata_src = raw_adata
 
-        # Match cells
-        common_cells = [c for c in cell_cols if c in meta_df.index]
-        meta_sub = meta_df.loc[common_cells].copy()
-        
-        # Extract linear TPM
-        tpm_sub = df_tpm.select(common_cells).to_numpy()[valid_gene_idx, :]  # (genes, cells)
-        lin_matrix = np.asarray(tpm_sub, dtype=np.float64)  # Already linear TPM in GSE115978
-
-        # AnnData for clustering
-        adata = ad.AnnData(
-            X=csr_matrix(lin_matrix.T, dtype=np.float32),
-            obs=meta_sub,
-            var=pd.DataFrame(index=filtered_genes),
+        raw_genes = (
+            [str(g).strip().upper() for g in adata_src.var["gene_name"].tolist()]
+            if "gene_name" in adata_src.var.columns
+            else [str(g).strip().upper() for g in adata_src.var_names.tolist()]
         )
-
-        # Preprocessing & Leiden clustering across resolutions
-        print("Running Scanpy preprocessing and multi-resolution Leiden clustering...")
-        sc.pp.log1p(adata)
-        sc.pp.highly_variable_genes(adata, n_top_genes=2000, subset=False)
-        sc.tl.pca(adata, svd_solver="arpack", random_state=42)
-        sc.pp.neighbors(adata, n_neighbors=15, n_pcs=30, random_state=42)
-
-        for res in DEFAULT_RESOLUTIONS:
-            sc.tl.leiden(adata, resolution=res, key_added=f"leiden_{res}", flavor="igraph", directed=False, n_iterations=2)
-            n_cl = adata.obs[f"leiden_{res}"].nunique()
-            print(f"  Jerby-Arnon res={res}: {n_cl} clusters")
-
-        return Success((adata, lin_matrix, filtered_genes))
-    except Exception as exc:
-        return Failure(f"Failed to process Jerby-Arnon dataset: {exc}")
-
-
-def load_maynard(repo_root: Path) -> Result[tuple[ad.AnnData, npt.NDArray[np.float64], list[str]], str]:
-    """Loads Maynard et al. 2020 NSCLC single-cell AnnData and clusters."""
-    h5_path = repo_root / "jupyter" / "data" / "maynard2020_3k.h5ad"
-    if not h5_path.exists():
-        return Failure(f"Maynard dataset not found at {h5_path}")
-
-    try:
-        print(f"Loading Maynard 2020 dataset from {h5_path}...")
-        adata = ad.read_h5ad(h5_path)
-        raw_genes = [str(g).upper() for g in adata.var["gene_name"].to_list()]
-
         valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
-        print(f"Retained {len(filtered_genes)} genes after filtering.")
+        if len(filtered_genes) < 200:
+            return Failure(f"Insufficient filtered genes ({len(filtered_genes)}) in {dataset_id}")
 
-        # Compute linear expression from log1p
-        if issparse(adata.X):
-            lin_mat = np.expm1(adata.X[:, valid_gene_idx].toarray().astype(np.float64)).T
+        if "tpm" in adata_src.layers:
+            sub = adata_src.layers["tpm"][:, valid_gene_idx]
+            cell_by_gene = sub.toarray().astype(np.float64) if issparse(sub) else np.asarray(sub, dtype=np.float64)
+        elif "counts" in adata_src.layers:
+            sub = adata_src.layers["counts"][:, valid_gene_idx]
+            arr = sub.toarray().astype(np.float64) if issparse(sub) else np.asarray(sub, dtype=np.float64)
+            rsums = np.maximum(arr.sum(axis=1, keepdims=True), 1.0)
+            cell_by_gene = (arr / rsums) * 1e6
         else:
-            lin_mat = np.expm1(np.asarray(adata.X, dtype=np.float64))[:, valid_gene_idx].T
+            sub = adata_src.X[:, valid_gene_idx]
+            arr = sub.toarray().astype(np.float64) if issparse(sub) else np.asarray(sub, dtype=np.float64)
+            if float(np.max(arr)) < 35.0:
+                arr = np.expm1(np.clip(arr, 0.0, 14.0))
+            rsums = np.maximum(arr.sum(axis=1, keepdims=True), 1.0)
+            cell_by_gene = (arr / rsums) * 1e6
 
-        # Cluster using existing graph
-        print("Clustering Maynard 2020 cells across resolutions...")
-        for res in DEFAULT_RESOLUTIONS:
-            sc.tl.leiden(adata, resolution=res, key_added=f"leiden_{res}", flavor="igraph", directed=False, n_iterations=2)
-            n_cl = adata.obs[f"leiden_{res}"].nunique()
-            print(f"  Maynard NSCLC res={res}: {n_cl} clusters")
-
-        return Success((adata, lin_mat, filtered_genes))
-    except Exception as exc:
-        return Failure(f"Failed to process Maynard 2020 dataset: {exc}")
-
-
-def load_ma_liver(raw_dir: Path) -> Result[tuple[ad.AnnData, npt.NDArray[np.float64], list[str]], str]:
-    """Loads Ma et al. (GSE125449) liver cancer 10x matrix, normalizes, and clusters."""
-    mat_path = raw_dir / "GSE125449" / "GSE125449_set1_matrix.gz"
-    genes_path = raw_dir / "GSE125449" / "GSE125449_set1_genes.gz"
-    bc_path = raw_dir / "GSE125449" / "GSE125449_set1_barcodes.gz"
-
-    if not mat_path.exists() or not genes_path.exists():
-        return Failure(f"GSE125449 files not found in {raw_dir / 'GSE125449'}")
-
-    try:
-        print(f"Loading Ma et al. liver cancer dataset from {mat_path}...")
-        adata = sc.read_mtx(mat_path).T  # (cells, genes)
-        df_genes = pd.read_csv(genes_path, header=None, sep="\t")
-        gene_col = 1 if df_genes.shape[1] > 1 else 0
-        raw_genes = [str(g).upper() for g in df_genes[gene_col].to_list()]
-
-        if bc_path.exists():
-            df_bc = pd.read_csv(bc_path, header=None)
-            adata.obs_names = df_bc[0].astype(str).tolist()
-
-        valid_gene_idx, filtered_genes = filter_confounding_genes(raw_genes)
-        print(f"Retained {len(filtered_genes)} genes after filtering.")
-
-        # Subset matrix & normalize to CPM
-        sub_X = adata.X[:, valid_gene_idx]
-        if issparse(sub_X):
-            sub_arr = sub_X.toarray()
-        else:
-            sub_arr = np.asarray(sub_X)
-
-        col_sums = sub_arr.sum(axis=1, keepdims=True)
-        col_sums[col_sums == 0] = 1.0
-        cpm_arr = (sub_arr / col_sums) * 1e6
-        lin_mat = cpm_arr.T  # (genes, cells)
-
+        lin_mat: npt.NDArray[np.float64] = np.asarray(cell_by_gene.T, dtype=np.float64)
         adata_clean = ad.AnnData(
-            X=csr_matrix(cpm_arr, dtype=np.float32),
-            obs=adata.obs.copy(),
+            X=csr_matrix(cell_by_gene, dtype=np.float32),
+            obs=adata_src.obs.copy(),
             var=pd.DataFrame(index=filtered_genes),
         )
-
-        print("Clustering Ma et al. liver cells across resolutions...")
+        print(f"Loaded {dataset_id} ({label}) via tme_datasets ({adata_clean.n_obs} cells, {len(filtered_genes)} genes). Clustering...")
         sc.pp.log1p(adata_clean)
-        sc.pp.highly_variable_genes(adata_clean, n_top_genes=2000, subset=False)
+        sc.pp.highly_variable_genes(adata_clean, n_top_genes=min(2000, len(filtered_genes)), subset=False)
         sc.tl.pca(adata_clean, svd_solver="arpack", random_state=42)
-        sc.pp.neighbors(adata_clean, n_neighbors=15, n_pcs=30, random_state=42)
-
+        sc.pp.neighbors(adata_clean, n_neighbors=15, n_pcs=min(30, adata_clean.obsm["X_pca"].shape[1]), random_state=42)
         for res in DEFAULT_RESOLUTIONS:
             sc.tl.leiden(adata_clean, resolution=res, key_added=f"leiden_{res}", flavor="igraph", directed=False, n_iterations=2)
             n_cl = adata_clean.obs[f"leiden_{res}"].nunique()
-            print(f"  Ma Liver res={res}: {n_cl} clusters")
-
+            print(f"  {label} res={res}: {n_cl} clusters")
         return Success((adata_clean, lin_mat, filtered_genes))
     except Exception as exc:
-        return Failure(f"Failed to process Ma et al. dataset: {exc}")
+        return Failure(f"tme_datasets load failed for {dataset_id}: {exc}")
+
+
+def load_jerby_arnon(raw_dir: Path) -> Result[tuple[ad.AnnData, npt.NDArray[np.float64], list[str]], str]:
+    """Load Jerby-Arnon (GSE115978) single-cell data strictly via tme_datasets.load_dataset()."""
+    _ = raw_dir
+    return _load_preprocessed_sc_dataset("GSE115978", "Jerby-Arnon")
+
+
+def load_maynard(repo_root: Path) -> Result[tuple[ad.AnnData, npt.NDArray[np.float64], list[str]], str]:
+    """Load Maynard et al. 2020 NSCLC single-cell AnnData strictly via tme_datasets.load_dataset()."""
+    _ = repo_root
+    return _load_preprocessed_sc_dataset("Maynard_NSCLC", "Maynard NSCLC", max_cells=5000)
+
+
+def load_ma_liver(raw_dir: Path) -> Result[tuple[ad.AnnData, npt.NDArray[np.float64], list[str]], str]:
+    """Load Ma et al. (GSE125449) liver cancer dataset strictly via tme_datasets.load_dataset()."""
+    _ = raw_dir
+    return _load_preprocessed_sc_dataset("GSE125449", "Ma Liver")
 
 
 def load_yost(raw_dir: Path, n_cells: int = 3500) -> Result[tuple[ad.AnnData, npt.NDArray[np.float64], list[str]], str]:
-    """Loads Yost et al. (GSE123813) BCC/SCC skin carcinoma dataset via fast streaming and clusters."""
-    counts_path = raw_dir / "GSE123813" / "GSE123813_bcc_counts.txt.gz"
-    if not counts_path.exists():
-        counts_path = raw_dir / "GSE123813" / "GSE123813_scc_counts.txt.gz"
-    if not counts_path.exists():
-        return Failure(f"GSE123813 counts file not found in {raw_dir / 'GSE123813'}")
-
-    try:
-        print(f"Streaming {n_cells} cells from {counts_path.name}...")
-        genes: list[str] = []
-        matrix_rows: list[np.ndarray] = []
-        with gzip.open(counts_path, "rt") as f:
-            header = f.readline().strip().split("\t")
-            cell_names = header[:n_cells]
-            for line in f:
-                parts = line.strip().split("\t")
-                genes.append(parts[0])
-                arr = np.fromiter((float(x) for x in parts[1 : n_cells + 1]), dtype=np.float32, count=n_cells)
-                matrix_rows.append(arr)
-
-        raw_mat = np.vstack(matrix_rows)  # (n_genes, n_cells)
-        valid_gene_idx, filtered_genes = filter_confounding_genes(genes)
-        print(f"Retained {len(filtered_genes)} genes after filtering.")
-
-        sub_mat = raw_mat[valid_gene_idx, :]  # (filtered_genes, n_cells)
-        col_sums = sub_mat.sum(axis=0, keepdims=True)
-        col_sums[col_sums == 0] = 1.0
-        cpm_mat = (sub_mat / col_sums) * 1e6
-        lin_mat = cpm_mat.astype(np.float64)
-
-        adata = ad.AnnData(
-            X=csr_matrix(cpm_mat.T, dtype=np.float32),
-            obs=pd.DataFrame(index=cell_names),
-            var=pd.DataFrame(index=filtered_genes),
-        )
-
-        print("Clustering Yost BCC cells across resolutions...")
-        sc.pp.log1p(adata)
-        sc.pp.highly_variable_genes(adata, n_top_genes=2000, subset=False)
-        sc.tl.pca(adata, svd_solver="arpack", random_state=42)
-        sc.pp.neighbors(adata, n_neighbors=15, n_pcs=30, random_state=42)
-
-        for res in DEFAULT_RESOLUTIONS:
-            sc.tl.leiden(adata, resolution=res, key_added=f"leiden_{res}", flavor="igraph", directed=False, n_iterations=2)
-            n_cl = adata.obs[f"leiden_{res}"].nunique()
-            print(f"  Yost BCC res={res}: {n_cl} clusters")
-
-        return Success((adata, lin_mat, filtered_genes))
-    except Exception as exc:
-        return Failure(f"Failed to process Yost et al. dataset: {exc}")
+    """Load Yost et al. (GSE123813) BCC/SCC skin carcinoma dataset strictly via tme_datasets.load_dataset()."""
+    _ = raw_dir
+    return _load_preprocessed_sc_dataset("GSE123813", "Yost BCC", max_cells=n_cells)
 
 
 def build_reference_signatures(
@@ -452,7 +347,7 @@ def main() -> None:
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="output/output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f3_build_dataset_reference",
         help="Directory to save output reference parquets",
     )
     parser.add_argument(

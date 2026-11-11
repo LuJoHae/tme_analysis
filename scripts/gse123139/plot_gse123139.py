@@ -33,12 +33,10 @@ class PlotConfig(BaseModel):
 
 
 def load_anndata(h5ad_path: Path) -> Result[ad.AnnData, str]:
-    """Load AnnData from HDF5 file."""
-    try:
-        adata = ad.read_h5ad(h5ad_path)
-        return Success(adata)
-    except Exception as err:
-        return Failure(f"Failed to load AnnData from {h5ad_path}: {err}")
+    """Load GSE123139 AnnData strictly via tme_datasets.load_dataset()."""
+    from tme_datasets import load_dataset
+
+    return load_dataset("GSE123139", base_dir=h5ad_path.parent, auto_download=False, normalize_ensembl=False)
 
 
 def build_umap_chart(adata: ad.AnnData) -> Result[alt.Chart, str]:

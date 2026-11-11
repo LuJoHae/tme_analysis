@@ -24,15 +24,31 @@ from scipy.sparse import issparse, spmatrix, csr_matrix  # type: ignore
 from sklearn.metrics import silhouette_score  # type: ignore
 
 # Local repo packages
-sys.path.append(str(Path(__file__).resolve().parent.parent.parent / "packages"))
-import datalair  # type: ignore
-from single_cell_datasets import SingleCellReference  # type: ignore
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tme_datasets import get_dataset_spec, load_dataset
+from tme_datasets.paths import get_data_paths
+from returns.maybe import Some
+
+PAN_CANCER_10X_ATLAS_COHORTS: Final[tuple[str, ...]] = (
+    "GSE179994",
+    "GSE178341",
+    "GSE114727",
+    "E-MTAB-8107",
+    "GSE154763",
+    "GSE154826",
+    "GSE131907",
+    "GSE121638",
+    "GSE156625",
+    "GSE169246",
+    "GSE125449",
+    "GSE123813",
+)
 
 
 class IntegratedRefConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
-    adata_sf_path: Path
-    lair_dir: Path
+    adata_sf_path: Path | None = None
+    lair_dir: Path | None = None
     out_dir: Path
     n_subsample_atlas: int = 25000
     resolutions: tuple[float, ...] = (0.5, 1.0, 1.5, 2.0)
@@ -40,74 +56,113 @@ class IntegratedRefConfig(BaseModel):
     random_seed: int = 42
 
 
-def load_sade_feldman(path: Path) -> Result[ad.AnnData, str]:
-    """Load and prepare Sade-Feldman AnnData."""
+def _assign_unique_uppercase_symbols(adata: ad.AnnData) -> ad.AnnData:
+    """Map .var['gene_name'] (or .var_names) to deduplicated uppercase HGNC symbols."""
+    raw_names = (
+        adata.var["gene_name"].astype(str).str.strip().str.upper().tolist()
+        if "gene_name" in adata.var.columns
+        else [str(g).strip().upper() for g in adata.var_names]
+    )
+    unique_symbols: list[str] = []
+    seen: set[str] = set()
+    for g in raw_names:
+        base = "UNKNOWN" if (not g or g in {"NONE", "NAN", "UNKNOWN", "<NA>"}) else g
+        sym = base
+        if sym in seen:
+            idx = 1
+            while f"{base}_{idx}" in seen:
+                idx += 1
+            sym = f"{base}_{idx}"
+        seen.add(sym)
+        unique_symbols.append(sym)
+    adata.var_names = unique_symbols
+    return adata
+
+
+def load_sade_feldman(path: Path | None) -> Result[ad.AnnData, str]:
+    """Load and prepare Sade-Feldman AnnData strictly via tme_datasets.load_dataset()."""
     try:
-        adata = ad.read_h5ad(path)
+        base_root = path.parent if path is not None else None
+        match load_dataset("GSE120575", base_dir=base_root, auto_download=False, normalize_ensembl=False):
+            case Failure(err):
+                return Failure(f"Failed to load Sade-Feldman (GSE120575) via tme_datasets: {err}")
+            case Success(loaded):
+                adata = loaded
         adata.obs["dataset"] = "SadeFeldman_Melanoma"
         adata.obs["sequencing_tech"] = "Smart-seq2"
-        adata.var_names = [str(g).upper() for g in adata.var_names]
-        # Deduplicate gene names if any
-        adata.var_names_make_unique()
+        adata = _assign_unique_uppercase_symbols(adata)
         return Success(adata)
     except Exception as exc:
-        return Failure(f"Failed to load Sade-Feldman from {path}: {exc}")
+        return Failure(f"Failed to load Sade-Feldman via tme_datasets: {exc}")
 
 
-def load_and_subsample_atlas(lair_dir: Path, n_sample: int, seed: int) -> Result[ad.AnnData, str]:
-    """Load SingleCellReference from datalair and perform stratified subsampling."""
-    try:
-        lair = datalair.Lair(str(lair_dir))
-        ds_ref = SingleCellReference()
-        paths = lair.get_dataset_filepaths(ds_ref)
-        if "adata.h5ad" not in paths:
-            return Failure(f"SingleCellReference adata.h5ad not found at {lair_dir}")
+def load_and_subsample_atlas(
+    lair_dir: Path | None,
+    n_sample: int,
+    seed: int,
+) -> Result[ad.AnnData, str]:
+    """Load 10x Chromium Pan-Cancer Single-Cell Atlas strictly via tme_datasets.load_dataset()."""
+    _ = lair_dir
+    per_cohort = max(800, (n_sample + len(PAN_CANCER_10X_ATLAS_COHORTS) - 1) // len(PAN_CANCER_10X_ATLAS_COHORTS))
+    loaded_parts: list[ad.AnnData] = []
 
-        h5_path = paths["adata.h5ad"]
-        print(f"Reading SingleCellReference from {h5_path} (backed mode)...")
-        adata = ad.read_h5ad(h5_path, backed="r")
+    for cid in PAN_CANCER_10X_ATLAS_COHORTS:
+        match load_dataset(cid, auto_download=False, subsample_n=per_cohort, normalize_ensembl=False):
+            case Success(part):
+                cancer_label = cid
+                match get_dataset_spec(cid):
+                    case Some(spec):
+                        cancer_label = spec.cancer_type
+                    case _:
+                        pass
+                part = _assign_unique_uppercase_symbols(part.copy())
+                linear_src = (
+                    part.layers["counts"]
+                    if "counts" in part.layers
+                    else (part.layers["tpm"] if "tpm" in part.layers else part.X)
+                )
+                x_csr = linear_src.tocsr().astype(np.float32) if issparse(linear_src) else csr_matrix(linear_src, dtype=np.float32)
+                max_v = float(x_csr.data.max()) if x_csr.nnz > 0 else 0.0
+                if max_v < 35.0:
+                    x_csr = x_csr.copy()
+                    x_csr.data = np.expm1(np.clip(x_csr.data, 0.0, 14.0))
+                clean_obs = pd.DataFrame(
+                    {
+                        "dataset": [cid] * part.n_obs,
+                        "sequencing_tech": ["10x_Chromium"] * part.n_obs,
+                        "cancer_code": [cancer_label] * part.n_obs,
+                    },
+                    index=[f"{cid}_{i}" for i in range(part.n_obs)],
+                )
+                loaded_parts.append(
+                    ad.AnnData(
+                        X=x_csr,
+                        obs=clean_obs,
+                        var=pd.DataFrame(index=list(part.var_names)),
+                    )
+                )
+            case Failure(_):
+                continue
 
-        # Stratified sampling by cancer_code
-        obs = adata.obs
-        c_codes = obs["cancer_code"].unique()
-        selected_idx: list[int] = []
-        n_per_code = max(500, n_sample // len(c_codes))
+    if loaded_parts:
+        common_genes = sorted(
+            set.intersection(*(set(p.var_names) for p in loaded_parts))
+            - {"UNKNOWN"}
+        )
+        if len(common_genes) >= 5000:
+            aligned = [p[:, common_genes].copy() for p in loaded_parts]
+            merged = ad.concat(aligned, join="inner", merge="same")
+            if merged.n_obs > n_sample:
+                rng = np.random.default_rng(seed)
+                chosen = np.sort(rng.choice(merged.n_obs, size=n_sample, replace=False))
+                merged = merged[chosen].copy()
+            print(
+                f"Subsampled {merged.n_obs} representative cells across "
+                f"{len(loaded_parts)} tme_datasets 10x Chromium cohorts ({len(common_genes)} shared genes)."
+            )
+            return Success(merged)
 
-        np.random.seed(seed)
-        for code in c_codes:
-            sub_indices = np.where(obs["cancer_code"] == code)[0]
-            if len(sub_indices) > n_per_code:
-                chosen = np.random.choice(sub_indices, size=n_per_code, replace=False)
-            else:
-                chosen = sub_indices
-            selected_idx.extend(chosen.tolist())
-
-        selected_idx = sorted(selected_idx[:n_sample])
-        print(f"Subsampled {len(selected_idx)} representative cells from single cell atlas...")
-
-        # Load subsample into memory
-        sub_adata = adata[selected_idx].to_memory()
-        sub_adata.obs["dataset"] = sub_adata.obs.get("dataset", "PanCancer_Atlas").astype(str)
-        sub_adata.obs["sequencing_tech"] = "10x_Chromium"
-        # Map Ensembl IDs to uppercase gene symbols using 'gene_name' column
-        raw_gene_names = sub_adata.var["gene_name"].astype(str).str.upper().tolist()
-        unique_symbols: list[str] = []
-        seen: set[str] = set()
-        for g in raw_gene_names:
-            if not g or g in ("NONE", "NAN", "UNKNOWN"):
-                g = "UNKNOWN"
-            if g in seen:
-                i = 1
-                while f"{g}_{i}" in seen:
-                    i += 1
-                g = f"{g}_{i}"
-            seen.add(g)
-            unique_symbols.append(g)
-        sub_adata.var_names = unique_symbols
-
-        return Success(sub_adata)
-    except Exception as exc:
-        return Failure(f"Failed to load atlas data: {exc}")
+    return Failure("No pan-cancer 10x single-cell atlas datasets available via tme_datasets.load_dataset().")
 
 
 def select_top_markers(
@@ -178,11 +233,20 @@ def run_integrated_pipeline(config: IntegratedRefConfig) -> Result[Path, str]:
     sub_sf = adata_sf[:, common_genes].copy()
     sub_atlas = adata_atlas[:, common_genes].copy()
 
-    # Linearize expression (Sade-Feldman log1p -> linear TPM; Atlas raw counts -> normalize to 1e4)
-    if issparse(sub_sf.X):
-        sf_linear = sub_sf.X.expm1()
+    # Linearize expression (Sade-Feldman TPM/log1p -> linear; Atlas counts -> normalize to 1e4)
+    if "tpm" in sub_sf.layers:
+        sf_raw = sub_sf.layers["tpm"]
+        sf_linear = sf_raw.tocsr() if issparse(sf_raw) else csr_matrix(sf_raw)
     else:
-        sf_linear = csr_matrix(np.expm1(sub_sf.X))
+        sf_max = float(sub_sf.X.data.max() if issparse(sub_sf.X) and sub_sf.X.nnz > 0 else np.max(sub_sf.X))
+        if sf_max < 35.0:
+            sf_linear = sub_sf.X.expm1() if issparse(sub_sf.X) else csr_matrix(np.expm1(sub_sf.X))
+        else:
+            sf_linear = sub_sf.X.tocsr() if issparse(sub_sf.X) else csr_matrix(sub_sf.X)
+    sf_sums = np.asarray(sf_linear.sum(axis=1)).ravel()
+    sf_sums[sf_sums == 0] = 1.0
+    from scipy.sparse import diags
+    sf_linear = diags(1e4 / sf_sums).dot(sf_linear)
 
     if issparse(sub_atlas.X):
         atlas_linear = sub_atlas.X.copy()
@@ -410,19 +474,19 @@ def main() -> None:
     parser.add_argument(
         "--adata-sf",
         type=str,
-        default="/ritom/scratch/cscs/lhaeuser/data-test/GSE120575/gse120575_processed.h5ad",
-        help="Path to gse120575_processed.h5ad",
+        default="",
+        help="Optional explicit path to Sade-Feldman .h5ad (defaults to tme_datasets GSE120575)",
     )
     parser.add_argument(
         "--lair-dir",
         type=str,
-        default="/ritom/scratch/cscs/lhaeuser/data-test/lair",
-        help="Path to datalair directory",
+        default="",
+        help="Unused deprecated CLI flag retained for backward compatibility",
     )
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f2_build_integrated_reference",
         help="Directory to store output parquets",
     )
     parser.add_argument(
@@ -448,8 +512,8 @@ def main() -> None:
     res_list = tuple(float(r.strip()) for r in args.resolutions.split(",") if r.strip())
 
     config = IntegratedRefConfig(
-        adata_sf_path=Path(args.adata_sf),
-        lair_dir=Path(args.lair_dir),
+        adata_sf_path=Path(args.adata_sf) if args.adata_sf else None,
+        lair_dir=Path(args.lair_dir) if args.lair_dir else None,
         out_dir=Path(args.out_dir),
         n_subsample_atlas=args.n_subsample_atlas,
         resolutions=res_list,

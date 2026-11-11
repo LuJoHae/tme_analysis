@@ -22,10 +22,12 @@ import milopy
 from single_cell_immuno_datasets import DataDirectories
 
 
-def investigate_gse123813(adata_path: Path) -> dict[str, any]:
-    """Inspects GSE123813 cell barcodes, timepoints (pre vs post), and lineages."""
-    print("[GSE123813] Loading dataset...")
-    adata = ad.read_h5ad(adata_path)
+def investigate_gse123813(base_dir: Path) -> dict[str, any]:
+    """Inspects GSE123813 cell barcodes, timepoints (pre vs post), and lineages via tme_datasets."""
+    from tme_datasets import load_dataset
+
+    print("[GSE123813] Loading dataset via tme_datasets.load_dataset()...")
+    adata = load_dataset("GSE123813", base_dir=base_dir, auto_download=False, normalize_ensembl=False).unwrap()
     
     # Parse barcodes: pattern '<cancer>.<patient>.<pre/post>.<celltype>_<barcode>'
     records = []
@@ -73,10 +75,12 @@ def investigate_gse123813(adata_path: Path) -> dict[str, any]:
     }
 
 
-def investigate_gse159115(adata_path: Path) -> dict[str, any]:
-    """Inspects GSE159115 sample distribution and clinical features."""
-    print("[GSE159115] Loading dataset...")
-    adata = ad.read_h5ad(adata_path)
+def investigate_gse159115(base_dir: Path) -> dict[str, any]:
+    """Inspects GSE159115 sample distribution and clinical features via tme_datasets."""
+    from tme_datasets import load_dataset
+
+    print("[GSE159115] Loading dataset via tme_datasets.load_dataset()...")
+    adata = load_dataset("GSE159115", base_dir=base_dir, auto_download=False, normalize_ensembl=False).unwrap()
     
     obs = adata.obs.copy()
     sample_col = "patient" if "patient" in obs.columns else obs.columns[0]
@@ -166,11 +170,8 @@ def main() -> None:
     args = parser.parse_args()
 
     dirs = DataDirectories.with_base(args.base_dir)
-    gse123813_file = dirs.preprocessed_dir / "GSE123813_processed.h5ad"
-    gse159115_file = dirs.preprocessed_dir / "GSE159115_processed.h5ad"
-
-    gse123813_res = investigate_gse123813(gse123813_file)
-    gse159115_res = investigate_gse159115(gse159115_file)
+    gse123813_res = investigate_gse123813(args.base_dir)
+    gse159115_res = investigate_gse159115(args.base_dir)
 
     out_md = dirs.reports_dir / "subtle_datasets_investigation.md"
     write_investigation_report(gse123813_res, gse159115_res, out_md)

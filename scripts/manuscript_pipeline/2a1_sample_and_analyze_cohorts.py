@@ -795,8 +795,13 @@ def run_sampling_pipeline(config: SampledRunConfig) -> Result[Path, str]:
         f"Non-Responders (Down): {n_sig_down:,} | Conserved Recurrent: {n_conserved:,} | Clonal Spikes Blocked: {n_private_spikes:,}"
     )
 
-    # Step 11: Export Structured Parquet Tables
+    # Step 11: Export Structured Parquet Tables & Sparse Neighborhood Matrix
     print("\nExporting structured Parquet results...")
+    if "nhoods" in combined_adata.obsm:
+        nhood_mat_path = run_out_dir / "nhood_matrix.npz"
+        sp.save_npz(nhood_mat_path, sp.csc_matrix(combined_adata.obsm["nhoods"]))
+        print(f"[EXPORTED] {nhood_mat_path}")
+
     da_parquet_path = run_out_dir / "da_results.parquet"
     res_pl = pl.from_pandas(res_df.reset_index())
     res_pl.write_parquet(da_parquet_path)

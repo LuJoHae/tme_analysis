@@ -108,59 +108,35 @@ def load_bulk_cohort_data(
     cohort_id: str,
     preprocessed_dir: Path,
 ) -> Result[tuple[np.ndarray, tuple[str, ...], tuple[str, ...], np.ndarray], str]:
-    """Load bulk ICI cohort AnnData into memory for deconvolution evaluation."""
+    """Load bulk ICI cohort AnnData strictly via tme_datasets API for deconvolution evaluation."""
     from tme_datasets import load_dataset, load_iatlas_cohort_or_combined  # type: ignore[import-untyped]
     from tme_datasets.preprocessing.metadata import binarize_response  # type: ignore[import-untyped]
 
-    candidates = [cohort_id, cohort_id.replace("-iAtlas", ""), f"{cohort_id}-iAtlas"]
+    candidates = (cohort_id, cohort_id.replace("-iAtlas", ""), f"{cohort_id}-iAtlas")
     adata: ad.AnnData | None = None
-    manual_dir = Path("data/manual_download")
 
     for cid in candidates:
-        # Check preprocessed_dir
-        fpath = preprocessed_dir / f"{cid}.h5ad"
-        if fpath.exists():
-            try:
-                cand_ad = ad.read_h5ad(fpath)
-                resp_cand = next(
-                    (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
-                    None,
-                )
-                if resp_cand is not None and cand_ad.n_vars > 100:
-                    adata = cand_ad
-                    break
-            except Exception:
-                pass
-
-        # Check manual_download dir
-        mpath = manual_dir / f"{cid}.h5ad"
-        if mpath.exists():
-            try:
-                cand_ad = ad.read_h5ad(mpath)
-                resp_cand = next(
-                    (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
-                    None,
-                )
-                if resp_cand is not None and cand_ad.n_vars > 100:
-                    adata = cand_ad
-                    break
-            except Exception:
-                pass
-
-        # Check tme_datasets.load_dataset
-        try:
-            load_res = load_dataset(cid)
-            if isinstance(load_res, Success):
-                cand_ad = load_res.unwrap()
-                resp_cand = next(
-                    (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
-                    None,
-                )
-                if resp_cand is not None and cand_ad.n_vars > 100:
-                    adata = cand_ad
-                    break
-        except Exception:
-            pass
+        load_res = load_dataset(
+            cid,
+            base_dir=preprocessed_dir,
+            auto_download=False,
+            normalize_ensembl=False,
+        )
+        if not isinstance(load_res, Success):
+            load_res = load_iatlas_cohort_or_combined(cid)
+        if isinstance(load_res, Success):
+            cand_ad = load_res.unwrap()
+            resp_cand = next(
+                (
+                    c
+                    for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST")
+                    if c in cand_ad.obs.columns
+                ),
+                None,
+            )
+            if resp_cand is not None and cand_ad.n_vars > 100:
+                adata = cand_ad
+                break
 
     if adata is None:
         return Failure(f"Failed to load bulk dataset for '{cohort_id}' with response annotations.")

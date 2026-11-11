@@ -28,7 +28,7 @@ from scipy.sparse import csr_matrix  # type: ignore
 sys.path.append(str(Path(__file__).resolve().parent))
 from importlib import import_module
 
-build_mod = import_module("01c_build_dataset_reference")
+build_mod = import_module("3f3_build_dataset_reference")
 load_jerby_arnon = build_mod.load_jerby_arnon
 load_maynard = build_mod.load_maynard
 load_ma_liver = build_mod.load_ma_liver
@@ -304,7 +304,7 @@ def main() -> None:
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="output/output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f4_build_combined_references",
         help="Directory to save output reference parquets",
     )
     parser.add_argument(

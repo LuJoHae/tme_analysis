@@ -153,8 +153,9 @@ def extract_from_cached_reference(
     config: GroundTruthConfig,
 ) -> Result[tuple[pl.DataFrame, pl.DataFrame], str]:
     """Fallback boundary when running without raw full-sized AnnData on local environment."""
+    mp_milo = Path("output/manuscript_pipeline/3f7_analyze_milopy_multires/milopy_cell_state_da_all_resolutions.parquet")
     sfdv = Path("output/output/sade_feldman_deconv_validation")
-    milo_all_path = sfdv / "milopy_cell_state_da_all_resolutions.parquet"
+    milo_all_path = mp_milo if mp_milo.exists() else sfdv / "milopy_cell_state_da_all_resolutions.parquet"
 
     if not milo_all_path.exists():
         return Failure(f"Cached milo data not found: {milo_all_path}")
@@ -239,16 +240,19 @@ def extract_from_cached_reference(
 
 
 def run_pipeline(config: GroundTruthConfig) -> Result[None, str]:
-    """Execute Step 1 ground truth extraction."""
+    """Execute Step 1 ground truth extraction strictly loading via tme_datasets.load_dataset()."""
+    from tme_datasets import load_dataset
+
     match config.adata_path:
         case Some(adata_file):
-            print(f"[INFO] Reading single-cell AnnData: {adata_file}")
-            try:
-                adata = ad.read_h5ad(adata_file, backed=False)
-                res = extract_from_adata(adata, config)
-            except Exception as exc:  # noqa: BLE001
-                print(f"[WARNING] AnnData read failed ({exc}), falling back to cached reference.")
-                res = extract_from_cached_reference(config)
+            cohort_id = adata_file.stem.replace("_processed", "")
+            print(f"[INFO] Loading single-cell AnnData for '{cohort_id}' via tme_datasets.load_dataset()...")
+            match load_dataset(cohort_id, base_dir=adata_file.parent, auto_download=False, normalize_ensembl=False):
+                case Success(adata):
+                    res = extract_from_adata(adata, config)
+                case Failure(err):
+                    print(f"[WARNING] tme_datasets load failed ({err}), falling back to cached reference.")
+                    res = extract_from_cached_reference(config)
         case Nothing:
             print("[INFO] No direct AnnData path provided; using cached single-cell state reference.")
             res = extract_from_cached_reference(config)

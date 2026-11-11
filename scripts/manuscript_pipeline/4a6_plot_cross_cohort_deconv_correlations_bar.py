@@ -73,7 +73,7 @@ TITLE_FONT_PX: Final[float] = 14.0  # 10.5 pt
 class BarPlotConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     benchmark_dir: Path = Path(
-        "output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"
+        "output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark"
     )
     scatter_svg: Path = Path(
         "output/manuscript_pipeline/4a5_plot_cross_cohort_deconv_scatter_grid/nine_cohorts_deconv_scatter_grid.svg"
@@ -428,18 +428,23 @@ def generate_correlation_bar_and_composite(config: BarPlotConfig) -> Result[tupl
         f.write(composite_svg_str)
     print(f"Exported combined composite SVG to {config.out_composite_svg} (width={COMPOSITE_WIDTH_MM}mm, height={target_height_mm:.2f}mm)")
 
-    # 6. Render 300 DPI raster for the composite figure using rsvg-convert
+    # 6. Render 300 DPI raster for the composite figure using rsvg-convert or vl_convert fallback
+    from plotting_utils import rasterize_svg_to_png
+
     target_h_px = int(round(target_height_mm * 300.0 / 25.4))
-    try:
-        subprocess.run(
-            ["rsvg-convert", "-w", "2126", "-h", str(target_h_px), str(config.out_composite_svg), "-o", str(config.out_composite_png)],
-            check=True,
-        )
-        with open(config.out_composite_png, "rb") as f_in, open(config.article_composite_png, "wb") as f_out:
-            f_out.write(f_in.read())
-        print(f"Exported 300 DPI composite PNG to {config.out_composite_png} and {config.article_composite_png}")
-    except Exception as exc:
-        print(f"rsvg-convert rasterization note: {exc}; falling back to direct copy if exists.")
+    match rasterize_svg_to_png(
+        config.out_composite_svg,
+        config.out_composite_png,
+        width_px=2126,
+        height_px=target_h_px,
+        background=None,
+    ):
+        case Success(_):
+            with open(config.out_composite_png, "rb") as f_in, open(config.article_composite_png, "wb") as f_out:
+                f_out.write(f_in.read())
+            print(f"Exported 300 DPI composite PNG to {config.out_composite_png} and {config.article_composite_png}")
+        case Failure(err):
+            print(f"Composite PNG rasterization note: {err}")
 
     return Success((config.out_bar_svg, config.out_composite_svg))
 
@@ -452,7 +457,7 @@ def main() -> None:
         "--benchmark-dir",
         type=Path,
         default=Path(
-            "output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"
+            "output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark"
         ),
         help="Root benchmark output directory containing cohort subfolders",
     )

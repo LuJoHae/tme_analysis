@@ -202,16 +202,22 @@ def evaluate_insilico_performance(
 
 
 def run_pipeline(config: ValidationConfig) -> Result[None, str]:
-    """Execute Step 3 pure in silico validation."""
-    if not config.adata_path.exists():
-        return Failure(f"AnnData file not found: {config.adata_path}")
+    """Execute Step 3 pure in silico validation strictly loading AnnData via tme_datasets.load_dataset()."""
     if not config.reference_path.exists():
         return Failure(f"Reference file not found: {config.reference_path}")
     if not config.sc_effects_path.exists():
         return Failure(f"Single-cell effects file not found: {config.sc_effects_path}")
 
+    from tme_datasets import load_dataset
+
+    cohort_id = config.adata_path.stem.replace("_processed", "")
+    match load_dataset(cohort_id, base_dir=config.adata_path.parent, auto_download=False, normalize_ensembl=False):
+        case Failure(err):
+            return Failure(f"Failed to load AnnData for '{cohort_id}' via tme_datasets: {err}")
+        case Success(loaded_adata):
+            adata = loaded_adata
+
     try:
-        adata = ad.read_h5ad(config.adata_path, backed=False)
         phi_df = pl.read_parquet(config.reference_path)
         sc_effects_df = pl.read_parquet(config.sc_effects_path)
     except Exception as exc:  # noqa: BLE001

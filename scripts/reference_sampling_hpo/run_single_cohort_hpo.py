@@ -86,65 +86,31 @@ def load_bulk_cohort_data(
     cohort_id: str,
     preprocessed_dir: Path,
 ) -> Result[tuple[np.ndarray, Sequence[str], Sequence[str], np.ndarray], str]:
-    """Load preprocessed bulk RNA-seq cohort from H5AD with binarized response annotations."""
-    base_data_dir = Path(os.environ.get("TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test"))
-    manual_dir = base_data_dir / "manual_download"
-
-    cand_paths = [
-        preprocessed_dir / f"{cohort_id}.h5ad",
-        preprocessed_dir / f"{cohort_id}-iAtlas.h5ad",
-        preprocessed_dir / f"{cohort_id}_bulk.h5ad",
-        manual_dir / f"{cohort_id}.h5ad",
-        manual_dir / f"{cohort_id}-iAtlas.h5ad",
-    ]
+    """Load preprocessed bulk RNA-seq cohort strictly via tme_datasets API with binarized response annotations."""
+    from tme_datasets import load_iatlas_cohort_or_combined
 
     adata: ad.AnnData | None = None
-    for p in cand_paths:
-        if p.exists():
-            try:
-                cand_ad = ad.read_h5ad(p)
-                resp_cand = next(
-                    (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
-                    None,
-                )
-                if resp_cand is not None and cand_ad.n_vars > 100:
-                    adata = cand_ad
-                    break
-            except Exception:
-                pass
+    for cid in (cohort_id, f"{cohort_id}-iAtlas", cohort_id.replace("-iAtlas", "")):
+        load_res = load_dataset(
+            cid,
+            base_dir=preprocessed_dir,
+            auto_download=False,
+            normalize_ensembl=False,
+        )
+        if not isinstance(load_res, Success):
+            load_res = load_iatlas_cohort_or_combined(cid)
+        if isinstance(load_res, Success):
+            cand_ad = load_res.unwrap()
+            resp_cand = next(
+                (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
+                None,
+            )
+            if resp_cand is not None and cand_ad.n_vars > 100:
+                adata = cand_ad
+                break
 
     if adata is None:
-        for cid in (cohort_id, f"{cohort_id}-iAtlas"):
-            mpath = manual_dir / f"{cid}.h5ad"
-            if mpath.exists():
-                try:
-                    cand_ad = ad.read_h5ad(mpath)
-                    resp_cand = next(
-                        (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
-                        None,
-                    )
-                    if resp_cand is not None and cand_ad.n_vars > 100:
-                        adata = cand_ad
-                        break
-                except Exception:
-                    pass
-
-            try:
-                load_res = load_dataset(cid)
-                if isinstance(load_res, Success):
-                    cand_ad = load_res.unwrap()
-                    resp_cand = next(
-                        (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
-                        None,
-                    )
-                    if resp_cand is not None and cand_ad.n_vars > 100:
-                        adata = cand_ad
-                        break
-            except Exception:
-                pass
-
-    if adata is None:
-        return Failure(f"Failed to load bulk dataset for '{cohort_id}' with response annotations.")
+        return Failure(f"Failed to load bulk dataset for '{cohort_id}' via tme_datasets.")
 
     try:
         resp_col = next(

@@ -20,10 +20,36 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from pydantic import BaseModel, ConfigDict
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Result, Success
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.manuscript_pipeline._helpers.paths import (  # noqa: E402
+    MULTIRES_ALL_UPSTREAM_STAGES,
+    resolve_upstream_artifact,
+)
 
 # Disable row limit for single-cell UMAP coordinates
 alt.data_transformers.disable_max_rows()
+
+_FALLBACK_MULTIRES_DIRS: Final[tuple[Path, ...]] = (
+    Path("output/output/sade_feldman_deconv_validation"),
+    Path("output/sade_feldman_deconv_validation"),
+)
+
+
+def _resolve_input_parquet(data_dir: Path, filename: str) -> Path:
+    """Resolve an upstream parquet across 3f1..3f8 stage directories with fallback."""
+    match resolve_upstream_artifact(
+        filename,
+        MULTIRES_ALL_UPSTREAM_STAGES,
+        explicit_dirs=(data_dir,),
+        fallback_dirs=_FALLBACK_MULTIRES_DIRS,
+    ):
+        case Some(found):
+            return found
+        case Nothing:
+            return data_dir / filename
 
 
 class PlotConfig(BaseModel):
@@ -35,8 +61,8 @@ class PlotConfig(BaseModel):
 
 def plot_step1_reference_heatmap(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot marker gene expression heatmap across reference cell states."""
-    tidy_path = data_dir / "reference_phi_tidy.parquet"
-    markers_path = data_dir / "reference_marker_genes.parquet"
+    tidy_path = _resolve_input_parquet(data_dir, "reference_phi_tidy.parquet")
+    markers_path = _resolve_input_parquet(data_dir, "reference_marker_genes.parquet")
 
     if not tidy_path.exists() or not markers_path.exists():
         return Failure(f"Step 1 files missing in {data_dir}")
@@ -87,7 +113,7 @@ def plot_step1_reference_heatmap(data_dir: Path, results_dir: Path) -> Result[Pa
 
 def plot_step1b_integration_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot Harmony batch correction UMAP comparing platform integration."""
-    meta_path = data_dir / "integrated_cell_metadata.parquet"
+    meta_path = _resolve_input_parquet(data_dir, "integrated_cell_metadata.parquet")
     if not meta_path.exists():
         return Failure(f"Integrated cell metadata missing: {meta_path}")
 
@@ -142,7 +168,7 @@ def plot_step1b_integration_umap(data_dir: Path, results_dir: Path) -> Result[Pa
 
 def plot_step2_fractions_distribution(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot cell state fraction distributions across cohorts, split into subplots per cell state."""
-    fracs_path = data_dir / "deconv_fractions.parquet"
+    fracs_path = _resolve_input_parquet(data_dir, "deconv_fractions.parquet")
     if not fracs_path.exists():
         return Failure(f"Fractions file missing: {fracs_path}")
 
@@ -187,7 +213,7 @@ def plot_step2_fractions_distribution(data_dir: Path, results_dir: Path) -> Resu
 
 def plot_step2b_cohort_fractions_grid(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot faceted individual cohort fraction distributions stratified by responder status."""
-    sample_fracs_path = data_dir / "sample_fractions_with_response.parquet"
+    sample_fracs_path = _resolve_input_parquet(data_dir, "sample_fractions_with_response.parquet")
     if not sample_fracs_path.exists():
         return Failure(f"Sample fractions with response file missing: {sample_fracs_path}")
 
@@ -240,7 +266,7 @@ def plot_step2b_cohort_fractions_grid(data_dir: Path, results_dir: Path) -> Resu
 
 def plot_step2c_cohort_stacked_compositions(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot horizontal 100% stacked bar chart of average immune cell state composition across cohorts."""
-    fracs_path = data_dir / "deconv_fractions.parquet"
+    fracs_path = _resolve_input_parquet(data_dir, "deconv_fractions.parquet")
     if not fracs_path.exists():
         return Failure(f"Fractions file missing: {fracs_path}")
 
@@ -294,7 +320,7 @@ def plot_step3_logistic_regression(
     stratum: str,
 ) -> Result[tuple[Path, Path], str]:
     """Plot volcano and forest plot for logistic regression response association."""
-    res_path = data_dir / "logistic_regression_results.parquet"
+    res_path = _resolve_input_parquet(data_dir, "logistic_regression_results.parquet")
     if not res_path.exists():
         return Failure(f"Logistic results missing: {res_path}")
 
@@ -371,8 +397,8 @@ def plot_step3_logistic_regression(
 
 def plot_step4_milopy(data_dir: Path, results_dir: Path) -> Result[tuple[Path, Path], str]:
     """Plot milopy neighborhood volcano and cell-state differential abundance."""
-    nhoods_path = data_dir / "milopy_nhoods_results.parquet"
-    states_path = data_dir / "milopy_cell_state_da.parquet"
+    nhoods_path = _resolve_input_parquet(data_dir, "milopy_nhoods_results.parquet")
+    states_path = _resolve_input_parquet(data_dir, "milopy_cell_state_da.parquet")
 
     if not nhoods_path.exists() or not states_path.exists():
         return Failure(f"Milo files missing in {data_dir}")
@@ -435,7 +461,7 @@ def plot_step4_milopy(data_dir: Path, results_dir: Path) -> Result[tuple[Path, P
 
 def plot_step4b_pre_vs_post_milo(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot comparison of Pre-treatment vs Post-treatment vs Combined Milo differential abundance."""
-    all_states_path = data_dir / "milopy_cell_state_da_all.parquet"
+    all_states_path = _resolve_input_parquet(data_dir, "milopy_cell_state_da_all.parquet")
     if not all_states_path.exists():
         return Failure(f"All conditions Milo states table missing: {all_states_path}")
 
@@ -468,8 +494,8 @@ def plot_step4b_pre_vs_post_milo(data_dir: Path, results_dir: Path) -> Result[Pa
 
 def plot_step5_concordance_scatter(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot primary concordance scatter plot between bulk deconv Beta and Milo logFC."""
-    conc_path = data_dir / "concordance_metrics.parquet"
-    summary_path = data_dir / "concordance_summary.parquet"
+    conc_path = _resolve_input_parquet(data_dir, "concordance_metrics.parquet")
+    summary_path = _resolve_input_parquet(data_dir, "concordance_summary.parquet")
 
     if not conc_path.exists():
         return Failure(f"Concordance file missing: {conc_path}")
@@ -550,8 +576,8 @@ def plot_step5_concordance_scatter(data_dir: Path, results_dir: Path) -> Result[
 
 def plot_step5b_cohort_concordance(data_dir: Path, results_dir: Path) -> Result[tuple[Path, Path], str]:
     """Plot multi-cohort concordance comparison forest/bar chart and individual cohort scatter matrix."""
-    summary_path = data_dir / "cohort_level_concordance_summary.parquet"
-    metrics_path = data_dir / "concordance_metrics_full.parquet"
+    summary_path = _resolve_input_parquet(data_dir, "cohort_level_concordance_summary.parquet")
+    metrics_path = _resolve_input_parquet(data_dir, "concordance_metrics_full.parquet")
 
     if not summary_path.exists() or not metrics_path.exists():
         return Failure(f"Cohort concordance tables missing in {data_dir}")
@@ -628,8 +654,8 @@ def plot_step5b_cohort_concordance(data_dir: Path, results_dir: Path) -> Result[
 
 def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot multi-panel UMAP: Reference Cell States, Single-Cell Milo DA, and Bulk Deconvolution Beta."""
-    cells_path = data_dir / "milopy_cell_level_scores.parquet"
-    conc_path = data_dir / "concordance_metrics.parquet"
+    cells_path = _resolve_input_parquet(data_dir, "milopy_cell_level_scores.parquet")
+    conc_path = _resolve_input_parquet(data_dir, "concordance_metrics.parquet")
 
     if not cells_path.exists():
         return Failure(f"Cell level scores missing: {cells_path}")
@@ -708,8 +734,8 @@ def plot_step6_dual_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]
 
 def plot_step6b_stratified_umap(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot 4-panel UMAP: Reference, Pre-treatment Milo, Post-treatment Milo, and Bulk Deconv."""
-    cells_path = data_dir / "milopy_cell_level_scores.parquet"
-    conc_path = data_dir / "concordance_metrics.parquet"
+    cells_path = _resolve_input_parquet(data_dir, "milopy_cell_level_scores.parquet")
+    conc_path = _resolve_input_parquet(data_dir, "concordance_metrics.parquet")
 
     if not cells_path.exists():
         return Failure(f"Cell level scores missing: {cells_path}")
@@ -976,9 +1002,9 @@ def plot_multi_resolution_fractions(data_dir: Path, results_dir: Path, ref_type:
     try:
         dfs: list[pl.DataFrame] = []
         for res in (0.5, 1.0, 1.5, 2.0):
-            p = data_dir / f"deconv_fractions_{ref_type}_res{res}.parquet"
+            p = _resolve_input_parquet(data_dir, f"deconv_fractions_{ref_type}_res{res}.parquet")
             if not p.exists() and abs(res - 0.5) < 1e-4 and ref_type == "sf":
-                p = data_dir / "deconv_fractions.parquet"
+                p = _resolve_input_parquet(data_dir, "deconv_fractions.parquet")
             if p.exists():
                 df = pl.read_parquet(p)
                 meta_cols = {"sample_id", "cohort", "cancer_type"}
@@ -1026,7 +1052,7 @@ def plot_multi_resolution_fractions(data_dir: Path, results_dir: Path, ref_type:
 
 def plot_resolution_predictive_benchmark(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot multi-resolution comparative benchmark: Response AUC, Condition Number (Collinearity), and Cluster Count."""
-    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    bench_file = _resolve_input_parquet(data_dir, "multi_resolution_benchmark_summary.parquet")
     if not bench_file.exists():
         return Failure(f"Benchmark summary file not found: {bench_file}")
 
@@ -1118,9 +1144,9 @@ def plot_multi_resolution_marker_heatmaps(data_dir: Path, results_dir: Path) -> 
     try:
         records: list[dict[str, object]] = []
         for res in (0.5, 1.0, 1.5, 2.0):
-            p = data_dir / f"reference_marker_genes_res{res}.parquet"
+            p = _resolve_input_parquet(data_dir, f"reference_marker_genes_res{res}.parquet")
             if not p.exists() and abs(res - 0.5) < 1e-4:
-                p = data_dir / "reference_marker_genes.parquet"
+                p = _resolve_input_parquet(data_dir, "reference_marker_genes.parquet")
             if p.exists():
                 df_m = pl.read_parquet(p)
                 sub = df_m.filter(pl.col("rank") <= 2)
@@ -1165,7 +1191,7 @@ def plot_multi_resolution_marker_heatmaps(data_dir: Path, results_dir: Path) -> 
 
 def plot_combined_reference_umap_resolutions(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Plot multi-panel UMAP of Harmony-integrated reference colored by clusters at resolutions 0.5, 1.0, 1.5, 2.0."""
-    meta_path = data_dir / "integrated_cell_metadata.parquet"
+    meta_path = _resolve_input_parquet(data_dir, "integrated_cell_metadata.parquet")
     if not meta_path.exists():
         return Failure(f"Integrated cell metadata missing: {meta_path}")
 
@@ -1230,7 +1256,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
     """Figure 1: Comprehensive 18-panel predictive capacity benchmark across references, resolutions,
     dataset integration count (up to n=16), continuous single-cell scaling, and cell subsampling titration ladders.
     """
-    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    bench_file = _resolve_input_parquet(data_dir, "multi_resolution_benchmark_summary.parquet")
     if not bench_file.exists():
         fallback = Path("output/output/sade_feldman_deconv_validation/multi_resolution_benchmark_summary.parquet")
         if fallback.exists():
@@ -1790,16 +1816,16 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
         out_path.write_text(svg_content, encoding="utf-8")
 
         png_path = results_dir / "fig1_predictive_capacity_benchmark.png"
-        try:
-            subprocess.run(
-                ["rsvg-convert", "-d", "300", "-p", "300", str(out_path), "-o", str(png_path)],
-                check=True,
-            )
-        except Exception:
-            try:
-                final_chart.save(str(png_path), scale_factor=2.0)
-            except Exception:
+        from plotting_utils import rasterize_svg_to_png
+
+        match rasterize_svg_to_png(out_path, png_path, scale=3.125, background="white"):
+            case Success(_):
                 pass
+            case Failure(_):
+                try:
+                    final_chart.save(str(png_path), scale_factor=2.0)
+                except Exception:
+                    pass
         return Success(out_path)
     except Exception as exc:
         return Failure(f"Failed to generate Figure 1: {exc}")
@@ -1811,7 +1837,7 @@ def plot_fig1_predictive_capacity(data_dir: Path, results_dir: Path) -> Result[P
 
 def plot_fig2_signature_collinearity(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Figure 2: 4-panel signature collinearity analysis across all references and resolutions."""
-    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    bench_file = _resolve_input_parquet(data_dir, "multi_resolution_benchmark_summary.parquet")
     if not bench_file.exists():
         return Failure(f"Benchmark summary not found: {bench_file}")
 
@@ -1926,7 +1952,7 @@ def plot_fig2_signature_collinearity(data_dir: Path, results_dir: Path) -> Resul
 
 def plot_fig3_cellular_granularity(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Figure 3: 4-panel cellular granularity analysis: cluster counts, signature genes, per-cluster AUC."""
-    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    bench_file = _resolve_input_parquet(data_dir, "multi_resolution_benchmark_summary.parquet")
     if not bench_file.exists():
         return Failure(f"Benchmark summary not found: {bench_file}")
 
@@ -2026,7 +2052,7 @@ def plot_fig3_cellular_granularity(data_dir: Path, results_dir: Path) -> Result[
 
 def plot_fig4_pareto_tradeoff(data_dir: Path, results_dir: Path) -> Result[Path, str]:
     """Figure 4: 3-panel Pareto tradeoff analysis: Goldilocks scatter, heatmap, efficiency trajectory."""
-    bench_file = data_dir / "multi_resolution_benchmark_summary.parquet"
+    bench_file = _resolve_input_parquet(data_dir, "multi_resolution_benchmark_summary.parquet")
     if not bench_file.exists():
         return Failure(f"Benchmark summary not found: {bench_file}")
 
@@ -2130,14 +2156,14 @@ def main() -> None:
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f8_compare_concordance_multires",
         help="Directory containing output parquet files",
     )
     parser.add_argument(
         "--results-dir",
         type=str,
-        default="results/sade_feldman_deconv_validation",
-        help="Directory to save vector SVG figures",
+        default="output/manuscript_pipeline/4d1_plot_sf_multires_validation_figures",
+        help="Directory to save vector SVG and 300 DPI PNG figures",
     )
     parser.add_argument(
         "--stratum",

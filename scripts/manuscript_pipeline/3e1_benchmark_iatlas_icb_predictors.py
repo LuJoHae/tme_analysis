@@ -1003,7 +1003,12 @@ def main() -> None:
     # 5. Time-to-Event Survival (OS/PFS) and Decision Curve Analysis (DCA)
     # ---------------------------------------------------------
     if args.run_survival:
-        from benchmark_survival_and_dca import run_survival_and_dca_benchmark
+        import importlib
+
+        _surv_mod = importlib.import_module(
+            "scripts.manuscript_pipeline.3e3_benchmark_survival_and_dca"
+        )
+        run_survival_and_dca_benchmark = _surv_mod.run_survival_and_dca_benchmark
 
         print("\n=== Running Survival & Decision Curve Analysis Benchmark ===")
         run_survival_and_dca_benchmark(

@@ -11,7 +11,6 @@ Target Cohorts:
 - GSE250523: Bladder Ewing Sarcoma scRNA-seq (4 samples)
 - GSE267718: Urine, PBMC, and tumor scRNA-seq (33 samples)
 - GSE176249: UMUC-1 FOXA1 KO scRNA-seq (1 sample)
-- GSE172433: SuperSeries of GSE176249 (symlinked)
 - GSE277524: Multifocal Bladder Cancer scRNA-seq (9 valid samples)
 - CELLxGENE_f0e0575d: SMBO-114 Bladder Cancer scRNA-seq
 - CELLxGENE_e2094676: SMBO-106 Bladder Cancer scRNA-seq
@@ -68,7 +67,6 @@ BLADDER_COHORTS: tuple[str, ...] = (
     "CELLxGENE_7ee4b15b",  # SCBO-8 (10,946 cells)
     # GEO single-cell cohorts:
     "GSE176249",  # UMUC-1 FOXA1 KO (6,217 cells)
-    "GSE172433",  # SuperSeries of GSE176249 (symlinked)
     "GSE250523",  # Bladder Ewing Sarcoma (17,001 cells)
     "GSE326854",  # NMIBC cell lines (43,949 cells)
     "GSE310802",  # En Bloc NMIBC (69,975 cells)
@@ -95,37 +93,6 @@ def preprocess_bladder_cohort(
     logger.info("Raw Directory:             %s", cohort_raw_dir)
     logger.info("Target File:               %s", out_file)
     logger.info("=================================================================")
-
-    # Special handling for GSE172433 SuperSeries (identical to GSE176249)
-    if canonical_id == "GSE172433":
-        target_file = output_dir / "GSE176249.h5ad"
-        if not target_file.exists() and not dry_run:
-            preprocess_bladder_cohort("GSE176249", raw_dir, output_dir, overwrite, dry_run, skip_ensembl)
-        if target_file.exists() and (not out_file.exists() or overwrite):
-            if out_file.is_symlink() or out_file.exists():
-                out_file.unlink()
-            out_file.symlink_to(target_file.name)
-            logger.info("[%s] Created symlink %s -> %s", canonical_id, out_file.name, target_file.name)
-        if out_file.exists():
-            adata_head = ad.read_h5ad(out_file, backed="r")
-            n_cells = adata_head.n_obs
-            n_vars = adata_head.n_vars
-            n_pts = int(adata_head.obs["patient_id"].nunique()) if "patient_id" in adata_head.obs.columns else 0
-            n_smps = int(adata_head.obs["sample_id"].nunique()) if "sample_id" in adata_head.obs.columns else 0
-            if hasattr(adata_head, "file") and adata_head.file is not None:
-                adata_head.file.close()
-            del adata_head
-            gc.collect()
-            return {
-                "cohort": canonical_id,
-                "status": "SYMLINK_SUCCESS",
-                "cells": n_cells,
-                "post_qc_cells": n_cells,
-                "genes": n_vars,
-                "patients": n_pts,
-                "samples": n_smps,
-                "file_size_mb": round(out_file.stat().st_size / (1024 * 1024), 2),
-            }
 
     if out_file.exists() and not overwrite and not dry_run:
         logger.info("Output file already exists: %s (skipping, use --overwrite to recompute)", out_file)
@@ -253,14 +220,6 @@ def preprocess_bladder_cohort(
     temp_out = output_dir / f".tmp_{canonical_id}.h5ad"
     processed_adata.write_h5ad(temp_out, compression="gzip")
     temp_out.replace(out_file)
-
-    if canonical_id == "GSE176249":
-        symlink_172433 = output_dir / "GSE172433.h5ad"
-        if not symlink_172433.exists() or overwrite:
-            if symlink_172433.is_symlink() or symlink_172433.exists():
-                symlink_172433.unlink()
-            symlink_172433.symlink_to("GSE176249.h5ad")
-            logger.info("[%s] Automatically symlinked GSE172433.h5ad -> GSE176249.h5ad", canonical_id)
 
     elapsed = time.time() - t0
     final_size_mb = round(out_file.stat().st_size / (1024 * 1024), 2)

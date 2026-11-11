@@ -1,5 +1,5 @@
 """
-Unit and property-based tests for Sade-Feldman benchmarking pipeline.
+Unit and property-based tests for Cross-Cohort Pseudobulk Deconvolution benchmarking pipeline.
 Tests pure functions for cell fraction computation, deconvolution, logistic regression, and concordance metrics.
 """
 
@@ -18,7 +18,7 @@ from returns.result import Success
 import importlib
 
 _stage3a = importlib.import_module(
-    "scripts.manuscript_pipeline.3a_sade_feldman_pseudobulk_deconv_benchmark"
+    "scripts.manuscript_pipeline.3a_cross_cohort_pseudobulk_deconv_benchmark"
 )
 classify_quadrant = _stage3a.classify_quadrant
 compute_true_cell_fractions = _stage3a.compute_true_cell_fractions

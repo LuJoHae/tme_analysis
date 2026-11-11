@@ -152,22 +152,27 @@ def main() -> None:
             print(f"Error: Unknown dataset '{acc}'. Ready datasets are: {list(READY_DATASET_CONFIGS.keys())}")
             sys.exit(1)
             
+        from tme_datasets import load_dataset
+
         config = READY_DATASET_CONFIGS[acc]
         out_dir = dirs.base_dir / "results" / "milopy" / acc
-        adata_file = dirs.preprocessed_dir / f"{acc}_processed.h5ad"
-        if not adata_file.exists():
-            print(f"Error: Preprocessed file {adata_file} does not exist!")
-            sys.exit(1)
-            
+
         # Check if existing summary can be loaded
         existing_summary = None if args.force else load_existing_summary(out_dir, config)
         if existing_summary is not None:
-            ensure_umaps_for_dataset(adata_file, config, out_dir)
+            ensure_umaps_for_dataset(dirs.base_dir, config, out_dir)
             print(f"[{acc}] Loaded existing analysis ({existing_summary.n_nhoods} nhoods, +{existing_summary.n_sig_up}, -{existing_summary.n_sig_down}).")
             summaries.append(existing_summary)
             continue
-            
-        match run_single_milo_pipeline(adata_file, config, out_dir):
+
+        match load_dataset(acc, repo_root=dirs.base_dir):
+            case Failure(load_err):
+                print(f"Error: Preprocessed dataset '{acc}' could not be loaded via tme_datasets: {load_err}")
+                sys.exit(1)
+            case Success(adata):
+                pass
+
+        match run_single_milo_pipeline(adata, config, out_dir):
             case Success(summary):
                 summaries.append(summary)
             case Failure(err):

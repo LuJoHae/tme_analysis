@@ -39,7 +39,13 @@ from tme_response import (
     pool_cohort_stratum_data,
     standardize_prediction_scores,
 )
+import argparse
 import importlib
+import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.manuscript_pipeline._helpers.paths import resolve_upstream_artifact
 
 _bench_predictors = importlib.import_module(
     "scripts.manuscript_pipeline.3e1_benchmark_iatlas_icb_predictors"
@@ -48,17 +54,38 @@ COMBINED_COHORT_SPECS = _bench_predictors.COMBINED_COHORT_SPECS
 DEFAULT_IATLAS_COHORTS = _bench_predictors.DEFAULT_IATLAS_COHORTS
 generate_combinatorial_strata = _bench_predictors.generate_combinatorial_strata
 
-from scripts.iatlas_exploratory.benchmark_survival_and_dca import (
-    evaluate_cohort_dca,
-    evaluate_cohort_survival,
+_surv_mod = importlib.import_module(
+    "scripts.manuscript_pipeline.3e3_benchmark_survival_and_dca"
 )
+evaluate_cohort_dca = _surv_mod.evaluate_cohort_dca
+evaluate_cohort_survival = _surv_mod.evaluate_cohort_survival
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Targeted Jiang_Texh orientation update across iAtlas response, survival, and DCA benchmarks."
+    )
+    parser.add_argument(
+        "--upstream-dir",
+        type=Path,
+        default=Path("output/manuscript_pipeline/3e1_benchmark_iatlas_icb_predictors"),
+        help="Primary upstream benchmark directory containing iatlas_benchmark_metrics.parquet.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("output/manuscript_pipeline/3e4_update_texh_benchmark"),
+        help="Dedicated output directory for updated parquets and SVGs/PNGs.",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
+    args = parse_args()
     repo_root = find_repo_root()
-    output_dir = repo_root / "output/benchmarks/iatlas_roc_auc"
+    output_dir = args.output_dir if args.output_dir.is_absolute() else repo_root / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    brain_dir = Path("/Users/halu/.gemini/antigravity/brain/8d054c32-dd8d-492f-aeba-2e31752acbd0")
+    fallback_dirs = (repo_root / "output/benchmarks/iatlas_roc_auc",)
 
     print("=== Starting Fast Targeted Update for Jiang_Texh ===")
     cohort_list = list(DEFAULT_IATLAS_COHORTS)
@@ -274,7 +301,20 @@ def main() -> None:
     # 3. Update Response Parquet & CSV
     resp_pq = output_dir / "iatlas_benchmark_metrics.parquet"
     resp_csv = output_dir / "iatlas_benchmark_metrics.csv"
-    existing_resp_df = pl.read_parquet(resp_pq)
+    upstream_explicit = (
+        args.upstream_dir if args.upstream_dir.is_absolute() else repo_root / args.upstream_dir,
+        output_dir,
+    )
+    match resolve_upstream_artifact(
+        "iatlas_benchmark_metrics.parquet",
+        ("3e1_benchmark_iatlas_icb_predictors",),
+        explicit_dirs=upstream_explicit,
+        fallback_dirs=fallback_dirs,
+    ):
+        case Some(src_resp_pq):
+            existing_resp_df = pl.read_parquet(src_resp_pq)
+        case Nothing:
+            raise FileNotFoundError(f"Upstream iatlas_benchmark_metrics.parquet not found for {output_dir}")
     filtered_resp_df = existing_resp_df.filter(
         ~pl.col("predictor_name").is_in(["Jiang_Texh_Inverted", "Jiang_Texh"])
     )
@@ -297,27 +337,43 @@ def main() -> None:
     # 4. Update Survival & DCA Parquets
     surv_pq = output_dir / "survival_benchmark_metrics.parquet"
     surv_csv = output_dir / "survival_benchmark_metrics.csv"
-    if surv_pq.exists():
-        existing_surv_df = pl.read_parquet(surv_pq)
-        filtered_surv_df = existing_surv_df.filter(
-            ~pl.col("predictor_name").is_in(["Jiang_Texh_Inverted", "Jiang_Texh"])
-        )
-        updated_surv_df = pl.concat([filtered_surv_df, pl.DataFrame(new_survival_records)])
-        updated_surv_df.write_parquet(surv_pq)
-        updated_surv_df.write_csv(surv_csv)
-        print(f"Saved updated survival benchmarks to {surv_pq}")
+    match resolve_upstream_artifact(
+        "survival_benchmark_metrics.parquet",
+        ("3e3_benchmark_survival_and_dca", "3e1_benchmark_iatlas_icb_predictors"),
+        explicit_dirs=upstream_explicit,
+        fallback_dirs=fallback_dirs,
+    ):
+        case Some(src_surv_pq):
+            existing_surv_df = pl.read_parquet(src_surv_pq)
+            filtered_surv_df = existing_surv_df.filter(
+                ~pl.col("predictor_name").is_in(["Jiang_Texh_Inverted", "Jiang_Texh"])
+            )
+            updated_surv_df = pl.concat([filtered_surv_df, pl.DataFrame(new_survival_records)])
+            updated_surv_df.write_parquet(surv_pq)
+            updated_surv_df.write_csv(surv_csv)
+            print(f"Saved updated survival benchmarks to {surv_pq}")
+        case Nothing:
+            pass
 
     dca_pq = output_dir / "dca_benchmark_metrics.parquet"
     dca_csv = output_dir / "dca_benchmark_metrics.csv"
-    if dca_pq.exists():
-        existing_dca_df = pl.read_parquet(dca_pq)
-        filtered_dca_df = existing_dca_df.filter(
-            ~pl.col("strategy").is_in(["Jiang_Texh_Inverted", "Jiang_Texh"])
-        )
-        updated_dca_df = pl.concat([filtered_dca_df, pl.DataFrame(new_dca_records)])
-        updated_dca_df.write_parquet(dca_pq)
-        updated_dca_df.write_csv(dca_csv)
-        print(f"Saved updated DCA benchmarks to {dca_pq}")
+    match resolve_upstream_artifact(
+        "dca_benchmark_metrics.parquet",
+        ("3e3_benchmark_survival_and_dca", "3e1_benchmark_iatlas_icb_predictors"),
+        explicit_dirs=upstream_explicit,
+        fallback_dirs=fallback_dirs,
+    ):
+        case Some(src_dca_pq):
+            existing_dca_df = pl.read_parquet(src_dca_pq)
+            filtered_dca_df = existing_dca_df.filter(
+                ~pl.col("strategy").is_in(["Jiang_Texh_Inverted", "Jiang_Texh"])
+            )
+            updated_dca_df = pl.concat([filtered_dca_df, pl.DataFrame(new_dca_records)])
+            updated_dca_df.write_parquet(dca_pq)
+            updated_dca_df.write_csv(dca_csv)
+            print(f"Saved updated DCA benchmarks to {dca_pq}")
+        case Nothing:
+            pass
 
     # 5. Regenerate Heatmaps and Forest Figures
     print("\n=== Regenerating Publication Altair Figures ===")
@@ -479,26 +535,12 @@ def main() -> None:
                 case Failure(err):
                     print(f"Error: {err}")
 
-    # 6. Copy to Brain Artifact Directory
-    copy_map = {
-        "fig_roc_auc_heatmap_pre_standard.svg": "fig_table_s2_roc_auc_heatmap.svg",
-        "fig_roc_auc_heatmap_transcriptomic_pre_standard.svg": "fig_table_s2_roc_auc_heatmap_transcriptomic.svg",
-        "fig_pr_auc_heatmap_pre_standard.svg": "fig_table_s2_pr_auc_heatmap.svg",
-        "fig_pr_auc_heatmap_transcriptomic_pre_standard.svg": "fig_table_s2_pr_auc_heatmap_transcriptomic.svg",
-        "fig_forest_summary_pre_standard.svg": "fig_table_s2_forest_summary_roc_auc.svg",
-        "fig_forest_summary_prauc_pre_standard.svg": "fig_table_s2_forest_summary_pr_auc.svg",
-        "fig_survival_c_index_os_forest.svg": "fig_table_s2_survival_c_index_os.svg",
-        "fig_dca_net_benefit_pan_cohort.svg": "fig_table_s2_dca_net_benefit_pan_cohort.svg",
-        "fig_cohort_predictability_forest.svg": "fig_cohort_predictability_forest.svg",
-    }
+    # 6. Render 300 DPI PNG rasters alongside SVGs in output_dir
+    from plotting_utils import rasterize_svg_to_png
 
-    print("\n=== Copying Updated SVGs to Conversation Artifacts ===")
-    for src_name, dst_name in copy_map.items():
-        src_path = output_dir / src_name
-        if src_path.exists():
-            dst_path = brain_dir / dst_name
-            shutil.copy2(src_path, dst_path)
-            print(f"Copied {src_name} -> {dst_path.name}")
+    for svg_file in sorted(output_dir.glob("fig_*.svg")):
+        png_file = svg_file.with_suffix(".png")
+        _ = rasterize_svg_to_png(svg_file, png_file, scale=3.125, background="white")
 
     print("\n=== Fast Targeted Update Completed Successfully ===")
 

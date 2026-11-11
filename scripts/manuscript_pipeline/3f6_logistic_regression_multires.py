@@ -18,15 +18,20 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from pydantic import BaseModel, ConfigDict
+from returns.maybe import Nothing, Some
 from returns.result import Failure, Result, Success
 from scipy import stats  # type: ignore
 from sklearn.linear_model import LogisticRegression  # type: ignore
 from sklearn.metrics import roc_auc_score  # type: ignore
 
 # Local repo packages
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent / "packages"))
-import datalair  # type: ignore
-import ici_datasets  # type: ignore
+from scripts.manuscript_pipeline._helpers.paths import (  # noqa: E402
+    discover_upstream_glob,
+    resolve_upstream_artifact,
+)
+from tme_datasets import load_dataset  # noqa: E402
 
 
 RESPONSE_VALUE_MAP: Final[dict[str, int]] = {
@@ -57,53 +62,43 @@ RESPONSE_COL_CANDIDATES: Final[tuple[str, ...]] = (
 class LogRegConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     fractions_path: Path
-    lair_dir: Path
+    lair_dir: Path | None = None
     out_dir: Path
     output_name: str = "logistic_regression_results.parquet"
     benchmark_mode: bool = False
 
 
-def load_cohort_clinical_response(cohort_name: str, lair: datalair.Lair) -> Result[pd.DataFrame, str]:
-    """Extract clinical response from cBioPortal clinical metadata."""
-    try:
-        ds_class = ici_datasets.cbioportal_datasets.CBioPortalDataset
-        data_dir = ici_datasets.cbioportal_datasets.get_dataset_dir(lair, ds_class, cohort_name)
-        sample_file = data_dir / "data_clinical_sample.txt"
-        if not sample_file.exists():
-            return Failure(f"Clinical file not found: {sample_file}")
+def load_cohort_clinical_response(
+    cohort_name: str,
+    lair_dir: Path | None = None,
+) -> Result[pd.DataFrame, str]:
+    """Extract binary clinical response (1 = R, 0 = NR) from tme_datasets H5AD metadata."""
+    match load_dataset(cohort_name, auto_download=False):
+        case Success(adata):
+            try:
+                obs = adata.obs.copy()
+                obs.index = obs.index.astype(str)
+                obs = obs[~obs.index.duplicated(keep="first")]
+                if "response_binary" in obs.columns:
+                    raw_bin = pd.to_numeric(obs["response_binary"], errors="coerce")
+                    valid = raw_bin[raw_bin.isin([0.0, 1.0])].astype(int)
+                    return Success(pd.DataFrame({"response": valid}))
 
-        df_clin = pd.read_csv(sample_file, sep="\t", skiprows=4)
-        sample_col = next(
-            (c for c in df_clin.columns if c.strip().lower() in ("sample_id", "sample id")),
-            None,
-        )
-        if sample_col is None:
-            return Failure(f"No sample_id column in clinical file for {cohort_name}")
-
-        df_clin = df_clin.set_index(sample_col)
-        df_clin.index = df_clin.index.astype(str)
-        df_clin = df_clin[~df_clin.index.duplicated(keep="first")]
-
-        # Locate response column
-        resp_col = None
-        for col in df_clin.columns:
-            if col.strip().lower() in RESPONSE_COL_CANDIDATES:
-                resp_col = col
-                break
-
-        if resp_col is None:
-            return Failure(f"No response column recognized in {cohort_name}")
-
-        # Map response to binary (1 = R, 0 = NR)
-        clean_resp = (
-            df_clin[resp_col].astype(str).str.strip().str.lower().map(RESPONSE_VALUE_MAP)
-        )
-        df_valid = pd.DataFrame({"response": clean_resp}).dropna()
-        df_valid["response"] = df_valid["response"].astype(int)
-
-        return Success(df_valid)
-    except Exception as exc:
-        return Failure(f"Failed to parse clinical for {cohort_name}: {exc}")
+                resp_col = next(
+                    (c for c in obs.columns if c.strip().lower() in RESPONSE_COL_CANDIDATES),
+                    None,
+                )
+                if resp_col is None:
+                    return Failure(f"No response column recognized in {cohort_name}")
+                clean_resp = obs[resp_col].astype(str).str.strip().str.lower().map(RESPONSE_VALUE_MAP)
+                df_valid = pd.DataFrame({"response": clean_resp}).dropna()
+                df_valid["response"] = df_valid["response"].astype(int)
+                return Success(df_valid)
+            except Exception as exc:
+                return Failure(f"Failed to parse H5AD clinical response for {cohort_name}: {exc}")
+        case Failure(tme_err):
+            _ = lair_dir
+            return Failure(f"Failed to load {cohort_name} via tme_datasets.load_dataset(): {tme_err}")
 
 
 def fit_univariate_logistic(
@@ -310,7 +305,6 @@ def analyze_single_fractions_matrix(
 def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
     """Run logistic regression across single or all benchmark fraction matrices."""
     config.out_dir.mkdir(parents=True, exist_ok=True)
-    lair = datalair.Lair(str(config.lair_dir))
 
     # Identify cohorts from fractions
     sample_file = config.fractions_path if config.fractions_path.exists() else None
@@ -318,6 +312,8 @@ def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
         sample_file = config.out_dir / "deconv_fractions.parquet"
         if not sample_file.exists():
             sample_candidates = list(config.out_dir.glob("deconv_fractions_*.parquet"))
+            if not sample_candidates:
+                sample_candidates = list(config.fractions_path.parent.glob("deconv_fractions_*.parquet"))
             if sample_candidates:
                 sample_file = sample_candidates[0]
 
@@ -329,7 +325,7 @@ def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
 
     clin_records: list[dict[str, object]] = []
     for cohort in cohorts:
-        clin_res = load_cohort_clinical_response(cohort, lair)
+        clin_res = load_cohort_clinical_response(cohort, config.lair_dir)
         match clin_res:
             case Failure(err):
                 print(f"Warning: {cohort} clinical response missing: {err}")
@@ -365,17 +361,42 @@ def run_logistic_regression_pipeline(config: LogRegConfig) -> Result[Path, str]:
             "random_triplet2": "Random-Triplet-2",
         }
 
+        explicit_frac_dirs = (config.out_dir, config.fractions_path.parent)
+        fallback_frac_dirs = (
+            Path("output/output/sade_feldman_deconv_validation"),
+            Path("output/sade_feldman_deconv_validation"),
+        )
+
         # 1. Standard Sade-Feldman & Integrated Multi-Atlas
         for res in (0.5, 1.0, 1.5, 2.0):
-            sf_file = config.out_dir / f"deconv_fractions_sf_res{res}.parquet"
-            if sf_file.exists():
-                targets.append(("sf_res" + str(res), "Sade-Feldman", res, sf_file, f"logistic_results_sf_res{res}.parquet"))
-            comb_file = config.out_dir / f"deconv_fractions_comb_res{res}.parquet"
-            if comb_file.exists():
-                targets.append(("comb_res" + str(res), "Combined-Atlas", res, comb_file, f"logistic_results_comb_res{res}.parquet"))
+            match resolve_upstream_artifact(
+                f"deconv_fractions_sf_res{res}.parquet",
+                ("3f5_deconvolute_iatlas_multires",),
+                explicit_dirs=explicit_frac_dirs,
+                fallback_dirs=fallback_frac_dirs,
+            ):
+                case Some(sf_file):
+                    targets.append(("sf_res" + str(res), "Sade-Feldman", res, sf_file, f"logistic_results_sf_res{res}.parquet"))
+                case Nothing:
+                    pass
+            match resolve_upstream_artifact(
+                f"deconv_fractions_comb_res{res}.parquet",
+                ("3f5_deconvolute_iatlas_multires",),
+                explicit_dirs=explicit_frac_dirs,
+                fallback_dirs=fallback_frac_dirs,
+            ):
+                case Some(comb_file):
+                    targets.append(("comb_res" + str(res), "Combined-Atlas", res, comb_file, f"logistic_results_comb_res{res}.parquet"))
+                case Nothing:
+                    pass
 
         # 2. Any additional dataset fractions: deconv_fractions_{dataset_id}_res{res}.parquet
-        for frac_file in sorted(config.out_dir.glob("deconv_fractions_*_res*.parquet")):
+        for frac_file in discover_upstream_glob(
+            "deconv_fractions_*_res*.parquet",
+            ("3f5_deconvolute_iatlas_multires",),
+            explicit_dirs=explicit_frac_dirs,
+            fallback_dirs=fallback_frac_dirs,
+        ):
             fname = frac_file.name
             m = re.match(r"deconv_fractions_([a-zA-Z0-9_\.-]+)_res([0-9\.]+)\.parquet", fname)
             if m:
@@ -451,19 +472,19 @@ def main() -> None:
     parser.add_argument(
         "--fractions",
         type=str,
-        default="output/sade_feldman_deconv_validation/deconv_fractions.parquet",
-        help="Path to deconv_fractions.parquet from Step 2",
+        default="output/manuscript_pipeline/3f5_deconvolute_iatlas_multires/deconv_fractions.parquet",
+        help="Path to deconv_fractions.parquet from Step 3f5",
     )
     parser.add_argument(
         "--lair-dir",
         type=str,
-        default="scratch/lair" if Path("scratch/lair").exists() else "/ritom/scratch/cscs/lhaeuser/data-test/lair",
-        help="Path to datalair directory",
+        default="",
+        help="Unused deprecated CLI flag retained for backward compatibility",
     )
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="output/sade_feldman_deconv_validation",
+        default="output/manuscript_pipeline/3f6_logistic_regression_multires",
         help="Directory to save output parquets",
     )
     parser.add_argument(
@@ -481,7 +502,7 @@ def main() -> None:
 
     config = LogRegConfig(
         fractions_path=Path(args.fractions),
-        lair_dir=Path(args.lair_dir),
+        lair_dir=Path(args.lair_dir) if args.lair_dir else None,
         out_dir=Path(args.out_dir),
         output_name=args.output_name,
         benchmark_mode=args.benchmark_mode,

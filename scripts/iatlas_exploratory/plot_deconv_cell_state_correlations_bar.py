@@ -315,19 +315,20 @@ def save_parquet(df: pl.DataFrame, parquet_path: Path) -> Result[pl.DataFrame, s
 
 
 def export_chart_svg_and_png(chart: alt.LayerChart, output_svg: Path) -> Result[Path, str]:
-    """Export Altair chart to vector SVG via vl-convert and render 300 DPI PNG via rsvg-convert."""
+    """Export Altair chart to vector SVG via vl-convert and render 300 DPI PNG via rsvg-convert or vl-convert."""
     try:
+        from plotting_utils import rasterize_svg_to_png
+
         output_svg.parent.mkdir(parents=True, exist_ok=True)
         svg_str = vlc.vegalite_to_svg(chart.to_dict())
         output_svg.write_text(svg_str, encoding="utf-8")
 
         png_path = output_svg.with_suffix(".png")
-        subprocess.run(
-            ["rsvg-convert", "-d", "300", "-p", "300", str(output_svg), "-o", str(png_path)],
-            check=True,
-            capture_output=True,
-        )
-        return Success(output_svg)
+        match rasterize_svg_to_png(output_svg, png_path, scale=3.125, background=None):
+            case Failure(err):
+                return Failure(err)
+            case Success(_):
+                return Success(output_svg)
     except Exception as exc:
         return Failure(f"Failed to export SVG/PNG to '{output_svg}': {exc}")
 

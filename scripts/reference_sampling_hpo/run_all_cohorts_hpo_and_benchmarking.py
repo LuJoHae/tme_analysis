@@ -112,64 +112,32 @@ def load_cohort_bulk_and_clinical(
     preprocessed_dir: Path,
     repo_root: Path,
 ) -> Result[tuple[np.ndarray, Sequence[str], Sequence[str], np.ndarray, Sequence[str], pl.DataFrame], str]:
-    """Load bulk expression matrix, gene names, response vector, sample IDs, and clinical dataframe."""
-    base_data_dir = Path(os.environ.get("TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test"))
-    manual_dir = base_data_dir / "manual_download"
+    """Load bulk expression matrix, gene names, response vector, sample IDs, and clinical dataframe strictly via tme_datasets."""
+    _ = repo_root
+    from tme_datasets import load_iatlas_cohort_or_combined
 
-    cand_paths = [
-        preprocessed_dir / f"{cohort_id}.h5ad",
-        preprocessed_dir / f"{cohort_id.replace('-iAtlas', '')}.h5ad",
-        preprocessed_dir / f"{cohort_id.replace('-iAtlas', '')}_bulk.h5ad",
-        manual_dir / f"{cohort_id}.h5ad",
-        manual_dir / f"{cohort_id.replace('-iAtlas', '')}.h5ad",
-    ]
-
-    from tme_datasets.providers.bulk_iatlas import load_iatlas_cohort
-
-    # 1. Try loading directly from raw cBioPortal archive/directory if present
-    raw_candidates = [
-        base_data_dir / "raw" / cohort_id,
-        base_data_dir / "raw" / cohort_id.replace("-iAtlas", ""),
-        repo_root / "data" / "raw" / cohort_id,
-    ]
     adata: ad.AnnData | None = None
-    for rpath in raw_candidates:
-        if rpath.is_dir():
-            try:
-                raw_res = load_iatlas_cohort(rpath, cohort_name=cohort_id)
-                if isinstance(raw_res, Success) and raw_res.unwrap().n_vars > 100:
-                    adata = raw_res.unwrap()
-                    break
-            except Exception:
-                pass
+    for cid in (cohort_id, cohort_id.replace("-iAtlas", ""), f"{cohort_id}-iAtlas"):
+        load_res = load_dataset(
+            cid,
+            base_dir=preprocessed_dir,
+            auto_download=False,
+            normalize_ensembl=False,
+        )
+        if not isinstance(load_res, Success):
+            load_res = load_iatlas_cohort_or_combined(cid)
+        if isinstance(load_res, Success):
+            cand_ad = load_res.unwrap()
+            resp_cand = next(
+                (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
+                None,
+            )
+            if resp_cand is not None and cand_ad.n_vars > 100:
+                adata = cand_ad
+                break
 
     if adata is None:
-        for p in cand_paths:
-            if p.exists():
-                try:
-                    cand_ad = ad.read_h5ad(p)
-                    resp_cand = next(
-                        (c for c in ("response_binary", "response", "RESPONDER", "RESPONSE", "RECIST") if c in cand_ad.obs.columns),
-                        None,
-                    )
-                    if resp_cand is not None and cand_ad.n_vars > 100:
-                        adata = cand_ad
-                        break
-                except Exception:
-                    pass
-
-    if adata is None:
-        try:
-            load_res = load_dataset(cohort_id, normalize_ensembl=False)
-            if isinstance(load_res, Success):
-                cand_ad = load_res.unwrap()
-                if cand_ad.n_vars > 100:
-                    adata = cand_ad
-        except Exception:
-            pass
-
-    if adata is None:
-        return Failure(f"Failed to locate valid AnnData for cohort '{cohort_id}'.")
+        return Failure(f"Failed to locate valid AnnData for cohort '{cohort_id}' via tme_datasets.")
 
     try:
         resp_col = next(
