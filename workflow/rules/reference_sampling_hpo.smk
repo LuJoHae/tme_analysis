@@ -1,9 +1,12 @@
 # workflow/rules/reference_sampling_hpo.smk
 # Snakemake workflow rules for Single-Cell Reference Sampling and Classifier HPO
 
+_HPO_MP_ROOT = os.environ.get(
+    "TME_PIPELINE_OUTPUT_ROOT", config.get("manuscript_out_dir", "output/manuscript_pipeline")
+)
 HPO_DATA_DIR = config.get("data_dir", DATA_DIR if "DATA_DIR" in locals() else "/ritom/scratch/cscs/lhaeuser/data-test")
-HPO_OUT_DIR = config.get("hpo_out_dir", f"{HPO_DATA_DIR}/output/reference_sampling_hpo")
-HPO_RESULTS_DIR = config.get("hpo_results_dir", f"{HPO_DATA_DIR}/results/reference_sampling_hpo")
+HPO_OUT_DIR = config.get("hpo_out_dir", f"{_HPO_MP_ROOT}/3e2_run_hpo_pipeline")
+HPO_RESULTS_DIR = config.get("hpo_results_dir", f"{_HPO_MP_ROOT}/3e2_run_hpo_pipeline")
 HPO_PREPROCESSED_DIR = config.get("hpo_preprocessed_dir", f"{HPO_DATA_DIR}/preprocessed")
 
 HPO_CANCER_TYPES = config.get("hpo_cancer_types", "melanoma")

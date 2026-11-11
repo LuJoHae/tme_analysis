@@ -15,6 +15,9 @@ RESULTS_DIR = f"{DATA_DIR}/results"
 GSE_DIR = f"{DATA_DIR}/GSE120575"
 GSE123139_DIR = f"{DATA_DIR}/GSE123139"
 GSE97168_DIR = f"{DATA_DIR}/GSE97168"
+MANUSCRIPT_OUT_DIR = os.environ.get(
+    "TME_PIPELINE_OUTPUT_ROOT", config.get("manuscript_out_dir", "output/manuscript_pipeline")
+)
 
 # The 'all' rule defines what files should ultimately be generated.
 rule all:
@@ -55,6 +58,10 @@ rule download_gse120575:
         out_dir = GSE_DIR
     shell:
         """
+        if [ "${{TME_DISABLE_DOWNLOADS:-0}}" = "1" ] || [ -d /ritom/scratch ]; then
+            echo "ERROR: Internet dataset downloads are strictly forbidden on CSCS Eiger. Download on olm and transfer via Globus." >&2
+            exit 1
+        fi
         python scripts/gse120575/download_gse120575.py --out-dir {params.out_dir}
         """
 
@@ -84,6 +91,10 @@ rule download_gse123139:
         out_dir = GSE123139_DIR
     shell:
         """
+        if [ "${{TME_DISABLE_DOWNLOADS:-0}}" = "1" ] || [ -d /ritom/scratch ]; then
+            echo "ERROR: Internet dataset downloads are strictly forbidden on CSCS Eiger. Download on olm and transfer via Globus." >&2
+            exit 1
+        fi
         python {input.script} --out-dir {params.out_dir}
         """
 
@@ -143,6 +154,10 @@ rule download_gse97168:
         out_dir = GSE97168_DIR
     shell:
         """
+        if [ "${{TME_DISABLE_DOWNLOADS:-0}}" = "1" ] || [ -d /ritom/scratch ]; then
+            echo "ERROR: Internet dataset downloads are strictly forbidden on CSCS Eiger. Download on olm and transfer via Globus." >&2
+            exit 1
+        fi
         python {input.script} --out-dir {params.out_dir}
         """
 
@@ -731,6 +746,10 @@ rule download_dataset:
         marker=f"{DATA_DIR}/raw_geo/{{dataset}}/download_completed.txt"
     shell:
         """
+        if [ "${{TME_DISABLE_DOWNLOADS:-0}}" = "1" ] || [ -d /ritom/scratch ]; then
+            echo "ERROR: Internet dataset downloads are strictly forbidden on CSCS Eiger. Download on olm and transfer via Globus." >&2
+            exit 1
+        fi
         python {input.script} --dataset {wildcards.dataset} --out-dir {DATA_DIR}/raw_geo
         touch {output.marker}
         """
@@ -776,169 +795,230 @@ rule plot_all_dataset_embeddings:
 
 
 # ==============================================================================
-# Sade-Feldman Deconvolution & Milopy Validation Pipeline
+# Sade-Feldman Multi-Resolution Deconvolution, Reference Selection & Validation
 # ==============================================================================
-SADE_VALIDATION_OUT = f"{DATA_DIR}/output/sade_feldman_deconv_validation"
-SADE_VALIDATION_RES = f"{RESULTS_DIR}/sade_feldman_deconv_validation"
+SF_REF_DIR = f"{MANUSCRIPT_OUT_DIR}/3f1_build_sf_reference"
+INTEG_REF_DIR = f"{MANUSCRIPT_OUT_DIR}/3f2_build_integrated_reference"
+DS_REF_DIR = f"{MANUSCRIPT_OUT_DIR}/3f3_build_dataset_reference"
+COMB_REF_DIR = f"{MANUSCRIPT_OUT_DIR}/3f4_build_combined_references"
+MULTIRES_DECONV_DIR = f"{MANUSCRIPT_OUT_DIR}/3f5_deconvolute_iatlas_multires"
+MULTIRES_LR_DIR = f"{MANUSCRIPT_OUT_DIR}/3f6_logistic_regression_multires"
+MULTIRES_MILO_DIR = f"{MANUSCRIPT_OUT_DIR}/3f7_analyze_milopy_multires"
+MULTIRES_CONC_DIR = f"{MANUSCRIPT_OUT_DIR}/3f8_compare_concordance_multires"
+MULTIRES_FIG_DIR = f"{MANUSCRIPT_OUT_DIR}/4d1_plot_sf_multires_validation_figures"
+REF_SEL_FIG_DIR = f"{MANUSCRIPT_OUT_DIR}/4d2_plot_cohort_auc_reference_selection"
+AUX_REF_DATASETS = ["jerby", "maynard", "ma", "yost"]
 
 rule build_sade_feldman_reference:
     input:
-        script="scripts/sade_feldman_deconv_validation/01_build_reference.py",
-        adata=f"{GSE_DIR}/gse120575_processed.h5ad",
-        tpm=f"{GSE_DIR}/gse120575_tpm.parquet",
+        script="scripts/manuscript_pipeline/3f1_build_sf_reference.py",
+        adata=f"{DATA_DIR}/preprocessed/GSE120575.h5ad",
     output:
-        phi=f"{SADE_VALIDATION_OUT}/reference_phi.parquet",
-        markers=f"{SADE_VALIDATION_OUT}/reference_marker_genes.parquet",
-        phi_res05=f"{SADE_VALIDATION_OUT}/reference_phi_res0.5.parquet",
-        phi_res10=f"{SADE_VALIDATION_OUT}/reference_phi_res1.0.parquet",
-        phi_res15=f"{SADE_VALIDATION_OUT}/reference_phi_res1.5.parquet",
-        phi_res20=f"{SADE_VALIDATION_OUT}/reference_phi_res2.0.parquet",
-        metrics=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_sf.parquet",
+        phi=f"{SF_REF_DIR}/reference_phi.parquet",
+        markers=f"{SF_REF_DIR}/reference_marker_genes.parquet",
+        phi_res05=f"{SF_REF_DIR}/reference_phi_res0.5.parquet",
+        phi_res10=f"{SF_REF_DIR}/reference_phi_res1.0.parquet",
+        phi_res15=f"{SF_REF_DIR}/reference_phi_res1.5.parquet",
+        phi_res20=f"{SF_REF_DIR}/reference_phi_res2.0.parquet",
+        metrics=f"{SF_REF_DIR}/reference_resolution_metrics_sf.parquet",
     params:
-        out_dir=SADE_VALIDATION_OUT,
+        out_dir=SF_REF_DIR,
     shell:
         """
-        python {input.script} --adata {input.adata} --tpm {input.tpm} --out-dir {params.out_dir}
+        python {input.script} --adata {input.adata} --out-dir {params.out_dir}
+        """
+
+rule build_integrated_reference:
+    input:
+        script="scripts/manuscript_pipeline/3f2_build_integrated_reference.py",
+        adata=f"{DATA_DIR}/preprocessed/GSE120575.h5ad",
+    output:
+        phi=f"{INTEG_REF_DIR}/integrated_reference_phi.parquet",
+        markers=f"{INTEG_REF_DIR}/integrated_marker_genes.parquet",
+        phi_res05=f"{INTEG_REF_DIR}/integrated_reference_phi_res0.5.parquet",
+        phi_res10=f"{INTEG_REF_DIR}/integrated_reference_phi_res1.0.parquet",
+        phi_res15=f"{INTEG_REF_DIR}/integrated_reference_phi_res1.5.parquet",
+        phi_res20=f"{INTEG_REF_DIR}/integrated_reference_phi_res2.0.parquet",
+        meta=f"{INTEG_REF_DIR}/integrated_cell_metadata.parquet",
+        metrics=f"{INTEG_REF_DIR}/integration_quality_metrics.parquet",
+        res_metrics=f"{INTEG_REF_DIR}/reference_resolution_metrics_comb.parquet",
+    params:
+        out_dir=INTEG_REF_DIR,
+    shell:
+        """
+        python {input.script} --adata-sf {input.adata} --out-dir {params.out_dir}
+        """
+
+rule build_dataset_references:
+    input:
+        script="scripts/manuscript_pipeline/3f3_build_dataset_reference.py",
+    output:
+        phi_res05=f"{DS_REF_DIR}/reference_phi_{{ref_ds}}_res0.5.parquet",
+        metrics=f"{DS_REF_DIR}/reference_resolution_metrics_{{ref_ds}}.parquet",
+    wildcard_constraints:
+        ref_ds="jerby|maynard|ma|yost"
+    params:
+        raw_dir=f"{DATA_DIR}/raw",
+        out_dir=DS_REF_DIR,
+    shell:
+        """
+        python {input.script} --dataset {wildcards.ref_ds} --raw-dir {params.raw_dir} --out-dir {params.out_dir}
+        """
+
+rule build_combined_references:
+    input:
+        script="scripts/manuscript_pipeline/3f4_build_combined_references.py",
+        ds_metrics=expand(f"{DS_REF_DIR}/reference_resolution_metrics_{{ref_ds}}.parquet", ref_ds=AUX_REF_DATASETS),
+    output:
+        all4_phi=f"{COMB_REF_DIR}/reference_phi_all_4_combined_res0.5.parquet",
+        all4_metrics=f"{COMB_REF_DIR}/reference_resolution_metrics_all_4_combined.parquet",
+    params:
+        raw_dir=f"{DATA_DIR}/raw",
+        out_dir=COMB_REF_DIR,
+    shell:
+        """
+        python {input.script} --raw-dir {params.raw_dir} --out-dir {params.out_dir}
         """
 
 rule deconvolute_iatlas_sade_feldman:
     input:
-        script="scripts/sade_feldman_deconv_validation/02_deconvolute_iatlas.py",
-        phi=f"{SADE_VALIDATION_OUT}/reference_phi.parquet",
-        integ_phi=f"{SADE_VALIDATION_OUT}/integrated_reference_phi.parquet",
+        script="scripts/manuscript_pipeline/3f5_deconvolute_iatlas_multires.py",
+        phi=f"{SF_REF_DIR}/reference_phi.parquet",
+        integ_phi=f"{INTEG_REF_DIR}/integrated_reference_phi.parquet",
+        ds_metrics=expand(f"{DS_REF_DIR}/reference_resolution_metrics_{{ref_ds}}.parquet", ref_ds=AUX_REF_DATASETS),
+        all4_phi=f"{COMB_REF_DIR}/reference_phi_all_4_combined_res0.5.parquet",
     output:
-        fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
-        fracs_sf_05=f"{SADE_VALIDATION_OUT}/deconv_fractions_sf_res0.5.parquet",
-        fracs_sf_10=f"{SADE_VALIDATION_OUT}/deconv_fractions_sf_res1.0.parquet",
-        fracs_sf_15=f"{SADE_VALIDATION_OUT}/deconv_fractions_sf_res1.5.parquet",
-        fracs_sf_20=f"{SADE_VALIDATION_OUT}/deconv_fractions_sf_res2.0.parquet",
-        fracs_comb_05=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res0.5.parquet",
-        fracs_comb_10=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res1.0.parquet",
-        fracs_comb_15=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res1.5.parquet",
-        fracs_comb_20=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res2.0.parquet",
+        fracs=f"{MULTIRES_DECONV_DIR}/deconv_fractions.parquet",
+        fracs_sf_05=f"{MULTIRES_DECONV_DIR}/deconv_fractions_sf_res0.5.parquet",
+        fracs_sf_10=f"{MULTIRES_DECONV_DIR}/deconv_fractions_sf_res1.0.parquet",
+        fracs_sf_15=f"{MULTIRES_DECONV_DIR}/deconv_fractions_sf_res1.5.parquet",
+        fracs_sf_20=f"{MULTIRES_DECONV_DIR}/deconv_fractions_sf_res2.0.parquet",
+        fracs_comb_05=f"{MULTIRES_DECONV_DIR}/deconv_fractions_comb_res0.5.parquet",
+        fracs_comb_10=f"{MULTIRES_DECONV_DIR}/deconv_fractions_comb_res1.0.parquet",
+        fracs_comb_15=f"{MULTIRES_DECONV_DIR}/deconv_fractions_comb_res1.5.parquet",
+        fracs_comb_20=f"{MULTIRES_DECONV_DIR}/deconv_fractions_comb_res2.0.parquet",
     params:
-        out_dir=SADE_VALIDATION_OUT,
-        lair_dir=LAIR_DIR,
+        out_dir=MULTIRES_DECONV_DIR,
     shell:
         """
-        python {input.script} --lair-dir {params.lair_dir} --out-dir {params.out_dir} --benchmark-mode
+        python {input.script} --out-dir {params.out_dir} --benchmark-mode
         """
 
 rule logistic_regression_sade_feldman:
     input:
-        script="scripts/sade_feldman_deconv_validation/03_logistic_regression.py",
-        fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
-        fracs_comb=f"{SADE_VALIDATION_OUT}/deconv_fractions_comb_res0.5.parquet",
+        script="scripts/manuscript_pipeline/3f6_logistic_regression_multires.py",
+        fracs=f"{MULTIRES_DECONV_DIR}/deconv_fractions.parquet",
+        fracs_comb=f"{MULTIRES_DECONV_DIR}/deconv_fractions_comb_res0.5.parquet",
     output:
-        results=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
-        all_results=f"{SADE_VALIDATION_OUT}/logistic_regression_results_all_resolutions.parquet",
+        results=f"{MULTIRES_LR_DIR}/logistic_regression_results.parquet",
+        all_results=f"{MULTIRES_LR_DIR}/logistic_regression_results_all_resolutions.parquet",
     params:
-        out_dir=SADE_VALIDATION_OUT,
-        lair_dir=LAIR_DIR,
+        out_dir=MULTIRES_LR_DIR,
     shell:
         """
-        python {input.script} --lair-dir {params.lair_dir} --out-dir {params.out_dir} --benchmark-mode
+        python {input.script} --out-dir {params.out_dir} --benchmark-mode
         """
 
 rule analyze_milopy_sade_feldman:
     input:
-        script="scripts/sade_feldman_deconv_validation/04_analyze_milopy.py",
-        adata=f"{GSE_DIR}/gse120575_processed.h5ad",
+        script="scripts/manuscript_pipeline/3f7_analyze_milopy_multires.py",
+        adata=f"{DATA_DIR}/preprocessed/GSE120575.h5ad",
     output:
-        states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da.parquet",
-        all_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all.parquet",
-        all_res_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all_resolutions.parquet",
-        pre_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_Pre.parquet",
-        post_states=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_Post.parquet",
-        cells=f"{SADE_VALIDATION_OUT}/milopy_cell_level_scores.parquet",
+        states=f"{MULTIRES_MILO_DIR}/milopy_cell_state_da.parquet",
+        all_states=f"{MULTIRES_MILO_DIR}/milopy_cell_state_da_all.parquet",
+        all_res_states=f"{MULTIRES_MILO_DIR}/milopy_cell_state_da_all_resolutions.parquet",
+        pre_states=f"{MULTIRES_MILO_DIR}/milopy_cell_state_da_Pre.parquet",
+        post_states=f"{MULTIRES_MILO_DIR}/milopy_cell_state_da_Post.parquet",
+        cells=f"{MULTIRES_MILO_DIR}/milopy_cell_level_scores.parquet",
     params:
-        out_dir=SADE_VALIDATION_OUT,
+        out_dir=MULTIRES_MILO_DIR,
         milo_dir=f"{DATA_DIR}/output/whole_dataset",
     shell:
         """
         python {input.script} --adata {input.adata} --milo-dir {params.milo_dir} --out-dir {params.out_dir}
         """
 
-rule build_integrated_reference:
-    input:
-        script="scripts/sade_feldman_deconv_validation/01b_build_integrated_reference.py",
-        adata=f"{GSE_DIR}/gse120575_processed.h5ad",
-    output:
-        phi=f"{SADE_VALIDATION_OUT}/integrated_reference_phi.parquet",
-        markers=f"{SADE_VALIDATION_OUT}/integrated_marker_genes.parquet",
-        phi_res05=f"{SADE_VALIDATION_OUT}/integrated_reference_phi_res0.5.parquet",
-        phi_res10=f"{SADE_VALIDATION_OUT}/integrated_reference_phi_res1.0.parquet",
-        phi_res15=f"{SADE_VALIDATION_OUT}/integrated_reference_phi_res1.5.parquet",
-        phi_res20=f"{SADE_VALIDATION_OUT}/integrated_reference_phi_res2.0.parquet",
-        meta=f"{SADE_VALIDATION_OUT}/integrated_cell_metadata.parquet",
-        metrics=f"{SADE_VALIDATION_OUT}/integration_quality_metrics.parquet",
-        res_metrics=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_comb.parquet",
-    params:
-        out_dir=SADE_VALIDATION_OUT,
-        lair_dir=LAIR_DIR,
-    shell:
-        """
-        python {input.script} --adata-sf {input.adata} --lair-dir {params.lair_dir} --out-dir {params.out_dir}
-        """
-
 rule concordance_sade_feldman:
     input:
-        script="scripts/sade_feldman_deconv_validation/05_compare_concordance.py",
-        logistic=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
-        logistic_all=f"{SADE_VALIDATION_OUT}/logistic_regression_results_all_resolutions.parquet",
-        milo_all=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all.parquet",
-        sf_meta=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_sf.parquet",
-        comb_meta=f"{SADE_VALIDATION_OUT}/reference_resolution_metrics_comb.parquet",
+        script="scripts/manuscript_pipeline/3f8_compare_concordance_multires.py",
+        logistic=f"{MULTIRES_LR_DIR}/logistic_regression_results.parquet",
+        logistic_all=f"{MULTIRES_LR_DIR}/logistic_regression_results_all_resolutions.parquet",
+        milo_all=f"{MULTIRES_MILO_DIR}/milopy_cell_state_da_all.parquet",
+        sf_meta=f"{SF_REF_DIR}/reference_resolution_metrics_sf.parquet",
+        comb_meta=f"{INTEG_REF_DIR}/reference_resolution_metrics_comb.parquet",
+        ds_metrics=expand(f"{DS_REF_DIR}/reference_resolution_metrics_{{ref_ds}}.parquet", ref_ds=AUX_REF_DATASETS),
+        all4_metrics=f"{COMB_REF_DIR}/reference_resolution_metrics_all_4_combined.parquet",
     output:
-        metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics.parquet",
-        summary=f"{SADE_VALIDATION_OUT}/concordance_summary.parquet",
-        cohorts=f"{SADE_VALIDATION_OUT}/cohort_level_concordance_summary.parquet",
-        timepoints=f"{SADE_VALIDATION_OUT}/timepoint_concordance_summary.parquet",
-        full_metrics=f"{SADE_VALIDATION_OUT}/concordance_metrics_full.parquet",
-        benchmark_summary=f"{SADE_VALIDATION_OUT}/multi_resolution_benchmark_summary.parquet",
+        metrics=f"{MULTIRES_CONC_DIR}/concordance_metrics.parquet",
+        summary=f"{MULTIRES_CONC_DIR}/concordance_summary.parquet",
+        cohorts=f"{MULTIRES_CONC_DIR}/cohort_level_concordance_summary.parquet",
+        timepoints=f"{MULTIRES_CONC_DIR}/timepoint_concordance_summary.parquet",
+        full_metrics=f"{MULTIRES_CONC_DIR}/concordance_metrics_full.parquet",
+        benchmark_summary=f"{MULTIRES_CONC_DIR}/multi_resolution_benchmark_summary.parquet",
     params:
-        out_dir=SADE_VALIDATION_OUT,
+        milo_dir=MULTIRES_MILO_DIR,
+        out_dir=MULTIRES_CONC_DIR,
     shell:
         """
-        python {input.script} --logistic-results {input.logistic} --milo-dir {params.out_dir} --out-dir {params.out_dir}
+        python {input.script} --logistic-results {input.logistic} --milo-dir {params.milo_dir} --out-dir {params.out_dir}
         """
 
 rule plot_sade_feldman_validation:
     input:
-        script="scripts/sade_feldman_deconv_validation/06_plot_figures.py",
-        markers=f"{SADE_VALIDATION_OUT}/reference_marker_genes.parquet",
-        fracs=f"{SADE_VALIDATION_OUT}/deconv_fractions.parquet",
-        logistic=f"{SADE_VALIDATION_OUT}/logistic_regression_results.parquet",
-        milo_all=f"{SADE_VALIDATION_OUT}/milopy_cell_state_da_all.parquet",
-        cohorts=f"{SADE_VALIDATION_OUT}/cohort_level_concordance_summary.parquet",
-        metrics_full=f"{SADE_VALIDATION_OUT}/concordance_metrics_full.parquet",
-        cells=f"{SADE_VALIDATION_OUT}/milopy_cell_level_scores.parquet",
-        integ_meta=f"{SADE_VALIDATION_OUT}/integrated_cell_metadata.parquet",
-        benchmark_summary=f"{SADE_VALIDATION_OUT}/multi_resolution_benchmark_summary.parquet",
+        script="scripts/manuscript_pipeline/4d1_plot_sf_multires_validation_figures.py",
+        markers=f"{SF_REF_DIR}/reference_marker_genes.parquet",
+        fracs=f"{MULTIRES_DECONV_DIR}/deconv_fractions.parquet",
+        logistic=f"{MULTIRES_LR_DIR}/logistic_regression_results.parquet",
+        milo_all=f"{MULTIRES_MILO_DIR}/milopy_cell_state_da_all.parquet",
+        cohorts=f"{MULTIRES_CONC_DIR}/cohort_level_concordance_summary.parquet",
+        metrics_full=f"{MULTIRES_CONC_DIR}/concordance_metrics_full.parquet",
+        cells=f"{MULTIRES_MILO_DIR}/milopy_cell_level_scores.parquet",
+        integ_meta=f"{INTEG_REF_DIR}/integrated_cell_metadata.parquet",
+        benchmark_summary=f"{MULTIRES_CONC_DIR}/multi_resolution_benchmark_summary.parquet",
     output:
-        fig1=f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
-        fig1b=f"{SADE_VALIDATION_RES}/step01b_integrated_umap_batch_correction.svg",
-        fig1c=f"{SADE_VALIDATION_RES}/step01c_multi_resolution_marker_heatmaps.svg",
-        fig1d=f"{SADE_VALIDATION_RES}/step01d_combined_reference_umap_resolutions.svg",
-        fig2=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
-        fig2b=f"{SADE_VALIDATION_RES}/step02b_cohort_deconv_fractions_grid.svg",
-        fig2c=f"{SADE_VALIDATION_RES}/step02c_cohort_cell_state_stacked_bars.svg",
-        fig2d_sf=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_by_resolution_sf.svg",
-        fig2d_comb=f"{SADE_VALIDATION_RES}/step02_deconv_fractions_by_resolution_comb.svg",
-        fig3a=f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
-        fig3b=f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
-        fig4a=f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
-        fig4b=f"{SADE_VALIDATION_RES}/step04_milopy_cell_state_da.svg",
-        fig4c=f"{SADE_VALIDATION_RES}/step04b_milopy_pre_vs_post.svg",
-        fig5=f"{SADE_VALIDATION_RES}/step05_concordance_scatter.svg",
-        fig5b=f"{SADE_VALIDATION_RES}/step05b_cohort_concordance_comparison.svg",
-        fig5c=f"{SADE_VALIDATION_RES}/step05b_individual_cohort_scatters.svg",
-        fig5d_bench=f"{SADE_VALIDATION_RES}/step05c_resolution_predictive_benchmark.svg",
-        fig6=f"{SADE_VALIDATION_RES}/step06_dual_umap_validation.svg",
-        fig6b=f"{SADE_VALIDATION_RES}/step06b_stratified_umap_validation.svg",
+        fig_pred_svg=f"{MULTIRES_FIG_DIR}/fig1_predictive_capacity_benchmark.svg",
+        fig_pred_png=f"{MULTIRES_FIG_DIR}/fig1_predictive_capacity_benchmark.png",
+        fig_coll_svg=f"{MULTIRES_FIG_DIR}/fig2_signature_collinearity_benchmark.svg",
+        fig_gran_svg=f"{MULTIRES_FIG_DIR}/fig3_cellular_granularity_benchmark.svg",
+        fig_pareto_svg=f"{MULTIRES_FIG_DIR}/fig4_pareto_tradeoff_optimization.svg",
+        fig1=f"{MULTIRES_FIG_DIR}/step01_reference_marker_heatmap.svg",
+        fig1b=f"{MULTIRES_FIG_DIR}/step01b_integrated_umap_batch_correction.svg",
+        fig1c=f"{MULTIRES_FIG_DIR}/step01c_multi_resolution_marker_heatmaps.svg",
+        fig1d=f"{MULTIRES_FIG_DIR}/step01d_combined_reference_umap_resolutions.svg",
+        fig2=f"{MULTIRES_FIG_DIR}/step02_deconv_fractions_distribution.svg",
+        fig2b=f"{MULTIRES_FIG_DIR}/step02b_cohort_deconv_fractions_grid.svg",
+        fig2c=f"{MULTIRES_FIG_DIR}/step02c_cohort_cell_state_stacked_bars.svg",
+        fig2d_sf=f"{MULTIRES_FIG_DIR}/step02_deconv_fractions_by_resolution_sf.svg",
+        fig2d_comb=f"{MULTIRES_FIG_DIR}/step02_deconv_fractions_by_resolution_comb.svg",
+        fig3a=f"{MULTIRES_FIG_DIR}/step03_logistic_regression_volcano.svg",
+        fig3b=f"{MULTIRES_FIG_DIR}/step03_logistic_regression_forest.svg",
+        fig4a=f"{MULTIRES_FIG_DIR}/step04_milopy_nhood_volcano.svg",
+        fig4b=f"{MULTIRES_FIG_DIR}/step04_milopy_cell_state_da.svg",
+        fig4c=f"{MULTIRES_FIG_DIR}/step04b_milopy_pre_vs_post.svg",
+        fig5=f"{MULTIRES_FIG_DIR}/step05_concordance_scatter.svg",
+        fig5b=f"{MULTIRES_FIG_DIR}/step05b_cohort_concordance_comparison.svg",
+        fig5c=f"{MULTIRES_FIG_DIR}/step05b_individual_cohort_scatters.svg",
+        fig5d_bench=f"{MULTIRES_FIG_DIR}/step05c_resolution_predictive_benchmark.svg",
+        fig6=f"{MULTIRES_FIG_DIR}/step06_dual_umap_validation.svg",
+        fig6b=f"{MULTIRES_FIG_DIR}/step06b_stratified_umap_validation.svg",
     params:
-        data_dir=SADE_VALIDATION_OUT,
-        results_dir=SADE_VALIDATION_RES,
+        data_dir=MULTIRES_CONC_DIR,
+        results_dir=MULTIRES_FIG_DIR,
+    shell:
+        """
+        python {input.script} --data-dir {params.data_dir} --results-dir {params.results_dir}
+        """
+
+rule plot_cohort_auc_reference_selection:
+    input:
+        script="scripts/manuscript_pipeline/4d2_plot_cohort_auc_reference_selection.py",
+        benchmark_summary=f"{MULTIRES_CONC_DIR}/multi_resolution_benchmark_summary.parquet",
+    output:
+        svg=f"{REF_SEL_FIG_DIR}/fig1_selected_cohort_auc_and_marginal_gain.svg",
+        png=f"{REF_SEL_FIG_DIR}/fig1_selected_cohort_auc_and_marginal_gain.png",
+    params:
+        data_dir=MULTIRES_CONC_DIR,
+        results_dir=REF_SEL_FIG_DIR,
     shell:
         """
         python {input.script} --data-dir {params.data_dir} --results-dir {params.results_dir}
@@ -946,26 +1026,30 @@ rule plot_sade_feldman_validation:
 
 rule run_extended_sade_feldman_pipeline:
     input:
-        f"{SADE_VALIDATION_RES}/step01_reference_marker_heatmap.svg",
-        f"{SADE_VALIDATION_RES}/step01b_integrated_umap_batch_correction.svg",
-        f"{SADE_VALIDATION_RES}/step01c_multi_resolution_marker_heatmaps.svg",
-        f"{SADE_VALIDATION_RES}/step01d_combined_reference_umap_resolutions.svg",
-        f"{SADE_VALIDATION_RES}/step02_deconv_fractions_distribution.svg",
-        f"{SADE_VALIDATION_RES}/step02b_cohort_deconv_fractions_grid.svg",
-        f"{SADE_VALIDATION_RES}/step02c_cohort_cell_state_stacked_bars.svg",
-        f"{SADE_VALIDATION_RES}/step02_deconv_fractions_by_resolution_sf.svg",
-        f"{SADE_VALIDATION_RES}/step02_deconv_fractions_by_resolution_comb.svg",
-        f"{SADE_VALIDATION_RES}/step03_logistic_regression_volcano.svg",
-        f"{SADE_VALIDATION_RES}/step03_logistic_regression_forest.svg",
-        f"{SADE_VALIDATION_RES}/step04_milopy_nhood_volcano.svg",
-        f"{SADE_VALIDATION_RES}/step04_milopy_cell_state_da.svg",
-        f"{SADE_VALIDATION_RES}/step04b_milopy_pre_vs_post.svg",
-        f"{SADE_VALIDATION_RES}/step05_concordance_scatter.svg",
-        f"{SADE_VALIDATION_RES}/step05b_cohort_concordance_comparison.svg",
-        f"{SADE_VALIDATION_RES}/step05b_individual_cohort_scatters.svg",
-        f"{SADE_VALIDATION_RES}/step05c_resolution_predictive_benchmark.svg",
-        f"{SADE_VALIDATION_RES}/step06_dual_umap_validation.svg",
-        f"{SADE_VALIDATION_RES}/step06b_stratified_umap_validation.svg",
+        f"{MULTIRES_FIG_DIR}/fig1_predictive_capacity_benchmark.svg",
+        f"{MULTIRES_FIG_DIR}/fig1_predictive_capacity_benchmark.png",
+        f"{REF_SEL_FIG_DIR}/fig1_selected_cohort_auc_and_marginal_gain.svg",
+        f"{REF_SEL_FIG_DIR}/fig1_selected_cohort_auc_and_marginal_gain.png",
+        f"{MULTIRES_FIG_DIR}/step01_reference_marker_heatmap.svg",
+        f"{MULTIRES_FIG_DIR}/step01b_integrated_umap_batch_correction.svg",
+        f"{MULTIRES_FIG_DIR}/step01c_multi_resolution_marker_heatmaps.svg",
+        f"{MULTIRES_FIG_DIR}/step01d_combined_reference_umap_resolutions.svg",
+        f"{MULTIRES_FIG_DIR}/step02_deconv_fractions_distribution.svg",
+        f"{MULTIRES_FIG_DIR}/step02b_cohort_deconv_fractions_grid.svg",
+        f"{MULTIRES_FIG_DIR}/step02c_cohort_cell_state_stacked_bars.svg",
+        f"{MULTIRES_FIG_DIR}/step02_deconv_fractions_by_resolution_sf.svg",
+        f"{MULTIRES_FIG_DIR}/step02_deconv_fractions_by_resolution_comb.svg",
+        f"{MULTIRES_FIG_DIR}/step03_logistic_regression_volcano.svg",
+        f"{MULTIRES_FIG_DIR}/step03_logistic_regression_forest.svg",
+        f"{MULTIRES_FIG_DIR}/step04_milopy_nhood_volcano.svg",
+        f"{MULTIRES_FIG_DIR}/step04_milopy_cell_state_da.svg",
+        f"{MULTIRES_FIG_DIR}/step04b_milopy_pre_vs_post.svg",
+        f"{MULTIRES_FIG_DIR}/step05_concordance_scatter.svg",
+        f"{MULTIRES_FIG_DIR}/step05b_cohort_concordance_comparison.svg",
+        f"{MULTIRES_FIG_DIR}/step05b_individual_cohort_scatters.svg",
+        f"{MULTIRES_FIG_DIR}/step05c_resolution_predictive_benchmark.svg",
+        f"{MULTIRES_FIG_DIR}/step06_dual_umap_validation.svg",
+        f"{MULTIRES_FIG_DIR}/step06b_stratified_umap_validation.svg",
 
 rule run_sade_feldman_pipeline:
     input:
@@ -1101,15 +1185,60 @@ rule integrate_combined_cohorts:
         python {input.script} --base-dir {params.base_dir} --mode all
         """
 
-rule visualize_cohort_umaps:
+MILOPY_COHORTS_9 = [
+    "GSE120575",
+    "CELLxGENE_7b20c613",
+    "CELLxGENE_05a8c945",
+    "CELLxGENE_6f9de485",
+    "GSE207422",
+    "GSE243013",
+    "GSE233203",
+    "GSE200996",
+    "GSE316195",
+]
+MILOPY_2A1_DIR = f"{MANUSCRIPT_OUT_DIR}/2a1_sample_and_analyze_cohorts"
+MILOPY_2A2_DIR = f"{MANUSCRIPT_OUT_DIR}/2a2_combine_cohorts_and_analyze"
+MILOPY_4A1_DIR = f"{MANUSCRIPT_OUT_DIR}/4a1_visualize_cohort_umaps"
+MILOPY_4A2_DIR = f"{MANUSCRIPT_OUT_DIR}/4a2_generate_combined_figures"
+
+rule sample_and_analyze_milopy_cohorts:
     input:
-        script="scripts/manuscript_pipeline/4a1_visualize_cohort_umaps.py"
+        script="scripts/manuscript_pipeline/2a1_sample_and_analyze_cohorts.py"
     output:
-        completed=f"{DATA_DIR}/results/milopy_response_analysis/visualize_cohort_umaps_completed.txt"
+        da_parquets=expand(f"{MILOPY_2A1_DIR}/{{sc_cohort}}/da_results.parquet", sc_cohort=MILOPY_COHORTS_9),
+        cell_parquets=expand(f"{MILOPY_2A1_DIR}/{{sc_cohort}}/cell_level_scores.parquet", sc_cohort=MILOPY_COHORTS_9)
     params:
         base_dir=DATA_DIR,
-        results_dir=f"{DATA_DIR}/results/milopy_response_analysis",
-        reports_dir=f"{DATA_DIR}/reports"
+        out_dir=MILOPY_2A1_DIR,
+        cohorts=" ".join(MILOPY_COHORTS_9)
+    shell:
+        """
+        set -euo pipefail
+        for cohort in {params.cohorts}; do
+            python {input.script} \
+                --sample-by custom \
+                --value "${{cohort}}" \
+                --base-dir {params.base_dir} \
+                --out-dir {params.out_dir} \
+                --reports-dir {params.out_dir} \
+                --no-harmonize
+            mkdir -p {params.out_dir}/"${{cohort}}"
+            cp -f {params.out_dir}/custom_"${{cohort}}"_none/*.parquet {params.out_dir}/"${{cohort}}"/
+            cp -f {params.out_dir}/custom_"${{cohort}}"_none/*.npz {params.out_dir}/"${{cohort}}"/ 2>/dev/null || true
+        done
+        """
+
+rule visualize_cohort_umaps:
+    input:
+        script="scripts/manuscript_pipeline/4a1_visualize_cohort_umaps.py",
+        da_parquets=expand(f"{MILOPY_2A1_DIR}/{{sc_cohort}}/da_results.parquet", sc_cohort=MILOPY_COHORTS_9),
+        cell_parquets=expand(f"{MILOPY_2A1_DIR}/{{sc_cohort}}/cell_level_scores.parquet", sc_cohort=MILOPY_COHORTS_9)
+    output:
+        completed=f"{MILOPY_4A1_DIR}/visualize_cohort_umaps_completed.txt"
+    params:
+        base_dir=DATA_DIR,
+        results_dir=MILOPY_2A1_DIR,
+        reports_dir=MILOPY_4A1_DIR
     shell:
         """
         set -euo pipefail
@@ -1122,15 +1251,16 @@ rule visualize_cohort_umaps:
 rule generate_combined_milopy_figures:
     input:
         script="scripts/manuscript_pipeline/4a2_generate_combined_figures.py",
-        umaps_done=f"{DATA_DIR}/results/milopy_response_analysis/visualize_cohort_umaps_completed.txt"
+        da_parquets=expand(f"{MILOPY_2A1_DIR}/{{sc_cohort}}/da_results.parquet", sc_cohort=MILOPY_COHORTS_9),
+        cell_parquets=expand(f"{MILOPY_2A1_DIR}/{{sc_cohort}}/cell_level_scores.parquet", sc_cohort=MILOPY_COHORTS_9)
     output:
-        volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid.svg",
-        umap_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc.svg",
-        volcano_png=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid.png",
-        umap_png=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc.png"
+        volcano_grid=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_volcano_grid.svg",
+        umap_grid=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_umaps_logfc.svg",
+        volcano_png=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_volcano_grid.png",
+        umap_png=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_umaps_logfc.png"
     params:
-        results_dir=f"{DATA_DIR}/results/milopy_response_analysis",
-        reports_dir=f"{DATA_DIR}/reports"
+        results_dir=MILOPY_2A1_DIR,
+        reports_dir=MILOPY_4A2_DIR
     shell:
         """
         set -euo pipefail
@@ -1144,13 +1274,13 @@ rule generate_combined_milopy_figures_pre:
     input:
         script="scripts/manuscript_pipeline/4a2_generate_combined_figures.py"
     output:
-        volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_pre.svg",
-        umap_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_pre.svg",
-        volcano_png=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_pre.png",
-        umap_png=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_pre.png"
+        volcano_grid=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_volcano_grid_pre.svg",
+        umap_grid=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_umaps_logfc_pre.svg",
+        volcano_png=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_volcano_grid_pre.png",
+        umap_png=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_umaps_logfc_pre.png"
     params:
         results_dir=f"{DATA_DIR}/results/milopy_response_analysis_pre",
-        reports_dir=f"{DATA_DIR}/reports"
+        reports_dir=MILOPY_4A2_DIR
     shell:
         """
         set -euo pipefail
@@ -1164,13 +1294,13 @@ rule generate_combined_milopy_figures_post:
     input:
         script="scripts/manuscript_pipeline/4a2_generate_combined_figures.py"
     output:
-        volcano_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_post.svg",
-        umap_grid=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_post.svg",
-        volcano_png=f"{DATA_DIR}/reports/milopy_cross_cohort_volcano_grid_post.png",
-        umap_png=f"{DATA_DIR}/reports/milopy_cross_cohort_umaps_logfc_post.png"
+        volcano_grid=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_volcano_grid_post.svg",
+        umap_grid=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_umaps_logfc_post.svg",
+        volcano_png=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_volcano_grid_post.png",
+        umap_png=f"{MILOPY_4A2_DIR}/milopy_cross_cohort_umaps_logfc_post.png"
     params:
         results_dir=f"{DATA_DIR}/results/milopy_response_analysis_post",
-        reports_dir=f"{DATA_DIR}/reports"
+        reports_dir=MILOPY_4A2_DIR
     shell:
         """
         set -euo pipefail
@@ -1184,17 +1314,17 @@ rule combine_and_run_melanoma_milopy:
     input:
         script="scripts/manuscript_pipeline/2a2_combine_cohorts_and_analyze.py"
     output:
-        da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/melanoma/da_results.parquet",
-        cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/melanoma/cell_level_scores.parquet",
-        volcano_svg=f"{DATA_DIR}/reports/milopy_combined_melanoma_volcano.svg",
-        umap_svg=f"{DATA_DIR}/reports/milopy_combined_melanoma_umap_logfc.svg",
-        volcano_png=f"{DATA_DIR}/reports/milopy_combined_melanoma_volcano.png",
-        umap_png=f"{DATA_DIR}/reports/milopy_combined_melanoma_umap_logfc.png"
+        da_parquet=f"{MILOPY_2A2_DIR}/melanoma/da_results.parquet",
+        cell_parquet=f"{MILOPY_2A2_DIR}/melanoma/cell_level_scores.parquet",
+        volcano_svg=f"{MILOPY_2A2_DIR}/milopy_combined_melanoma_volcano.svg",
+        umap_svg=f"{MILOPY_2A2_DIR}/milopy_combined_melanoma_umap_logfc.svg",
+        volcano_png=f"{MILOPY_2A2_DIR}/milopy_combined_melanoma_volcano.png",
+        umap_png=f"{MILOPY_2A2_DIR}/milopy_combined_melanoma_umap_logfc.png"
     params:
         group="melanoma",
         base_dir=DATA_DIR,
-        out_dir=f"{DATA_DIR}/results/milopy_combined_analysis",
-        reports_dir=f"{DATA_DIR}/reports",
+        out_dir=MILOPY_2A2_DIR,
+        reports_dir=MILOPY_2A2_DIR,
         max_cells=25000
     shell:
         """
@@ -1211,17 +1341,17 @@ rule combine_and_run_nsclc_milopy:
     input:
         script="scripts/manuscript_pipeline/2a2_combine_cohorts_and_analyze.py"
     output:
-        da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/nsclc/da_results.parquet",
-        cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/nsclc/cell_level_scores.parquet",
-        volcano_svg=f"{DATA_DIR}/reports/milopy_combined_nsclc_volcano.svg",
-        umap_svg=f"{DATA_DIR}/reports/milopy_combined_nsclc_umap_logfc.svg",
-        volcano_png=f"{DATA_DIR}/reports/milopy_combined_nsclc_volcano.png",
-        umap_png=f"{DATA_DIR}/reports/milopy_combined_nsclc_umap_logfc.png"
+        da_parquet=f"{MILOPY_2A2_DIR}/nsclc/da_results.parquet",
+        cell_parquet=f"{MILOPY_2A2_DIR}/nsclc/cell_level_scores.parquet",
+        volcano_svg=f"{MILOPY_2A2_DIR}/milopy_combined_nsclc_volcano.svg",
+        umap_svg=f"{MILOPY_2A2_DIR}/milopy_combined_nsclc_umap_logfc.svg",
+        volcano_png=f"{MILOPY_2A2_DIR}/milopy_combined_nsclc_volcano.png",
+        umap_png=f"{MILOPY_2A2_DIR}/milopy_combined_nsclc_umap_logfc.png"
     params:
         group="nsclc",
         base_dir=DATA_DIR,
-        out_dir=f"{DATA_DIR}/results/milopy_combined_analysis",
-        reports_dir=f"{DATA_DIR}/reports",
+        out_dir=MILOPY_2A2_DIR,
+        reports_dir=MILOPY_2A2_DIR,
         max_cells=20000
     shell:
         """
@@ -1238,17 +1368,17 @@ rule combine_and_run_solid_tumors_milopy:
     input:
         script="scripts/manuscript_pipeline/2a2_combine_cohorts_and_analyze.py"
     output:
-        da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/solid_tumors/da_results.parquet",
-        cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/solid_tumors/cell_level_scores.parquet",
-        volcano_svg=f"{DATA_DIR}/reports/milopy_combined_solid_tumors_volcano.svg",
-        umap_svg=f"{DATA_DIR}/reports/milopy_combined_solid_tumors_umap_logfc.svg",
-        volcano_png=f"{DATA_DIR}/reports/milopy_combined_solid_tumors_volcano.png",
-        umap_png=f"{DATA_DIR}/reports/milopy_combined_solid_tumors_umap_logfc.png"
+        da_parquet=f"{MILOPY_2A2_DIR}/solid_tumors/da_results.parquet",
+        cell_parquet=f"{MILOPY_2A2_DIR}/solid_tumors/cell_level_scores.parquet",
+        volcano_svg=f"{MILOPY_2A2_DIR}/milopy_combined_solid_tumors_volcano.svg",
+        umap_svg=f"{MILOPY_2A2_DIR}/milopy_combined_solid_tumors_umap_logfc.svg",
+        volcano_png=f"{MILOPY_2A2_DIR}/milopy_combined_solid_tumors_volcano.png",
+        umap_png=f"{MILOPY_2A2_DIR}/milopy_combined_solid_tumors_umap_logfc.png"
     params:
         group="solid_tumors",
         base_dir=DATA_DIR,
-        out_dir=f"{DATA_DIR}/results/milopy_combined_analysis",
-        reports_dir=f"{DATA_DIR}/reports",
+        out_dir=MILOPY_2A2_DIR,
+        reports_dir=MILOPY_2A2_DIR,
         max_cells=20000
     shell:
         """
@@ -1265,17 +1395,17 @@ rule combine_and_run_pancancer_milopy:
     input:
         script="scripts/manuscript_pipeline/2a2_combine_cohorts_and_analyze.py"
     output:
-        da_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/pancancer/da_results.parquet",
-        cell_parquet=f"{DATA_DIR}/results/milopy_combined_analysis/pancancer/cell_level_scores.parquet",
-        volcano_svg=f"{DATA_DIR}/reports/milopy_combined_pancancer_volcano.svg",
-        umap_svg=f"{DATA_DIR}/reports/milopy_combined_pancancer_umap_logfc.svg",
-        volcano_png=f"{DATA_DIR}/reports/milopy_combined_pancancer_volcano.png",
-        umap_png=f"{DATA_DIR}/reports/milopy_combined_pancancer_umap_logfc.png"
+        da_parquet=f"{MILOPY_2A2_DIR}/pancancer/da_results.parquet",
+        cell_parquet=f"{MILOPY_2A2_DIR}/pancancer/cell_level_scores.parquet",
+        volcano_svg=f"{MILOPY_2A2_DIR}/milopy_combined_pancancer_volcano.svg",
+        umap_svg=f"{MILOPY_2A2_DIR}/milopy_combined_pancancer_umap_logfc.svg",
+        volcano_png=f"{MILOPY_2A2_DIR}/milopy_combined_pancancer_volcano.png",
+        umap_png=f"{MILOPY_2A2_DIR}/milopy_combined_pancancer_umap_logfc.png"
     params:
         group="pancancer",
         base_dir=DATA_DIR,
-        out_dir=f"{DATA_DIR}/results/milopy_combined_analysis",
-        reports_dir=f"{DATA_DIR}/reports",
+        out_dir=MILOPY_2A2_DIR,
+        reports_dir=MILOPY_2A2_DIR,
         max_cells=10000
     shell:
         """
@@ -1355,15 +1485,26 @@ rule generate_milopy_method_figure:
         """
 
 # Single-Cell & Bulk Deconvolution Concordance & Calibration Modules
-# TODO: re-enable when workflow/rules/concordance.smk and calibration.smk exist
-# include: "workflow/rules/concordance.smk"
-# include: "workflow/rules/calibration.smk"
+include: "workflow/rules/concordance.smk"
+include: "workflow/rules/calibration.smk"
 
 # Multi-Cohort Stability Selection & Publication Figure Module
 include: "workflow/rules/stability_selection.smk"
 
 # Single-Cell Reference Sampling and Classifier HPO Module
 include: "workflow/rules/reference_sampling_hpo.smk"
+
+# Complete 37-Script Manuscript Pipeline Module (2a1-4e)
+include: "workflow/rules/manuscript_pipeline.smk"
+
+# Consensus-Meta42 vs. Coulton_TAM_Atlas Comparison & ICI Outcome Module
+include: "workflow/rules/coulton_tam_comparison.smk"
+
+# Consensus-Meta42 vs. Pan-Cancer T-Cell, CAF & Myeloid Triad Atlases Module
+include: "workflow/rules/pan_cancer_atlas_comparison.smk"
+
+# 9-Cohort Single-Cell Reference Deconvolution & Milo Validation Module
+include: "workflow/rules/sc9_deconv_validation.smk"
 
 
 

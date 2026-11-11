@@ -1,0 +1,15 @@
+executor: local
+cores: 16
+latency-wait: 10
+rerun-incomplete: true
+printshellcmds: true
+set-threads:
+  compare_meta42_coulton_tam_tables: 4
+  render_coulton_tam_comparison_figures: 2
+  sc9_build_single_reference: 8
+  sc9_build_combined_references: 8
+  sc9_deconvolute_iatlas: 8
+  sc9_logistic_regression: 4
+  sc9_analyze_milopy: 8
+  sc9_compare_concordance: 4
+  sc9_plot_validation_figures: 2

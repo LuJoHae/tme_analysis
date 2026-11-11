@@ -1,11 +1,14 @@
 # workflow/rules/stability_selection.smk
 # Snakemake workflow rules for Multi-Cohort Stability Selection Benchmark & Publication Figures
 
+_STAB_MP_ROOT = os.environ.get(
+    "TME_PIPELINE_OUTPUT_ROOT", config.get("manuscript_out_dir", "output/manuscript_pipeline")
+)
 STABILITY_OUT_DIR = config.get(
-    "stability_out_dir", "output/manuscript_pipeline/2b_run_stability_selection_iatlas"
+    "stability_out_dir", f"{_STAB_MP_ROOT}/2b_run_stability_selection_iatlas"
 )
 STABILITY_FIG_DIR = config.get(
-    "stability_fig_dir", "output/manuscript_pipeline/4c4_plot_fitter_gene_overlap"
+    "stability_fig_dir", f"{_STAB_MP_ROOT}/4c4_plot_fitter_gene_overlap"
 )
 STABILITY_COHORTS = config.get(
     "stability_cohorts",

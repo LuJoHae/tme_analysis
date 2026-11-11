@@ -96,7 +96,7 @@ rule preprocess_discovered_cohort:
         mem_mb=12000
     shell:
         """
-        python scripts/manuscript_pipeline/1b_batch_preprocess_cohorts.py \
+        python -m tme_datasets.pipeline.batch_preprocess \
             --registry {params.registry} \
             --data-raw-dir {RAW_DIR} \
             --output-dir {PREPROCESSED_DIR} \

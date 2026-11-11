@@ -1,9 +1,19 @@
 # workflow/rules/calibration.smk
 # Snakemake workflow for Single-Cell Ground-Truth Calibration & Triangulation
 
-CALIB_OUT_DIR = config.get("calib_out_dir", "output/concordance_calibration")
-CALIB_RES_DIR = config.get("calib_results_dir", "results/concordance_calibration")
-SC_ADATA_PATH = config.get("sc_adata", "")
+_CALIB_DATA_DIR = os.environ.get("TME_DATA_DIR", config.get("data_dir", ""))
+CALIB_OUT_DIR = config.get(
+    "calib_out_dir",
+    f"{_CALIB_DATA_DIR}/output/concordance_calibration" if _CALIB_DATA_DIR else "output/concordance_calibration",
+)
+CALIB_RES_DIR = config.get(
+    "calib_results_dir",
+    f"{_CALIB_DATA_DIR}/results/concordance_calibration" if _CALIB_DATA_DIR else "results/concordance_calibration",
+)
+CALIB_SC_ADATA = config.get(
+    "sc_adata",
+    f"{_CALIB_DATA_DIR}/preprocessed/GSE120575.h5ad" if _CALIB_DATA_DIR else "",
+)
 
 CALIB_RESOLUTIONS = config.get(
     "calib_resolutions",
@@ -27,7 +37,7 @@ rule sc_extract_ground_truth:
         counts=f"{CALIB_OUT_DIR}/sc_ground_truth_counts.parquet",
         umi=f"{CALIB_OUT_DIR}/sc_ground_truth_umi.parquet"
     params:
-        adata=SC_ADATA_PATH,
+        adata=CALIB_SC_ADATA,
         timepoints=CALIB_TIMEPOINTS,
         resolutions=CALIB_RESOLUTIONS,
         out_dir=CALIB_OUT_DIR

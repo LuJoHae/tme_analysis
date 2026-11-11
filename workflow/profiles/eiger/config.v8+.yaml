@@ -8,13 +8,109 @@ default-resources:
   slurm_partition: "normal"
   mem_mb: 16000
   runtime: 120
-  cpus_per_task: 4
 set-threads:
   preprocess_discovered_cohort: 8
+  mp_tme_datasets_batch_preprocess: 8
+  mp_tme_datasets_qc: 8
+  sample_and_analyze_milopy_cohorts: 8
+  combine_and_run_melanoma_milopy: 8
+  combine_and_run_nsclc_milopy: 8
+  combine_and_run_solid_tumors_milopy: 8
+  combine_and_run_pancancer_milopy: 8
+  integrate_combined_cohorts: 8
+  run_milopy_da: 8
+  mp_analyze_pairwise_cohorts: 8
+  run_multi_cohort_stability_benchmark: 8
+  mp_3a_cross_cohort_pseudobulk_deconv_benchmark: 8
+  mp_3b_pan_cohort_unified_deconv_benchmark: 8
+  mp_3c_iatlas_instaprism_milopy_benchmark: 8
+  mp_3e1_benchmark_iatlas_icb_predictors: 8
+  mp_3e3_benchmark_survival_and_dca: 8
+  build_sade_feldman_reference: 8
+  build_integrated_reference: 8
+  build_dataset_references: 8
+  build_combined_references: 8
+  deconvolute_iatlas_sade_feldman: 8
+  analyze_milopy_sade_feldman: 8
   run_reference_sampling_hpo: 16
   run_single_cohort_hpo: 32
+  compare_meta42_coulton_tam_tables: 4
+  render_coulton_tam_comparison_figures: 2
+  sc9_build_single_reference: 8
+  sc9_build_combined_references: 8
+  sc9_deconvolute_iatlas: 8
+  sc9_logistic_regression: 4
+  sc9_analyze_milopy: 8
+  sc9_compare_concordance: 4
+  sc9_plot_validation_figures: 2
 set-resources:
   preprocess_discovered_cohort:
+    mem_mb: 64000
+    runtime: 240
+  mp_tme_datasets_batch_preprocess:
+    mem_mb: 128000
+    runtime: 480
+  mp_tme_datasets_qc:
+    mem_mb: 64000
+    runtime: 240
+  sample_and_analyze_milopy_cohorts:
+    mem_mb: 96000
+    runtime: 360
+  combine_and_run_melanoma_milopy:
+    mem_mb: 96000
+    runtime: 240
+  combine_and_run_nsclc_milopy:
+    mem_mb: 96000
+    runtime: 240
+  combine_and_run_solid_tumors_milopy:
+    mem_mb: 96000
+    runtime: 240
+  combine_and_run_pancancer_milopy:
+    mem_mb: 128000
+    runtime: 360
+  integrate_combined_cohorts:
+    mem_mb: 96000
+    runtime: 360
+  run_milopy_da:
+    mem_mb: 64000
+    runtime: 240
+  mp_analyze_pairwise_cohorts:
+    mem_mb: 64000
+    runtime: 240
+  run_multi_cohort_stability_benchmark:
+    mem_mb: 64000
+    runtime: 240
+  mp_3a_cross_cohort_pseudobulk_deconv_benchmark:
+    mem_mb: 96000
+    runtime: 360
+  mp_3b_pan_cohort_unified_deconv_benchmark:
+    mem_mb: 64000
+    runtime: 240
+  mp_3c_iatlas_instaprism_milopy_benchmark:
+    mem_mb: 96000
+    runtime: 360
+  mp_3e1_benchmark_iatlas_icb_predictors:
+    mem_mb: 64000
+    runtime: 240
+  mp_3e3_benchmark_survival_and_dca:
+    mem_mb: 64000
+    runtime: 240
+  build_sade_feldman_reference:
+    mem_mb: 64000
+    runtime: 240
+  build_integrated_reference:
+    mem_mb: 128000
+    runtime: 360
+  build_dataset_references:
+    mem_mb: 64000
+    runtime: 240
+  build_combined_references:
+    mem_mb: 96000
+    runtime: 240
+  deconvolute_iatlas_sade_feldman:
+    mem_mb: 64000
+    runtime: 240
+  analyze_milopy_sade_feldman:
     mem_mb: 64000
     runtime: 240
   run_reference_sampling_hpo:
@@ -23,3 +119,30 @@ set-resources:
   run_single_cohort_hpo:
     mem_mb: 64000
     runtime: 360
+  compare_meta42_coulton_tam_tables:
+    mem_mb: 32000
+    runtime: 120
+  render_coulton_tam_comparison_figures:
+    mem_mb: 16000
+    runtime: 30
+  sc9_build_single_reference:
+    mem_mb: 64000
+    runtime: 180
+  sc9_build_combined_references:
+    mem_mb: 96000
+    runtime: 240
+  sc9_deconvolute_iatlas:
+    mem_mb: 64000
+    runtime: 240
+  sc9_logistic_regression:
+    mem_mb: 32000
+    runtime: 120
+  sc9_analyze_milopy:
+    mem_mb: 64000
+    runtime: 180
+  sc9_compare_concordance:
+    mem_mb: 32000
+    runtime: 120
+  sc9_plot_validation_figures:
+    mem_mb: 16000
+    runtime: 60

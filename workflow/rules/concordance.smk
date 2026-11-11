@@ -1,11 +1,29 @@
 # workflow/rules/concordance.smk
 # Snakemake workflow for Single-Cell and Bulk Deconvolution Concordance Analysis
 
-CONCORDANCE_OUT_DIR = config.get("concordance_out_dir", "output/concordance")
-CONCORDANCE_RES_DIR = config.get("concordance_results_dir", "results/concordance")
-SC_ADATA_PATH = config.get("sc_adata", "/ritom/scratch/cscs/lhaeuser/data-test/preprocessed/GSE120575.h5ad")
-BULK_COUNTS_PATH = config.get("bulk_counts", "data/bulk_counts.parquet")
-CLINICAL_PATH = config.get("clinical_meta", "data/bulk_clinical.parquet")
+_CONC_DATA_DIR = os.environ.get("TME_DATA_DIR", config.get("data_dir", ""))
+_CONC_OUT_DEFAULT = f"{_CONC_DATA_DIR}/output/concordance" if _CONC_DATA_DIR else "output/concordance"
+_CONC_RES_DEFAULT = f"{_CONC_DATA_DIR}/results/concordance" if _CONC_DATA_DIR else "results/concordance"
+_CONC_MP_DEFAULT = os.environ.get(
+    "TME_PIPELINE_OUTPUT_ROOT", config.get("manuscript_out_dir", "output/manuscript_pipeline")
+)
+
+CONCORDANCE_OUT_DIR = config.get("concordance_out_dir", _CONC_OUT_DEFAULT)
+CONCORDANCE_RES_DIR = config.get("concordance_results_dir", _CONC_RES_DEFAULT)
+CONCORDANCE_SC_ADATA = config.get(
+    "sc_adata",
+    f"{_CONC_DATA_DIR}/preprocessed/GSE120575.h5ad"
+    if _CONC_DATA_DIR
+    else "/ritom/scratch/cscs/lhaeuser/data-test/preprocessed/GSE120575.h5ad",
+)
+BULK_COUNTS_PATH = config.get(
+    "bulk_counts",
+    f"{_CONC_DATA_DIR}/bulk_counts.parquet" if _CONC_DATA_DIR else "data/bulk_counts.parquet",
+)
+CLINICAL_PATH = config.get(
+    "clinical_meta",
+    f"{_CONC_DATA_DIR}/bulk_clinical.parquet" if _CONC_DATA_DIR else "data/bulk_clinical.parquet",
+)
 
 PATIENT_COL = config.get("sc_patient_col", "patient")
 RESPONSE_COL = config.get("sc_response_col", "response")
@@ -28,7 +46,7 @@ rule all_concordance:
 rule sc_patient_response_association:
     input:
         script="scripts/concordance/01_sc_patient_response_association.py",
-        adata=SC_ADATA_PATH
+        adata=CONCORDANCE_SC_ADATA
     output:
         effects=f"{CONCORDANCE_OUT_DIR}/sc_patient_response_effects.parquet"
     params:
@@ -50,7 +68,7 @@ rule sc_patient_response_association:
 rule build_curated_reference:
     input:
         script="scripts/concordance/02_build_curated_reference.py",
-        adata=SC_ADATA_PATH
+        adata=CONCORDANCE_SC_ADATA
     output:
         phi=f"{CONCORDANCE_OUT_DIR}/curated_reference_phi.parquet",
         mrna=f"{CONCORDANCE_OUT_DIR}/mrna_scaling_factors.parquet",
@@ -74,7 +92,7 @@ rule build_curated_reference:
 rule insilico_pseudobulk_validation:
     input:
         script="scripts/concordance/03_insilico_pseudobulk_validation.py",
-        adata=SC_ADATA_PATH,
+        adata=CONCORDANCE_SC_ADATA,
         reference=f"{CONCORDANCE_OUT_DIR}/curated_reference_phi.parquet",
         hierarchy=f"{CONCORDANCE_OUT_DIR}/cell_hierarchy.parquet",
         sc_effects=f"{CONCORDANCE_OUT_DIR}/sc_patient_response_effects.parquet"
@@ -208,7 +226,7 @@ rule plot_concordance_figures:
 rule hierarchical_bayesprism_resolution:
     input:
         script="scripts/concordance/09_hierarchical_bayesprism_resolution.py",
-        ref="output/output/sade_feldman_deconv_validation/reference_phi_res0.5.parquet",
+        ref=f"{_CONC_MP_DEFAULT}/3f1_build_sf_reference/reference_phi_res0.5.parquet",
         sc_effects=f"{CONCORDANCE_OUT_DIR}/sc_patient_response_effects.parquet"
     output:
         effects=f"{CONCORDANCE_OUT_DIR}/hierarchical_bayesprism_effects.parquet",
