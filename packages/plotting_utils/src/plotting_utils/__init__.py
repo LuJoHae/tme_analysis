@@ -63,6 +63,7 @@ from .svg import (
     SvgRasterizationConfig,
     count_svg_datapoints,
     rasterize_svg_datapoints,
+    rasterize_svg_to_png,
     svg_badge,
     svg_chip,
     svg_circle,
@@ -139,4 +140,5 @@ __all__ = [
     "SvgRasterizationConfig",
     "count_svg_datapoints",
     "rasterize_svg_datapoints",
+    "rasterize_svg_to_png",
 ]

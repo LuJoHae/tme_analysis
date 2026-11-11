@@ -543,8 +543,29 @@ def load_existing_summary(out_dir: Path, config: MiloDatasetConfig) -> MiloRunSu
         return None
 
 
+def _resolve_milo_anndata(
+    adata_or_path: ad.AnnData | Path | str,
+    accession: str,
+) -> Result[ad.AnnData, str]:
+    """Load AnnData via tme_datasets.load_dataset when given a dataset ID/directory, or accept preloaded AnnData."""
+    if isinstance(adata_or_path, ad.AnnData):
+        return Success(adata_or_path.copy())
+    from tme_datasets import load_dataset
+
+    path_obj = Path(adata_or_path)
+    if path_obj.is_dir():
+        return load_dataset(accession, repo_root=path_obj)
+    if path_obj.suffix == ".h5ad" and path_obj.exists():
+        # Support temporary synthetic .h5ad fixtures in unit tests; fall back to tme_datasets first if registered
+        loaded = load_dataset(accession, repo_root=path_obj.parent)
+        if isinstance(loaded, Success):
+            return loaded
+        return Success(ad.read_h5ad(path_obj))
+    return load_dataset(str(adata_or_path))
+
+
 def ensure_umaps_for_dataset(
-    adata_path: Path,
+    adata_path: ad.AnnData | Path | str,
     config: MiloDatasetConfig,
     out_dir: Path,
 ) -> Result[bool, str]:
@@ -560,7 +581,11 @@ def ensure_umaps_for_dataset(
         
     try:
         print(f"[{config.accession}] Generating missing UMAP embeddings...")
-        adata = ad.read_h5ad(adata_path)
+        match _resolve_milo_anndata(adata_path, config.accession):
+            case Failure(err):
+                return Failure(err)
+            case Success(adata):
+                pass
         if config.allowed_conditions is not None:
             mask = adata.obs[config.design_col].isin(config.allowed_conditions)
             adata = adata[mask, :].copy()
@@ -579,15 +604,19 @@ def ensure_umaps_for_dataset(
 
 
 def run_single_milo_pipeline(
-    adata_path: Path,
+    adata_path: ad.AnnData | Path | str,
     config: MiloDatasetConfig,
     out_dir: Path,
 ) -> Result[MiloRunSummary, str]:
     """Executes full milopy pipeline on one dataset, outputting tables, matrices, and SVG plots."""
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[{config.accession}] Loading AnnData from {adata_path}...")
-        adata = ad.read_h5ad(adata_path)
+        print(f"[{config.accession}] Loading AnnData via tme_datasets...")
+        match _resolve_milo_anndata(adata_path, config.accession):
+            case Failure(err):
+                return Failure(err)
+            case Success(adata):
+                pass
         
         # 1. Filter conditions if specified
         if config.allowed_conditions is not None:

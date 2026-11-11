@@ -279,7 +279,16 @@ def create_auc_heatmap(
                 f"{y_col}:N",
                 title="Predictor / Biomarker",
                 sort=alt.EncodingSortField(field=metric, op="mean", order="descending"),
-                axis=alt.Axis(labelLimit=380, labelFontSize=12.0, titleFontSize=13.5),
+                axis=alt.Axis(
+                    labelLimit=380,
+                    labelFontSize=12.0,
+                    labelFontWeight=alt.condition(
+                        alt.datum.value == "Deconvolution Inference (Our)",
+                        alt.value("bold"),
+                        alt.value("normal"),
+                    ),
+                    titleFontSize=13.5,
+                ),
             ),
         )
 

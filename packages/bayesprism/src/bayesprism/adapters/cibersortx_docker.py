@@ -18,6 +18,7 @@ from __future__ import annotations
 import io
 import os
 from pathlib import Path
+import shutil
 import subprocess
 from typing import Callable, Sequence
 import numpy as np
@@ -28,7 +29,7 @@ from returns.result import Result, Success, Failure
 
 
 class CibersortXDockerConfig(BaseModel):
-    """Configuration options for CIBERSORTx Docker container."""
+    """Configuration options for CIBERSORTx Docker / Podman container."""
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
@@ -42,6 +43,8 @@ class CibersortXDockerConfig(BaseModel):
     absolute: bool = False
     abs_method: str = "sigscore"
     docker_binary: str = "docker"
+    pull_never: bool = False
+    image_archive: Maybe[Path] = Field(default=Nothing)
     timeout_seconds: int = 3600
 
 
@@ -168,6 +171,27 @@ def format_cibersort_matrix(
     return Success(buf.getvalue())
 
 
+def is_cscs_environment() -> bool:
+    """Detect CSCS Alps / Eiger execution environment or offline mode."""
+    return (
+        os.environ.get("TME_DISABLE_DOWNLOADS", "0") == "1"
+        or os.environ.get("CLUSTER_NAME", "").lower() == "eiger"
+        or Path("/ritom/scratch").exists()
+        or Path("/capstor/store").exists()
+    )
+
+
+def default_cibersortx_tar_path() -> Path:
+    """Resolve default pre-staged CIBERSORTx OCI/Docker archive path on $SCRATCH."""
+    explicit = os.environ.get("CIBERSORTX_IMAGE_TAR", "").strip()
+    if explicit:
+        return Path(explicit)
+    data_dir = os.environ.get(
+        "TME_DATA_DIR", "/ritom/scratch/cscs/lhaeuser/data-test"
+    ).strip()
+    return Path(data_dir) / "containers" / "cibersortx_fractions.tar"
+
+
 def build_cibersortx_docker_command(
     config: CibersortXDockerConfig,
     username: str,
@@ -176,15 +200,20 @@ def build_cibersortx_docker_command(
     output_dir: str,
     sig_filename: str,
     mix_filename: str,
+    container_binary: str = "",
+    pull_never: bool = False,
 ) -> list[str]:
     """Construct declarative CLI command argument list for running CIBERSORTx container."""
     sig_basename = Path(sig_filename).name
     mix_basename = Path(mix_filename).name
+    effective_bin = container_binary if container_binary else config.docker_binary
+    effective_pull_never = pull_never or config.pull_never
 
     cmd = [
-        config.docker_binary,
+        effective_bin,
         "run",
         "--rm",
+        *(["--pull=never"] if effective_pull_never else []),
         "--platform",
         "linux/amd64",
         "-v",
@@ -306,18 +335,102 @@ def parse_cibersortx_results(content: str) -> Result[CibersortXResult, str]:
 
 
 def is_docker_available(docker_binary: str = "docker") -> bool:
-    """Check if the Docker binary and daemon are reachable."""
+    """Check if the container runtime binary (Docker or rootless Podman) is reachable."""
     try:
         proc = subprocess.run(
             [docker_binary, "info"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=5,
+            timeout=10,
             check=False,
         )
         return proc.returncode == 0
     except (FileNotFoundError, subprocess.SubprocessError, PermissionError):
         return False
+
+
+def resolve_container_binary(preferred: str = "docker") -> str:
+    """
+    Resolve an operational OCI container runtime ('docker' locally or rootless 'podman' on CSCS Eiger).
+
+    Respects explicit custom binary overrides while auto-falling back from default 'docker'
+    to 'podman' when 'docker' is absent (e.g. CSCS Alps Eiger compute nodes).
+    """
+    env_override = os.environ.get("CIBERSORTX_CONTAINER_BINARY", "").strip()
+    if preferred not in {"docker", "auto"}:
+        return preferred
+    if env_override:
+        return env_override
+    if is_docker_available("docker"):
+        return "docker"
+    if is_docker_available("podman"):
+        return "podman"
+    if not shutil.which("docker") and shutil.which("podman"):
+        return "podman"
+    return "docker"
+
+
+def is_container_image_present(container_binary: str, image_name: str) -> bool:
+    """Check whether `image_name` already exists in local Docker/Podman storage."""
+    try:
+        proc = subprocess.run(
+            [container_binary, "image", "inspect", image_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=15,
+            check=False,
+        )
+        return proc.returncode == 0
+    except (FileNotFoundError, subprocess.SubprocessError, PermissionError):
+        return False
+
+
+def ensure_cibersortx_image_loaded(
+    container_binary: str,
+    image_name: str,
+    archive_path: Maybe[Path] = Nothing,
+) -> Result[bool, str]:
+    """
+    Ensure `image_name` is loaded in local container storage without pulling from the internet on CSCS.
+
+    On CSCS Eiger compute nodes, rootless Podman uses per-node `/dev/shm/$USER/root` RAM storage,
+    so the pre-staged tarball on `$SCRATCH/data-test/containers/cibersortx_fractions.tar` is
+    automatically loaded via `podman load -i` on first invocation per node.
+    """
+    if is_container_image_present(container_binary, image_name):
+        return Success(True)
+
+    tar_path = archive_path.value_or(default_cibersortx_tar_path())
+    if tar_path.is_file():
+        try:
+            proc = subprocess.run(
+                [container_binary, "load", "-i", str(tar_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=600,
+                check=False,
+                text=True,
+            )
+        except Exception as exc:
+            return Failure(
+                f"Failed to load CIBERSORTx archive '{tar_path}' via '{container_binary} load': {exc}"
+            )
+        if proc.returncode != 0:
+            return Failure(
+                f"'{container_binary} load -i {tar_path}' exited with code {proc.returncode}: "
+                f"{proc.stderr.strip() if proc.stderr else proc.stdout.strip()}"
+            )
+        return Success(True)
+
+    if is_cscs_environment():
+        return Failure(
+            f"CIBERSORTx image '{image_name}' is not present in '{container_binary}' storage "
+            f"and offline archive '{tar_path}' was not found. Internet image pulls are disabled on CSCS Eiger. "
+            f"Export locally with 'docker save -o cibersortx_fractions.tar {image_name}', "
+            f"transfer to $STORE/halu/data-test/containers/, and stage to $SCRATCH/data-test/containers/."
+        )
+
+    return Success(False)
 
 
 def run_cibersortx_docker(
@@ -332,7 +445,7 @@ def run_cibersortx_docker(
     ] = Nothing,
 ) -> Result[CibersortXResult, str]:
     """
-    Run CIBERSORTx deconvolution using the official Docker container.
+    Run CIBERSORTx deconvolution using Docker locally or rootless Podman on CSCS Eiger.
 
     Parameters:
         mixture: 2D array of shape (genes x samples)
@@ -371,8 +484,17 @@ def run_cibersortx_docker(
         case Success(mix_text):
             pass
 
-    # 3. Create temporary workspace directories
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir_raw:
+    effective_bin = resolve_container_binary(config.docker_binary)
+    cscs_offline = is_cscs_environment()
+    tmpdir_env = os.environ.get("TMPDIR", "").strip()
+    temp_ctx = (
+        tempfile.TemporaryDirectory(dir=tmpdir_env, ignore_cleanup_errors=True)
+        if tmpdir_env and Path(tmpdir_env).is_dir()
+        else tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    )
+
+    # 3. Create temporary workspace directories (uses $TMPDIR on $SCRATCH when set)
+    with temp_ctx as tmpdir_raw:
         tmpdir = Path(tmpdir_raw)
         in_dir = tmpdir / "input"
         out_dir = tmpdir / "output"
@@ -392,9 +514,11 @@ def run_cibersortx_docker(
             output_dir=str(out_dir),
             sig_filename="sigmatrix.txt",
             mix_filename="mixture.txt",
+            container_binary=effective_bin,
+            pull_never=config.pull_never or cscs_offline,
         )
 
-        # 4. Injected mock runner branch (for testing without Docker)
+        # 4. Injected mock runner branch (for testing without Docker/Podman)
         match mock_runner:
             case Some(runner):
                 run_res = runner(cmd, in_dir, out_dir)
@@ -406,11 +530,21 @@ def run_cibersortx_docker(
             case Nothing:
                 pass
 
-        # 5. Live Docker execution
-        if not is_docker_available(config.docker_binary):
+        # 5. Live Docker / Podman execution
+        if not is_docker_available(effective_bin):
             return Failure(
-                f"Docker binary '{config.docker_binary}' or Docker daemon is unavailable."
+                f"Docker/Podman binary '{effective_bin}' or container runtime is unavailable."
             )
+
+        match ensure_cibersortx_image_loaded(
+            container_binary=effective_bin,
+            image_name=config.image_name,
+            archive_path=config.image_archive,
+        ):
+            case Failure(img_err):
+                return Failure(img_err)
+            case Success(_):
+                pass
 
         try:
             proc = subprocess.run(

@@ -10,9 +10,12 @@ from returns.result import Success, Failure
 from bayesprism.adapters.cibersortx_docker import (
     CibersortXDockerConfig,
     CibersortXResult,
+    default_cibersortx_tar_path,
+    ensure_cibersortx_image_loaded,
     format_cibersort_matrix,
     build_cibersortx_docker_command,
     resolve_cibersortx_credentials,
+    resolve_container_binary,
     parse_cibersortx_results,
     run_cibersortx_docker,
     is_docker_available,
@@ -265,3 +268,46 @@ def test_docker_missing_graceful_failure() -> None:
             assert "unavailable" in err.lower() or "docker" in err.lower()
         case Success(_):
             raise AssertionError("Should have failed gracefully when Docker is missing")
+
+
+def test_podman_command_and_cscs_pull_never(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify rootless Podman binary resolution, --pull=never flag, and offline archive check on CSCS."""
+    cfg = CibersortXDockerConfig(username="u@test.org", token="tok")
+    cmd = build_cibersortx_docker_command(
+        config=cfg,
+        username="u@test.org",
+        token="tok",
+        input_dir="/scratch/in",
+        output_dir="/scratch/out",
+        sig_filename="sig.txt",
+        mix_filename="mix.txt",
+        container_binary="podman",
+        pull_never=True,
+    )
+    assert cmd[0] == "podman"
+    assert "--pull=never" in cmd
+
+    # Explicit binary override is preserved
+    assert resolve_container_binary("custom_podman_bin") == "custom_podman_bin"
+
+    # Environment variable override
+    monkeypatch.setenv("CIBERSORTX_CONTAINER_BINARY", "podman")
+    assert resolve_container_binary("docker") == "podman"
+    monkeypatch.delenv("CIBERSORTX_CONTAINER_BINARY", raising=False)
+
+    # Default tar path uses TME_DATA_DIR/containers/cibersortx_fractions.tar
+    monkeypatch.setenv("TME_DATA_DIR", str(tmp_path / "data-test"))
+    monkeypatch.delenv("CIBERSORTX_IMAGE_TAR", raising=False)
+    assert default_cibersortx_tar_path() == tmp_path / "data-test" / "containers" / "cibersortx_fractions.tar"
+
+    # On CSCS with missing image and missing tarball, ensure_cibersortx_image_loaded returns Failure without pulling
+    monkeypatch.setenv("TME_DISABLE_DOWNLOADS", "1")
+    match ensure_cibersortx_image_loaded(
+        container_binary="non_existent_podman_xyz",
+        image_name="cibersortx/fractions",
+        archive_path=Some(tmp_path / "missing.tar"),
+    ):
+        case Failure(err):
+            assert "disabled on cscs" in err.lower()
+        case Success(_):
+            raise AssertionError("Should block internet image pulls on CSCS when archive is missing")

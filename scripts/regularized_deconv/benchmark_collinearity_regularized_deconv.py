@@ -75,17 +75,48 @@ except Exception:
     pass
 
 
+def _default_output_root() -> Path:
+    import os
+
+    data_dir = os.environ.get("TME_DATA_DIR", "").strip()
+    return Path(data_dir) / "output" if data_dir else Path("output")
+
+
+def _default_ref_path() -> Path:
+    import os
+
+    mp_root = os.environ.get("TME_PIPELINE_OUTPUT_ROOT", "").strip()
+    candidates = [
+        *(
+            [
+                Path(mp_root) / "3f1_build_sf_reference" / "reference_phi_res0.5.parquet",
+                Path(mp_root) / "stage3_deconvolution" / "3f1_build_sf_reference" / "reference_phi_res0.5.parquet",
+            ]
+            if mp_root
+            else []
+        ),
+        _default_output_root() / "manuscript_pipeline" / "3f1_build_sf_reference" / "reference_phi_res0.5.parquet",
+        _default_output_root() / "sade_feldman_deconv_validation" / "reference_phi_res0.5.parquet",
+        Path("output/manuscript_pipeline/3f1_build_sf_reference/reference_phi_res0.5.parquet"),
+        Path("output/output/sade_feldman_deconv_validation/reference_phi_res0.5.parquet"),
+    ]
+    for cand in candidates:
+        if cand.exists():
+            return cand
+    return candidates[0]
+
+
 class BenchmarkPaths(BaseModel):
     model_config = ConfigDict(frozen=True)
-    ref_path: Path = Path("output/output/sade_feldman_deconv_validation/reference_phi_res0.5.parquet")
+    ref_path: Path = _default_ref_path()
     hugo_tpm_path: Path = Path(
         "scratch/lair/CBioPortalDataset-Hugo-iAtlas/mel_iatlas_hugo_ucla_2016/mel_iatlas_hugo_ucla_2016/data_mrna_seq_tpm.txt"
     )
     hugo_clin_path: Path = Path(
         "scratch/lair/CBioPortalDataset-Hugo-iAtlas/mel_iatlas_hugo_ucla_2016/mel_iatlas_hugo_ucla_2016/data_clinical_sample.txt"
     )
-    sc_effects_path: Path = Path("output/concordance/sc_patient_response_effects.parquet")
-    out_dir: Path = Path("output/concordance")
+    sc_effects_path: Path = _default_output_root() / "concordance" / "sc_patient_response_effects.parquet"
+    out_dir: Path = _default_output_root() / "concordance"
     cibersortx_username: str = ""
     cibersortx_token: str = ""
 
@@ -94,7 +125,7 @@ def run_multi_regime_synthetic_benchmark(
     n_samples: int = 50,
     n_genes: int = 400,
     seed: int = 42,
-    out_dir: Path = Path("output/concordance"),
+    out_dir: Path = _default_output_root() / "concordance",
     cibersortx_username: str = "",
     cibersortx_token: str = "",
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -275,19 +306,72 @@ def run_multi_regime_synthetic_benchmark(
 
 
 
+def _load_hugo_bulk_and_clinical(
+    paths: BenchmarkPaths,
+) -> Result[tuple[pd.DataFrame, pd.Series], str]:
+    """Load Hugo-iAtlas TPM (genes x samples) and binary response from raw TSVs or tme_datasets."""
+    if paths.hugo_tpm_path.exists() and paths.hugo_clin_path.exists():
+        bulk_df = pd.read_csv(paths.hugo_tpm_path, sep="\t", index_col=0)
+        bulk_df.index = bulk_df.index.astype(str).str.upper()
+        bulk_df = bulk_df.groupby(level=0).mean()
+        clin_df = pd.read_csv(paths.hugo_clin_path, sep="\t", skiprows=4).set_index("SAMPLE_ID")
+        resp_series = clin_df["RESPONSE"].astype(str)
+        return Success((bulk_df, resp_series))
+
+    try:
+        from tme_datasets import load_dataset
+
+        adata = load_dataset("Hugo-iAtlas", auto_download=False)
+    except Exception as exc:
+        return Failure(f"Hugo-iAtlas unavailable via paths or tme_datasets: {exc}")
+
+    gene_symbols = (
+        adata.var["gene_name"].astype(str).str.upper().tolist()
+        if "gene_name" in adata.var.columns
+        else [str(g).upper() for g in adata.var_names]
+    )
+    mat = adata.layers["tpm"] if "tpm" in adata.layers else adata.X
+    dense = np.asarray(mat.toarray() if hasattr(mat, "toarray") else mat, dtype=np.float64)
+    if np.nanmax(dense) < 50.0:
+        dense = np.maximum(np.expm1(dense * np.log(2.0)), 0.0)
+    row_sums = dense.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0.0] = 1.0
+    dense_tpm = (dense / row_sums) * 1e6
+
+    bulk_df = pd.DataFrame(
+        dense_tpm.T,
+        index=pd.Index(gene_symbols, name="GeneSymbol"),
+        columns=adata.obs_names.astype(str),
+    )
+    bulk_df = bulk_df.groupby(level=0).mean()
+
+    if "response_binary" in adata.obs.columns:
+        raw_r = pd.to_numeric(adata.obs["response_binary"], errors="coerce")
+        valid = raw_r.isin([0, 1, 0.0, 1.0])
+        resp_labels = pd.Series(
+            ["responder" if float(v) == 1.0 else "non-responder" for v in raw_r[valid]],
+            index=adata.obs_names[valid].astype(str),
+            name="RESPONSE",
+        )
+        return Success((bulk_df, resp_labels))
+
+    return Failure("Hugo-iAtlas h5ad is missing 'response_binary' column.")
+
+
 def run_clinical_sade_feldman_benchmark(
     paths: BenchmarkPaths,
 ) -> Result[pl.DataFrame, str]:
     """Run real-world clinical benchmark comparing state-level effects against single-cell Milo DA."""
-    if not (paths.ref_path.exists() and paths.hugo_tpm_path.exists() and paths.hugo_clin_path.exists()):
-        return Failure(f"One or more input files do not exist: {paths}")
+    if not (paths.ref_path.exists() and paths.sc_effects_path.exists()):
+        return Failure(f"Reference or single-cell effects file missing: {paths}")
+
+    match _load_hugo_bulk_and_clinical(paths):
+        case Failure(err):
+            return Failure(err)
+        case Success((bulk_df, resp_series)):
+            pass
 
     ref_df = pl.read_parquet(paths.ref_path)
-    bulk_df = pd.read_csv(paths.hugo_tpm_path, sep="\t", index_col=0)
-    bulk_df.index = bulk_df.index.astype(str).str.upper()
-    bulk_df = bulk_df.groupby(level=0).mean()
-
-    clin_df = pd.read_csv(paths.hugo_clin_path, sep="\t", skiprows=4).set_index("SAMPLE_ID")
     sc_df = pl.read_parquet(paths.sc_effects_path)
 
     clusters = ref_df["cluster"].to_list()
@@ -299,7 +383,7 @@ def run_clinical_sade_feldman_benchmark(
     sub_ref = ref_mat[:, ref_gene_indices]
 
     sub_bulk = bulk_df.loc[common_genes].T
-    sample_ids = [s for s in list(sub_bulk.index) if s in clin_df.index]
+    sample_ids = [s for s in list(sub_bulk.index) if s in resp_series.index]
     bulk_counts = np.round(sub_bulk.loc[sample_ids].to_numpy().astype(np.float64)).astype(np.int64)
 
     # 1. Unregularized Flat Deconvolution
@@ -388,7 +472,7 @@ def run_clinical_sade_feldman_benchmark(
 
     # Evaluate point-biserial response associations
     responses = np.array([
-        1.0 if str(clin_df.loc[s, "RESPONSE"]).strip().lower() in ["complete response", "partial response", "responder"] else 0.0
+        1.0 if str(resp_series.loc[s]).strip().lower() in ["complete response", "partial response", "responder"] else 0.0
         for s in sample_ids
     ], dtype=np.float64)
 

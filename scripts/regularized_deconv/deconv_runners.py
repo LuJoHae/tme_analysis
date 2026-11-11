@@ -42,9 +42,12 @@ from bayesprism.adapters.rectangle import (
 )
 from bayesprism.adapters.cibersortx_docker import (
     CibersortXDockerConfig,
+    ensure_cibersortx_image_loaded,
+    is_cscs_environment,
     run_cibersortx_docker,
     is_docker_available,
     resolve_cibersortx_credentials,
+    resolve_container_binary,
 )
 from .synthetic_data import SyntheticSignature
 
@@ -153,26 +156,38 @@ def run_single_method(
             return res_ciber.proportions.select(list(state_names)).to_numpy()
 
         case "CIBERSORTx (Docker)":
-            # Attempt to run Docker container if available
+            # Attempt to run Docker or rootless Podman container if available
             creds_user = cibersortx_credentials.value_or(("", ""))[0]
             creds_tok = cibersortx_credentials.value_or(("", ""))[1]
+            resolved_bin = resolve_container_binary("auto")
+            cscs_mode = is_cscs_environment()
             cfg_cx = CibersortXDockerConfig(
                 username=creds_user,
                 token=creds_tok,
                 n_perm=0,
+                docker_binary=resolved_bin,
+                pull_never=cscs_mode,
             )
             has_creds = isinstance(resolve_cibersortx_credentials(cfg_cx), Success)
-            docker_up = is_docker_available(cfg_cx.docker_binary)
+            docker_up = is_docker_available(resolved_bin)
+            image_ok = (
+                isinstance(
+                    ensure_cibersortx_image_loaded(resolved_bin, cfg_cx.image_name),
+                    Success,
+                )
+                if (docker_up and cscs_mode)
+                else docker_up
+            )
             theta = np.zeros((N, S), dtype=np.float64)
 
-            if docker_up and has_creds:
+            if docker_up and image_ok and has_creds:
                 res = run_cibersortx_docker(
                     mixture=mixture.T,
-                    reference=phi.T,
+                    signature=phi.T,
                     sample_names=samples,
                     gene_names=gene_names,
                     cell_types=state_names,
-                    config=Some(cfg_cx),
+                    config=cfg_cx,
                 )
                 match res:
                     case Success(ciber_res):
@@ -183,7 +198,7 @@ def run_single_method(
                         # Fallback to CIBERSORT reimpl if container execution fails
                         return run_single_method("CIBERSORT (reimpl., nu-SVR)", mixture, signature, sample_names)
             else:
-                # Fallback to CIBERSORT reimpl if Docker is offline
+                # Fallback to CIBERSORT reimpl if Docker/Podman is offline or image archive absent
                 return run_single_method("CIBERSORT (reimpl., nu-SVR)", mixture, signature, sample_names)
 
         case "InstaPrism":

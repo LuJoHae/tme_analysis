@@ -78,6 +78,15 @@ def export_chart_svg(
                     lambda m: f'font-size: {max(min_font_size, float(m.group(1)))}px',
                     svg_content,
                 )
+            svg_content = re.sub(
+                r'(<text[^>]*)(>Deconvolution Inference \(Our\)</text>)',
+                lambda m: (
+                    m.group(1) + ' font-weight="bold"'
+                    if 'font-weight=' not in m.group(1)
+                    else re.sub(r'font-weight="[^"]*"', 'font-weight="bold"', m.group(1))
+                ) + m.group(2),
+                svg_content,
+            )
 
             if target_width_mm is not None:
                 match_dims = re.search(

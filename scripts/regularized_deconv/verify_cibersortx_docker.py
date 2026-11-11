@@ -23,16 +23,20 @@ from returns.result import Success, Failure
 
 from bayesprism.adapters.cibersortx_docker import (
     CibersortXDockerConfig,
+    default_cibersortx_tar_path,
+    ensure_cibersortx_image_loaded,
+    is_cscs_environment,
     is_docker_available,
     resolve_cibersortx_credentials,
+    resolve_container_binary,
     run_cibersortx_docker,
 )
 
 
 def verify_cibersortx_environment() -> int:
-    """Run comprehensive verification of CIBERSORTx Docker requirements."""
+    """Run comprehensive verification of CIBERSORTx Docker / Podman requirements."""
     print("=" * 80)
-    print(" CIBERSORTx Docker Integration & Credential Verification")
+    print(" CIBERSORTx Container (Docker / Rootless Podman) & Credential Verification")
     print("=" * 80)
 
     # 0. Host & Execution Environment Details
@@ -40,32 +44,44 @@ def verify_cibersortx_environment() -> int:
     os_sys = platform.system()
     arch = platform.machine()
     py_exec = sys.executable
-    print(f"[INFO] Host: {host_node} ({os_sys} {arch})")
+    cscs_mode = is_cscs_environment()
+    print(f"[INFO] Host: {host_node} ({os_sys} {arch}) | CSCS offline mode: {cscs_mode}")
     print(f"[INFO] Python Interpreter: {py_exec}")
 
-    # 1. Check Docker Binary
-    docker_bin = shutil.which("docker")
-    if docker_bin:
-        print(f"[OK] Docker CLI found: {docker_bin}")
+    # 1. Check Container Runtime Binary (Docker or Podman)
+    resolved_bin = resolve_container_binary("auto")
+    bin_path = shutil.which(resolved_bin)
+    if bin_path:
+        print(f"[OK] Container CLI found ({resolved_bin}): {bin_path}")
         try:
-            ver_proc = subprocess.run([docker_bin, "--version"], capture_output=True, text=True, check=True)
+            ver_proc = subprocess.run([bin_path, "--version"], capture_output=True, text=True, check=True)
             print(f"     Version: {ver_proc.stdout.strip()}")
         except Exception:
             pass
     else:
-        print("[FAIL] Docker CLI not found in PATH.")
+        print("[FAIL] Neither Docker nor Podman CLI found in PATH.")
 
-    # 2. Check Docker Daemon Reachability
-    docker_reachable = is_docker_available(docker_bin or "docker")
-    if docker_reachable:
-        print("[OK] Docker daemon is running and accessible.")
+    # 2. Check Container Runtime Reachability & Offline Image Archive
+    runtime_reachable = is_docker_available(resolved_bin)
+    if runtime_reachable:
+        print(f"[OK] Container runtime '{resolved_bin}' is running and accessible.")
     else:
-        print("[WARN] Docker daemon is not accessible from current environment.")
-        print("       (Note: When running inside restricted sandboxes, socket access is denied.")
-        print("        Execute directly in your terminal: `docker info` to verify).")
+        print(f"[WARN] Container runtime '{resolved_bin}' is not accessible from current environment.")
+        print("       (On CSCS Eiger, run inside a compute allocation via `make verify-cibersortx`.)")
+
+    image_ready = True
+    if runtime_reachable and cscs_mode:
+        tar_path = default_cibersortx_tar_path()
+        print(f"[INFO] Checking CSCS offline image / archive ({tar_path})...")
+        match ensure_cibersortx_image_loaded(resolved_bin, "cibersortx/fractions"):
+            case Success(_):
+                print(f"[OK] 'cibersortx/fractions' image is loaded in {resolved_bin} storage.")
+            case Failure(img_err):
+                image_ready = False
+                print(f"[WARN] {img_err}")
 
     # 3. Check Credentials
-    config = CibersortXDockerConfig()
+    config = CibersortXDockerConfig(docker_binary=resolved_bin, pull_never=cscs_mode)
     cred_res = resolve_cibersortx_credentials(config)
 
     has_credentials = False
@@ -97,8 +113,8 @@ def verify_cibersortx_environment() -> int:
             print("To obtain a token: Register for a free academic account at https://cibersortx.stanford.edu")
             print("-" * 80 + "\n")
 
-    # 4. Optional Smoke Test (if Docker daemon is reachable and credentials exist)
-    if docker_reachable and has_credentials:
+    # 4. Optional Smoke Test (if Docker/Podman runtime is reachable and credentials exist)
+    if runtime_reachable and image_ready and has_credentials:
         print("[INFO] Running 2-sample mini smoke test with `cibersortx/fractions` container...")
         genes = tuple(f"Gene_{i:02d}" for i in range(10))
         cell_types = ("TypeA", "TypeB")

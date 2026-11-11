@@ -9,6 +9,7 @@ import html
 import math
 from pathlib import Path
 import re
+import shutil
 import struct
 import subprocess
 from typing import Final, Sequence
@@ -686,6 +687,93 @@ def svg_chip(
     </g>"""
 
 
+def _compute_svg_base_width_px(svg_content: str) -> float:
+    """Compute the CSS 96-PPI base width in pixels of an SVG document for `vl_convert` scaling."""
+    try:
+        root = ET.fromstring(svg_content)
+        w_attr = root.attrib.get("width", "").strip()
+        if w_attr:
+            val = _parse_float(w_attr, default=0.0)
+            if val > 0.0:
+                if w_attr.endswith("mm"):
+                    return val * 96.0 / 25.4
+                if w_attr.endswith("cm"):
+                    return val * 96.0 / 2.54
+                if w_attr.endswith("in"):
+                    return val * 96.0
+                if w_attr.endswith("pt"):
+                    return val * 96.0 / 72.0
+                return val
+        viewbox = root.attrib.get("viewBox", "")
+        if viewbox:
+            parts = viewbox.split()
+            if len(parts) == 4 and float(parts[2]) > 0.0:
+                return float(parts[2])
+    except Exception:
+        pass
+    return 1000.0
+
+
+def rasterize_svg_to_png(
+    svg_path: Path,
+    png_path: Path,
+    width_px: int | None = None,
+    height_px: int | None = None,
+    scale: float = 2.0,
+    background: str | None = "white",
+    rsvg_bin: str | Path | None = None,
+) -> Result[Path, str]:
+    """Rasterize an SVG file to a 300 DPI PNG via `rsvg-convert` or headless `vl_convert.svg_to_png`.
+
+    On systems with `librsvg` (`rsvg-convert`) installed (e.g. macOS workstations), uses
+    `rsvg-convert` directly. On headless HPC compute nodes without `rsvg-convert` (such as
+    CSCS Alps Eiger), falls back transparently to `vl_convert.svg_to_png` (`resvg` Rust engine
+    bundled inside `.venv`).
+    """
+    if not svg_path.exists():
+        return Failure(f"SVG file does not exist: {svg_path}")
+
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    candidates: tuple[str | None, ...] = (
+        str(rsvg_bin) if rsvg_bin else None,
+        shutil.which("rsvg-convert"),
+        "/opt/homebrew/bin/rsvg-convert",
+        "/usr/local/bin/rsvg-convert",
+        "/usr/bin/rsvg-convert",
+    )
+    resolved_rsvg = next((c for c in candidates if c and Path(c).exists()), None)
+
+    if resolved_rsvg is not None:
+        cmd: list[str] = [resolved_rsvg, "-d", "300", "-p", "300"]
+        if width_px is not None:
+            cmd.extend(["-w", str(width_px)])
+        if height_px is not None:
+            cmd.extend(["-h", str(height_px)])
+        if background is not None:
+            cmd.extend(["-b", background])
+        cmd.extend([str(svg_path), "-o", str(png_path)])
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
+            return Success(png_path)
+
+    try:
+        svg_text = svg_path.read_text(encoding="utf-8")
+        eff_scale = (
+            max(0.25, float(width_px) / max(1.0, _compute_svg_base_width_px(svg_text)))
+            if width_px is not None
+            else max(0.25, float(scale))
+        )
+        png_bytes = vlc.svg_to_png(svg_text, scale=eff_scale)
+        png_path.write_bytes(png_bytes)
+        return (
+            Success(png_path)
+            if png_path.exists() and png_path.stat().st_size > 0
+            else Failure(f"vl_convert produced an empty PNG at {png_path}")
+        )
+    except Exception as exc:
+        return Failure(f"SVG-to-PNG rasterization failed for {svg_path}: {exc}")
+
+
 def verify_and_rasterize_svg(
     svg_content_or_path: str | Path,
     output_svg_path: Path,
@@ -751,41 +839,20 @@ def verify_and_rasterize_svg(
         return Failure(f"Invalid XML syntax or SVG verification failure: {exc}")
 
     if output_png_path is not None:
-        output_png_path.parent.mkdir(parents=True, exist_ok=True)
         raster_w = int(width * scale)
         raster_h = int(height * scale)
-
-        candidates = [
-            Path(rsvg_bin) if rsvg_bin else None,
-            Path("/opt/homebrew/bin/rsvg-convert"),
-            Path("/usr/local/bin/rsvg-convert"),
-            Path("/usr/bin/rsvg-convert"),
-        ]
-        found_bin: Path | str | None = next((p for p in candidates if p and p.exists()), None)
-        if found_bin is None:
-            found_bin = "rsvg-convert"
-
-        try:
-            subprocess.run(
-                [
-                    str(found_bin),
-                    "-w",
-                    str(raster_w),
-                    "-h",
-                    str(raster_h),
-                    str(output_svg_path),
-                    "-o",
-                    str(output_png_path),
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except subprocess.CalledProcessError as cpe:
-            return Failure(f"rsvg-convert execution failed ({found_bin}): {cpe.stderr}")
-        except FileNotFoundError:
-            # Fallback to in-memory vl_convert if rsvg-convert is missing from system
-            png_bytes = vlc.svg_to_png(svg_content, scale=scale)
-            output_png_path.write_bytes(png_bytes)
+        match rasterize_svg_to_png(
+            svg_path=output_svg_path,
+            png_path=output_png_path,
+            width_px=raster_w,
+            height_px=raster_h,
+            scale=scale,
+            background=None,
+            rsvg_bin=rsvg_bin,
+        ):
+            case Failure(err):
+                return Failure(err)
+            case Success(_):
+                pass
 
     return Success(output_svg_path)

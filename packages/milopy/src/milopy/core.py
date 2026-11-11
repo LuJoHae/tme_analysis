@@ -155,6 +155,9 @@ def test_nhoods(adata, design, design_df, model_contrasts=None):
     # Create DGEList
     y = ep.make_dgelist(counts=counts_matrix)
     y = ep.calc_norm_factors(y, method="TMM")
+    norm_factors = np.asarray(y["samples"]["norm.factors"], dtype=float)
+    if not np.all(np.isfinite(norm_factors)) or np.any(norm_factors <= 0):
+        y["samples"]["norm.factors"] = np.ones(counts_matrix.shape[1], dtype=float)
     
     # Create design matrix using patsy
     design_mat = patsy.dmatrix(design, design_df, return_type='dataframe')
