@@ -7,8 +7,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Mapping, Sequence
 
-import anndata.io
-import h5py
+import anndata.io  # type: ignore[import-untyped]
+import h5py  # type: ignore[import-untyped]
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -122,7 +122,7 @@ class H5ADSparseIncrementalWriter:
     def append_batch(
         self,
         obs_chunk: pd.DataFrame,
-        X_chunk: sp.spmatrix | np.ndarray,
+        X_chunk: sp.spmatrix[Any] | np.ndarray[Any, Any],
     ) -> None:
         """Append a batch of observation rows and sparse matrix data.
 
@@ -134,10 +134,14 @@ class H5ADSparseIncrementalWriter:
             raise RuntimeError("Cannot append to a closed or uninitialized H5ADSparseIncrementalWriter")
 
         # Ensure CSR float32 format
-        if not sp.isspmatrix_csr(X_chunk):
-            X_csr = sp.csr_matrix(X_chunk, dtype=np.float32)
+        if isinstance(X_chunk, sp.csr_matrix):
+            X_csr: sp.csr_matrix[np.float32] = (
+                X_chunk.astype(np.float32) if X_chunk.dtype != np.float32 else X_chunk
+            )
+        elif isinstance(X_chunk, np.ndarray):
+            X_csr = sp.csr_matrix(np.asarray(X_chunk, dtype=np.float32))
         else:
-            X_csr = X_chunk.astype(np.float32) if X_chunk.dtype != np.float32 else X_chunk
+            X_csr = sp.csr_matrix(X_chunk, dtype=np.float32)  # type: ignore[call-overload]
 
         n_rows, n_cols = X_csr.shape
         if n_cols != self.n_vars:
@@ -253,3 +257,84 @@ class H5ADSparseIncrementalWriter:
                 clean_df[col] = clean_df[col].fillna("").astype(str)
 
         return clean_df
+
+
+def init_compressed_csr_group(
+    parent: h5py.File | h5py.Group,
+    name: str,
+    n_obs: int,
+    n_vars: int,
+    chunk_nnz: int = 262_144,
+    chunk_indptr: int = 32_768,
+) -> h5py.Group:
+    """Create a gzip-compressed extendable AnnData CSR matrix group (`X` or `layers/<name>`)."""
+    grp = parent.create_group(name)
+    grp.attrs["encoding-type"] = "csr_matrix"
+    grp.attrs["encoding-version"] = "0.1.0"
+    grp.attrs["shape"] = np.array([n_obs, n_vars], dtype=np.int64)
+    unbounded: tuple[int | None] = (None,)
+    grp.create_dataset(
+        "data",
+        shape=(0,),
+        maxshape=unbounded,
+        dtype=np.float32,
+        chunks=(chunk_nnz,),
+        compression="gzip",
+        compression_opts=4,
+    )
+    grp.create_dataset(
+        "indices",
+        shape=(0,),
+        maxshape=unbounded,
+        dtype=np.int32,
+        chunks=(chunk_nnz,),
+        compression="gzip",
+        compression_opts=4,
+    )
+    grp.create_dataset(
+        "indptr",
+        shape=(1,),
+        maxshape=unbounded,
+        dtype=np.int64,
+        chunks=(min(max(1, n_obs + 1), chunk_indptr),),
+        data=np.array([0], dtype=np.int64),
+    )
+    return grp
+
+
+def append_csr_batch_to_group(grp: h5py.Group, batch_csr: sp.csr_matrix) -> int:
+    """Append a CSR batch to an extendable HDF5 CSR group and return updated `nnz`."""
+    ds_data = grp["data"]
+    ds_indices = grp["indices"]
+    ds_indptr = grp["indptr"]
+
+    cur_nnz = int(ds_data.shape[0])
+    cur_indptr_len = int(ds_indptr.shape[0])
+    batch_nnz = int(batch_csr.nnz)
+    n_rows = int(batch_csr.shape[0])
+
+    if batch_nnz > 0:
+        ds_data.resize((cur_nnz + batch_nnz,))
+        ds_data[cur_nnz:] = batch_csr.data.astype(np.float32, copy=False)
+        ds_indices.resize((cur_nnz + batch_nnz,))
+        ds_indices[cur_nnz:] = batch_csr.indices.astype(np.int32, copy=False)
+
+    ds_indptr.resize((cur_indptr_len + n_rows,))
+    ds_indptr[cur_indptr_len:] = batch_csr.indptr[1:].astype(np.int64) + cur_nnz
+    grp.attrs["shape"] = np.array([cur_indptr_len - 1 + n_rows, int(grp.attrs["shape"][1])], dtype=np.int64)
+    return cur_nnz + batch_nnz
+
+
+def write_anndata_dataframe_elem(
+    parent: h5py.File | h5py.Group,
+    key: str,
+    df: pd.DataFrame,
+    default_index_name: str,
+) -> int:
+    """Sanitize a Pandas DataFrame (avoiding duplicate index/column name collisions) and write to HDF5."""
+    clean_df = H5ADSparseIncrementalWriter._sanitize_dataframe(df, default_index_name=default_index_name)
+    if clean_df.index.name in clean_df.columns:
+        clean_df.index.name = None
+    anndata.io.write_elem(parent, key, clean_df)
+    return len(clean_df)
+

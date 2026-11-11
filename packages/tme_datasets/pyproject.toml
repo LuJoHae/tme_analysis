@@ -17,9 +17,14 @@ dependencies = [
     "pyensembl>=2.3.0",
     "mygene>=3.2.0",
     "gdown>=5.1.0",
-    "fast-matrix-market>=1.7.0",
-    "harmonypy>=0.0.10",
+    "harmonypy==0.0.10",
+    "psutil>=5.9.0",
 ]
+
+[project.scripts]
+tme-datasets-ingest = "tme_datasets.pipeline.download_preprocess:main"
+tme-datasets-batch-preprocess = "tme_datasets.pipeline.batch_preprocess:main"
+tme-datasets-qc = "tme_datasets.pipeline.qc_orchestrator:main"
 
 [build-system]
 requires = ["hatchling"]

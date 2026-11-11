@@ -25,6 +25,8 @@ def is_cscs_environment(hostname: str | None = None) -> bool:
         return True
     if os.environ.get("CLUSTER_NAME", "").strip().lower() in {"eiger", "alps", "cscs"}:
         return True
+    if os.environ.get("SLURM_CLUSTER_NAME", "").strip().lower() in {"eiger", "alps", "cscs"}:
+        return True
     host = (hostname if hostname is not None else socket.gethostname()).lower()
     if host.startswith("eiger") or host.startswith("nid") or "cscs" in host or "alps" in host:
         return True
@@ -51,6 +53,7 @@ class DataPathsConfig(BaseModel):
     data_root: Path
     raw_dir: Path
     preprocessed_dir: Path
+    pseudobulk_dir: Path
     manual_download_dir: Path
     dataset_papers_dir: Path
     scratch_dir: Path
@@ -64,6 +67,7 @@ class DataPathsConfig(BaseModel):
     default_ensembl_release: int = 111
     default_species: str = "human"
     preprocessed_template: str = "{dataset_id}.h5ad"
+    pseudobulk_template: str = "{dataset_id}.parquet"
     raw_dataset_template: str = "{dataset_id}"
     overrides: Mapping[str, str] = Field(default_factory=dict)
 
@@ -147,6 +151,7 @@ def _get_data_paths_cached(
             data_root=base_data,
             raw_dir=base_data / "raw",
             preprocessed_dir=base_data / "preprocessed",
+            pseudobulk_dir=base_data / "pseudobulk",
             manual_download_dir=base_data / "manual_download",
             dataset_papers_dir=(root / paths_sec.get("dataset_papers_dir", "dataset_papers")).resolve(),
             scratch_dir=base_data / "scratch",
@@ -160,6 +165,7 @@ def _get_data_paths_cached(
             default_ensembl_release=int(paths_sec.get("default_ensembl_release", 111)),
             default_species=str(paths_sec.get("default_species", "human")),
             preprocessed_template=str(paths_sec.get("preprocessed_template", "{dataset_id}.h5ad")),
+            pseudobulk_template=str(paths_sec.get("pseudobulk_template", "{dataset_id}.parquet")),
             raw_dataset_template=str(paths_sec.get("raw_dataset_template", "{dataset_id}")),
             overrides=overrides,
         )
@@ -174,6 +180,7 @@ def _get_data_paths_cached(
         data_root=_resolve(str(paths_sec.get("data_root", "data"))),
         raw_dir=_resolve(str(paths_sec.get("raw_dir", "data/raw"))),
         preprocessed_dir=_resolve(str(paths_sec.get("preprocessed_dir", "data/preprocessed"))),
+        pseudobulk_dir=_resolve(str(paths_sec.get("pseudobulk_dir", "data/pseudobulk"))),
         manual_download_dir=_resolve(str(paths_sec.get("manual_download_dir", "data/manual_download"))),
         dataset_papers_dir=_resolve(str(paths_sec.get("dataset_papers_dir", "dataset_papers"))),
         scratch_dir=_resolve(str(paths_sec.get("scratch_dir", "scratch"))),
@@ -187,6 +194,7 @@ def _get_data_paths_cached(
         default_ensembl_release=int(paths_sec.get("default_ensembl_release", 111)),
         default_species=str(paths_sec.get("default_species", "human")),
         preprocessed_template=str(paths_sec.get("preprocessed_template", "{dataset_id}.h5ad")),
+        pseudobulk_template=str(paths_sec.get("pseudobulk_template", "{dataset_id}.parquet")),
         raw_dataset_template=str(paths_sec.get("raw_dataset_template", "{dataset_id}")),
         overrides=overrides,
     )
@@ -221,6 +229,84 @@ def get_preprocessed_h5ad_path(dataset_id: str, repo_root: Path | None = None) -
     cfg = get_data_paths(repo_root=repo_root)
     filename = cfg.preprocessed_template.format(dataset_id=dataset_id)
     return cfg.preprocessed_dir / filename
+
+
+def get_pseudobulk_dir(repo_root: Maybe[Path] = Nothing) -> Path:
+    """Return the canonical target directory for caching empirical pseudobulk parquets."""
+    match repo_root:
+        case Some(root_path):
+            cfg = get_data_paths(repo_root=root_path)
+        case _:
+            cfg = get_data_paths()
+    return validate_no_store_io(cfg.pseudobulk_dir)
+
+
+def get_pseudobulk_cache_path(
+    dataset_id: str,
+    cache_tag: Maybe[str] = Nothing,
+    repo_root: Maybe[Path] = Nothing,
+    cache_dir: Maybe[Path] = Nothing,
+) -> Path:
+    """Return the canonical target Parquet path for a dataset's cached empirical pseudobulk."""
+    match repo_root:
+        case Some(root_path):
+            cfg = get_data_paths(repo_root=root_path)
+        case _:
+            cfg = get_data_paths()
+
+    match cache_dir:
+        case Some(explicit_dir):
+            base_dir = validate_no_store_io(explicit_dir.resolve())
+        case _:
+            base_dir = validate_no_store_io(cfg.pseudobulk_dir)
+
+    match cache_tag:
+        case Some(tag) if len(tag.strip()) > 0:
+            stem = f"{dataset_id}__{tag.strip()}"
+        case _:
+            stem = dataset_id
+
+    filename = cfg.pseudobulk_template.format(dataset_id=stem)
+    return validate_no_store_io(base_dir / filename)
+
+
+def find_cached_pseudobulk(
+    dataset_id: str,
+    cache_tag: Maybe[str] = Nothing,
+    repo_root: Maybe[Path] = Nothing,
+    cache_dir: Maybe[Path] = Nothing,
+) -> Maybe[Path]:
+    """Locate an existing non-empty cached empirical pseudobulk Parquet file."""
+    primary_target = get_pseudobulk_cache_path(
+        dataset_id=dataset_id,
+        cache_tag=cache_tag,
+        repo_root=repo_root,
+        cache_dir=cache_dir,
+    )
+    if primary_target.exists() and primary_target.is_file() and primary_target.stat().st_size > 0:
+        return Some(primary_target)
+
+    # If an explicit cache_dir was provided and missed, do not silently fall back elsewhere
+    match cache_dir:
+        case Some(_):
+            return Nothing
+        case _:
+            pass
+
+    match cache_tag:
+        case Some(tag) if len(tag.strip()) > 0:
+            stem = f"{dataset_id}__{tag.strip()}"
+        case _:
+            stem = dataset_id
+
+    scratch_base = validate_no_store_io(
+        Path(os.environ.get("TME_DATA_DIR", str(DEFAULT_CSCS_SCRATCH_DATA_DIR)))
+    )
+    cluster_target = scratch_base / "pseudobulk" / f"{stem}.parquet"
+    if cluster_target.exists() and cluster_target.is_file() and cluster_target.stat().st_size > 0:
+        return Some(cluster_target)
+
+    return Nothing
 
 
 def get_raw_dataset_dir(dataset_id: str, repo_root: Path | None = None) -> Path:
@@ -265,17 +351,30 @@ def find_dataset_h5ad(dataset_id: str, repo_root: Path | None = None) -> Maybe[P
             return Some(resolved)
         return Nothing
 
-    # 2. Check strict preprocessed destination
+    # 2. Check strict preprocessed destination (supports repo_root, data_root, or direct preprocessed_dir)
     canonical_target = get_preprocessed_h5ad_path(dataset_id, repo_root=repo_root)
     if canonical_target.exists() and canonical_target.is_file() and canonical_target.stat().st_size > 0:
         return Some(canonical_target)
+
+    if repo_root is not None:
+        resolved_base = validate_no_store_io(Path(repo_root).resolve())
+        filename = cfg.preprocessed_template.format(dataset_id=dataset_id)
+        alt_candidates = (
+            (resolved_base / "preprocessed" / filename,)
+            if resolved_base.name != "preprocessed"
+            else (resolved_base / filename, resolved_base / "preprocessed" / filename)
+        )
+        for alt_target in alt_candidates:
+            if alt_target.exists() and alt_target.is_file() and alt_target.stat().st_size > 0:
+                return Some(alt_target)
 
     # 3. Check cluster scratch storage directory directly if available
     scratch_base = validate_no_store_io(
         Path(os.environ.get("TME_DATA_DIR", str(DEFAULT_CSCS_SCRATCH_DATA_DIR)))
     )
-    cluster_target = scratch_base / "preprocessed" / f"{dataset_id}.h5ad"
-    if cluster_target.exists() and cluster_target.is_file() and cluster_target.stat().st_size > 0:
-        return Some(cluster_target)
+    for sub in ("preprocessed", "manual_download"):
+        cluster_target = scratch_base / sub / f"{dataset_id}.h5ad"
+        if cluster_target.exists() and cluster_target.is_file() and cluster_target.stat().st_size > 0:
+            return Some(cluster_target)
 
     return Nothing

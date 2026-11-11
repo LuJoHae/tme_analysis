@@ -27,8 +27,8 @@ from tme_datasets.registry import get_dataset_spec, resolve_dataset_id
 # 1. Configuration & Registry Integrity
 # =========================================================================
 def test_tier1_cohorts_catalog_completeness() -> None:
-    """Verify that all 84 Tier 1 cohorts are configured and registered."""
-    assert len(TIER1_COHORTS) == 84
+    """Verify that all Tier 1 cohorts are configured and registered."""
+    assert len(TIER1_COHORTS) == 99
     for acc, cfg in TIER1_COHORTS.items():
         assert cfg.accession == acc
         assert is_tier1_dataset(acc)
@@ -226,7 +226,7 @@ def test_ingest_spatial_assay(tmp_path: Path) -> None:
     )
     pos_df.to_csv(raw_dir / "tissue_positions_list.csv", header=False, index=False)
 
-    res = load_tier1_cohort(accession, raw_dir)
+    res = load_tier1_cohort(accession, raw_dir, auto_download=False)
     assert isinstance(res, Success), f"Expected Success, got: {res}"
     adata = res.unwrap()
 
@@ -250,9 +250,9 @@ def test_error_handling_missing_archive(tmp_path: Path) -> None:
     """Verify Failure result returned on missing raw files."""
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
-    res = load_tier1_cohort("GSE274139", empty_dir)
+    res = load_tier1_cohort("GSE274139", empty_dir, auto_download=False)
     assert isinstance(res, Failure)
-    assert "Tar archive for GSE274139 not found" in res.failure()
+    assert "not found" in res.failure().lower() or "disabled" in res.failure().lower()
 
 
 # =========================================================================

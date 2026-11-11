@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 from typing import Any, Mapping, Sequence, Literal
 import anndata as ad
-from returns.maybe import Nothing, Some
+from returns.maybe import Maybe, Nothing, Some
 from returns.result import Failure, Result, Success
 
 from .genes.reconcile import reconcile_genes
@@ -105,6 +105,31 @@ from .providers.tier0_single_cell import (
 from .providers.tier1_single_cell import (
     is_tier1_dataset,
     load_tier1_cohort,
+)
+from .providers.tam_atlas import (
+    load_coulton_tam_atlas,
+)
+from .providers.caf_atlases import (
+    load_buechler_caf_atlas,
+    load_cords_caf_atlas,
+    load_gao_caf_atlas,
+)
+from .providers.tcell_atlases import (
+    load_chu_tcell_atlas,
+    load_shi_pancancer_atlas,
+    load_zheng_tcell_atlas,
+)
+
+_STREAMED_ATLAS_IDS: frozenset[str] = frozenset(
+    {
+        "Coulton_TAM_Atlas",
+        "Gao_CAF_Atlas",
+        "Cords_CAF_Atlas",
+        "Buechler_CAF_Atlas",
+        "Zheng_TCell_Atlas",
+        "Chu_TCell_Atlas",
+        "Shi_PanCancer_Atlas",
+    }
 )
 from .registry import (
     get_dataset_spec,
@@ -206,6 +231,76 @@ def _dispatch_load(
 
         case "GSE215120":
             return load_zhang_myeloid(raw_dir, auto_download=auto_download, subset=subset, subsample_n=subsample_n)
+
+        case "Coulton_TAM_Atlas":
+            return load_coulton_tam_atlas(
+                raw_dir=Some(raw_dir),
+                auto_download=auto_download,
+                force_download=force_download,
+                subset=subset,
+                subsample_n=subsample_n,
+                repo_root=Some(root),
+            )
+
+        case "Gao_CAF_Atlas":
+            return load_gao_caf_atlas(
+                raw_dir=Some(raw_dir),
+                auto_download=auto_download,
+                force_download=force_download,
+                subset=Maybe.from_optional(subset),
+                subsample_n=Maybe.from_optional(subsample_n),
+                repo_root=Some(root),
+            )
+
+        case "Cords_CAF_Atlas":
+            return load_cords_caf_atlas(
+                raw_dir=Some(raw_dir),
+                auto_download=auto_download,
+                force_download=force_download,
+                subset=Maybe.from_optional(subset),
+                subsample_n=Maybe.from_optional(subsample_n),
+                repo_root=Some(root),
+            )
+
+        case "Buechler_CAF_Atlas":
+            return load_buechler_caf_atlas(
+                raw_dir=Some(raw_dir),
+                auto_download=auto_download,
+                force_download=force_download,
+                subset=Maybe.from_optional(subset),
+                subsample_n=Maybe.from_optional(subsample_n),
+                repo_root=Some(root),
+            )
+
+        case "Zheng_TCell_Atlas":
+            return load_zheng_tcell_atlas(
+                raw_dir=Some(raw_dir),
+                auto_download=auto_download,
+                force_download=force_download,
+                subset=Maybe.from_optional(subset),
+                subsample_n=Maybe.from_optional(subsample_n),
+                repo_root=Some(root),
+            )
+
+        case "Chu_TCell_Atlas":
+            return load_chu_tcell_atlas(
+                raw_dir=Some(raw_dir),
+                auto_download=auto_download,
+                force_download=force_download,
+                subset=Maybe.from_optional(subset),
+                subsample_n=Maybe.from_optional(subsample_n),
+                repo_root=Some(root),
+            )
+
+        case "Shi_PanCancer_Atlas":
+            return load_shi_pancancer_atlas(
+                raw_dir=Some(raw_dir),
+                auto_download=auto_download,
+                force_download=force_download,
+                subset=Maybe.from_optional(subset),
+                subsample_n=Maybe.from_optional(subsample_n),
+                repo_root=Some(root),
+            )
 
         # 22 Tier 0 Premier Benchmark Core Cohorts
         case "GSE246613":
@@ -383,6 +478,7 @@ def load_dataset(
     sc_pipeline_spec: SingleCellProcessingSpec | None = None,
     batch_size: int = 25000,
     use_batched_processing: bool = True,
+    include_all_layers: bool = False,
 ) -> Result[ad.AnnData, str]:
     """Load an individual single-cell or bulk dataset by its registered identifier.
 
@@ -457,7 +553,7 @@ def load_dataset(
                     from anndata.io import read_elem
 
                     use_selective_read = False
-                    if size_mb > 4000:
+                    if not include_all_layers and (size_mb > 4000 or canonical_id in _STREAMED_ATLAS_IDS):
                         try:
                             with h5py.File(h5ad_path, "r") as f:
                                 if "layers" in f and len(f["layers"]) > 0 and "X" in f:
@@ -466,13 +562,20 @@ def load_dataset(
                             use_selective_read = False
 
                     if use_selective_read:
-                        logger.info("Dataset '%s' contains large redundant layers (%.1f MB); streaming X, obs, var directly...", canonical_id, size_mb)
+                        logger.info("Dataset '%s' contains large redundant layers (%.1f MB); streaming X, obs, var, and lightweight embeddings directly...", canonical_id, size_mb)
                         with h5py.File(h5ad_path, "r") as f:
                             obs = read_elem(f["obs"])
                             var = read_elem(f["var"])
                             X = read_elem(f["X"])
                             uns = read_elem(f["uns"]) if "uns" in f else {}
-                            adata = ad.AnnData(X=X, obs=obs, var=var, uns=uns)
+                            obsm_light: dict[str, Any] = {}
+                            if "obsm" in f:
+                                for obsm_key in f["obsm"].keys():
+                                    obsm_item = f["obsm"][obsm_key]
+                                    if isinstance(obsm_item, h5py.Dataset):
+                                        if int(obsm_item.nbytes) <= 512 * 1024 * 1024:
+                                            obsm_light[obsm_key] = read_elem(obsm_item)
+                            adata = ad.AnnData(X=X, obs=obs, var=var, uns=uns, obsm=obsm_light)
                     else:
                         adata = ad.read_h5ad(h5ad_path)
 
@@ -531,6 +634,118 @@ def load_dataset(
                     )
 
     # Step 2: Ingestion path - dispatch to provider loader
+    if canonical_id in _STREAMED_ATLAS_IDS:
+        resolved_out = (
+            Some(output_h5ad)
+            if output_h5ad is not None
+            else (
+                Some(get_preprocessed_h5ad_path(canonical_id, repo_root=root))
+                if cache_h5ad
+                else Nothing
+            )
+        )
+        resolved_raw = Some(raw_dir) if raw_dir is not None else Nothing
+        resolved_ens = ensembl_release if ensembl_release is not None else 111
+        match canonical_id:
+            case "Coulton_TAM_Atlas":
+                return load_coulton_tam_atlas(
+                    raw_dir=resolved_raw,
+                    output_h5ad=resolved_out,
+                    auto_download=auto_download,
+                    force_download=force_download,
+                    force_recompute=force_recompute,
+                    normalize_ensembl=normalize_ensembl,
+                    ensembl_release=resolved_ens,
+                    include_all_layers=include_all_layers,
+                    subset=subset,
+                    subsample_n=subsample_n,
+                    repo_root=Some(root),
+                )
+            case "Gao_CAF_Atlas":
+                return load_gao_caf_atlas(
+                    raw_dir=resolved_raw,
+                    output_h5ad=resolved_out,
+                    auto_download=auto_download,
+                    force_download=force_download,
+                    force_recompute=force_recompute,
+                    normalize_ensembl=normalize_ensembl,
+                    ensembl_release=resolved_ens,
+                    include_all_layers=include_all_layers,
+                    subset=Maybe.from_optional(subset),
+                    subsample_n=Maybe.from_optional(subsample_n),
+                    repo_root=Some(root),
+                )
+            case "Cords_CAF_Atlas":
+                return load_cords_caf_atlas(
+                    raw_dir=resolved_raw,
+                    output_h5ad=resolved_out,
+                    auto_download=auto_download,
+                    force_download=force_download,
+                    force_recompute=force_recompute,
+                    normalize_ensembl=normalize_ensembl,
+                    ensembl_release=resolved_ens,
+                    include_all_layers=include_all_layers,
+                    subset=Maybe.from_optional(subset),
+                    subsample_n=Maybe.from_optional(subsample_n),
+                    repo_root=Some(root),
+                )
+            case "Buechler_CAF_Atlas":
+                return load_buechler_caf_atlas(
+                    raw_dir=resolved_raw,
+                    output_h5ad=resolved_out,
+                    auto_download=auto_download,
+                    force_download=force_download,
+                    force_recompute=force_recompute,
+                    normalize_ensembl=normalize_ensembl,
+                    ensembl_release=resolved_ens,
+                    include_all_layers=include_all_layers,
+                    subset=Maybe.from_optional(subset),
+                    subsample_n=Maybe.from_optional(subsample_n),
+                    repo_root=Some(root),
+                )
+            case "Zheng_TCell_Atlas":
+                return load_zheng_tcell_atlas(
+                    raw_dir=resolved_raw,
+                    output_h5ad=resolved_out,
+                    auto_download=auto_download,
+                    force_download=force_download,
+                    force_recompute=force_recompute,
+                    normalize_ensembl=normalize_ensembl,
+                    ensembl_release=resolved_ens,
+                    include_all_layers=include_all_layers,
+                    subset=Maybe.from_optional(subset),
+                    subsample_n=Maybe.from_optional(subsample_n),
+                    repo_root=Some(root),
+                )
+            case "Chu_TCell_Atlas":
+                return load_chu_tcell_atlas(
+                    raw_dir=resolved_raw,
+                    output_h5ad=resolved_out,
+                    auto_download=auto_download,
+                    force_download=force_download,
+                    force_recompute=force_recompute,
+                    normalize_ensembl=normalize_ensembl,
+                    ensembl_release=resolved_ens,
+                    include_all_layers=include_all_layers,
+                    subset=Maybe.from_optional(subset),
+                    subsample_n=Maybe.from_optional(subsample_n),
+                    repo_root=Some(root),
+                )
+            case "Shi_PanCancer_Atlas":
+                return load_shi_pancancer_atlas(
+                    raw_dir=resolved_raw,
+                    output_h5ad=resolved_out,
+                    auto_download=auto_download,
+                    force_download=force_download,
+                    force_recompute=force_recompute,
+                    normalize_ensembl=normalize_ensembl,
+                    ensembl_release=resolved_ens,
+                    include_all_layers=include_all_layers,
+                    subset=Maybe.from_optional(subset),
+                    subsample_n=Maybe.from_optional(subsample_n),
+                    repo_root=Some(root),
+                )
+
     res = _dispatch_load(
         canonical_id,
         root,
@@ -945,11 +1160,25 @@ def run_single_cohort_sampling_hpo(
 
 from .sampling.hpo_models import HPORunResult, HPOSearchSpace, HPOTrialConfig, TrialEvaluationResult
 from .sampling.malignant_sampling import MalignantSamplingConfig, MalignantStrategy
+from .simulation.empirical_pseudobulk import (
+    aggregate_empirical_pseudobulk,
+    cache_empirical_pseudobulk,
+    compute_empirical_cell_fractions,
+    empirical_pseudobulk_to_anndata,
+    load_empirical_pseudobulk,
+    resolve_adata_gene_symbols,
+)
 
 __all__ = [
     "IATLAS_COMBINED_GROUPS",
     "load_combined_iatlas_cohorts",
     "load_dataset",
+    "load_empirical_pseudobulk",
+    "aggregate_empirical_pseudobulk",
+    "cache_empirical_pseudobulk",
+    "compute_empirical_cell_fractions",
+    "empirical_pseudobulk_to_anndata",
+    "resolve_adata_gene_symbols",
     "query_datasets",
     "list_datasets",
     "list_preprocessed_datasets",

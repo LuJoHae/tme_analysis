@@ -1125,16 +1125,6 @@ TIER1_COHORTS: Mapping[str, Tier1CohortConfig] = {
         tar_filename=Some("GSE176249_RAW.tar"),
         has_response_labels=False,
     ),
-    "GSE172433": Tier1CohortConfig(
-        accession="GSE172433",
-        title="Genome-wide H3k27ac levels following FOXA1 KO in UMUC-1 human bladder cancer cells",
-        indication="Bladder",
-        technology="High-Throughput scRNA-seq",
-        cell_selection="Unselected / Total Single-Cell Suspension",
-        archetype=Archetype.GEO_10X_TAR,
-        tar_filename=Some("GSE172433_RAW.tar"),
-        has_response_labels=False,
-    ),
     "CELLxGENE_f0e0575d": Tier1CohortConfig(
         accession="CELLxGENE_f0e0575d",
         title="Single-cell RNA sequencing of bladder cancer [SMBO-114]",

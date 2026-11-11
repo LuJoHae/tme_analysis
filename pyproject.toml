@@ -2,7 +2,7 @@
 name = "tme_analysis"
 version = "0.1.0"
 description = "Add your description here"
-requires-python = ">=3.14"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "datalair",
     "gibbscellprism",
@@ -48,9 +48,8 @@ dependencies = [
     "igraph>=1.0.0",
     "pertpy>=1.1.1",
     "milopy>=0.3.0",
-    "harmonypy>=0.0.10",
-    "fast-matrix-market>=1.7.0",
-    "jax[cuda12]; sys_platform == 'linux'",
+    "harmonypy==0.0.10",
+    "jax>=0.5.0; sys_platform == 'linux'",
     "plotting-utils",
 ]
 

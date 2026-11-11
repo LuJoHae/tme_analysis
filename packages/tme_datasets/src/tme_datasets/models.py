@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence, cast, overload
+from typing import Any, Iterable, Literal, Mapping, Sequence, cast, overload
+import numpy as np
+import numpy.typing as npt
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 from returns.maybe import Maybe, Nothing, Some
@@ -556,6 +558,36 @@ class PseudobulkConfig(BaseModel):
     target_depth: Maybe[int] = Nothing
     noise_dispersion: Maybe[float] = Nothing
     seed: Maybe[int] = Nothing
+
+
+class EmpiricalPseudobulkConfig(BaseModel):
+    """Immutable configuration for empirical sample/patient-grouped pseudobulk aggregation."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    sample_col: str = "sample_id"
+    target_genes: Maybe[frozenset[str]] = Nothing
+    normalize_cells_cp10k: bool = False
+    aggregation: Literal["sum", "mean"] = "sum"
+    min_cells_per_sample: int = 1
+    response_col: Maybe[str] = Nothing
+    treatment_col: Maybe[str] = Nothing
+    cell_state_col: Maybe[str] = Nothing
+
+
+class EmpiricalPseudobulkResult(BaseModel):
+    """Immutable result of empirical sample/patient-grouped pseudobulk aggregation."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    dataset_id: str
+    sample_ids: tuple[str, ...]
+    genes: tuple[str, ...]
+    bulk_matrix: npt.NDArray[np.float64]
+    pseudobulk_df: pl.DataFrame
+    sample_metadata_df: pl.DataFrame
+    true_fractions_df: Maybe[pl.DataFrame] = Nothing
+    cache_path: Maybe[Path] = Nothing
 
 
 class HarmonizeConfig(BaseModel):

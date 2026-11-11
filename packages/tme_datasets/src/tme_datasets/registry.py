@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     import polars as pl
 
 from .models import (
+    ChecksumSpec,
     DatasetSpec,
     PreprocessedDatasetSpec,
     PreprocessedDatasets,
@@ -130,9 +131,9 @@ DATASET_REGISTRY: Mapping[str, DatasetSpec] = {
     ),
     "GSE154763": DatasetSpec(
         id="GSE154763",
-        title="Cheng et al. 2021 Pan-Cancer T-cell Atlas",
+        title="Cheng et al. 2021 Pan-Cancer Myeloid Atlas",
         modality=Modality.SINGLE_CELL,
-        cancer_type="Pan-Cancer T-Cells",
+        cancer_type="Pan-Cancer Myeloid",
         platform="10x_v3",
         organ=Some("Multi-organ"),
         has_response_labels=False,
@@ -270,6 +271,166 @@ DATASET_REGISTRY: Mapping[str, DatasetSpec] = {
         has_response_labels=False,
         n_samples_or_cells=Some(50000),
         is_dysfunctional=True,
+    ),
+    "Coulton_TAM_Atlas": DatasetSpec(
+        id="Coulton_TAM_Atlas",
+        title="Coulton et al. 2024 Pan-Cancer Tumor-Associated Macrophage (TAM) Atlas",
+        modality=Modality.SINGLE_CELL,
+        cancer_type="Pan-Cancer",
+        platform="Multi-platform scRNA-seq (10x / Smart-seq2 / RPCA)",
+        organ=Some("Multi-organ"),
+        has_response_labels=False,
+        n_samples_or_cells=Some(363315),
+        raw_source_url=Some(
+            "https://zenodo.org/records/11222158/files/mac.atlas.zenodo.200524.rds?download=1"
+        ),
+        checksum=Some(
+            ChecksumSpec(
+                algorithm="md5",
+                expected_hash="49d3bea7addd7fcd07d8e3843ca901c2",
+                size_bytes=Some(19748833115),
+            )
+        ),
+        qc_spec=Nothing,
+        tier=Some("Reference Atlas"),
+        publication_pmid=Some("38969631"),
+        publication_doi=Some("10.1038/s41467-024-49885-8"),
+    ),
+    "Gao_CAF_Atlas": DatasetSpec(
+        id="Gao_CAF_Atlas",
+        title="Gao et al. 2024 Cross-Tissue Human Fibroblast & Myofibroblast Atlas",
+        modality=Modality.SINGLE_CELL,
+        cancer_type="Pan-Cancer",
+        platform="Multi-platform scRNA-seq (11 tissues, 20 fibroblast subtypes)",
+        organ=Some("Multi-organ"),
+        has_response_labels=False,
+        n_samples_or_cells=Some(269899),
+        raw_source_url=Some(
+            "https://zenodo.org/records/13950610/files/Fib_Atlas_expression.rda?download=1"
+        ),
+        checksum=Some(
+            ChecksumSpec(
+                algorithm="md5",
+                expected_hash="61bf329bb40f0c883412e6b694c11d5f",
+                size_bytes=Some(1190536415),
+            )
+        ),
+        qc_spec=Nothing,
+        tier=Some("Reference Atlas"),
+        publication_pmid=Some("39303725"),
+        publication_doi=Some("10.1016/j.ccell.2024.08.020"),
+    ),
+    "Cords_CAF_Atlas": DatasetSpec(
+        id="Cords_CAF_Atlas",
+        title="Cords et al. 2024 Multi-Cancer Human Cancer-Associated Fibroblast (CAF) Atlas",
+        modality=Modality.SINGLE_CELL,
+        cancer_type="Pan-Cancer",
+        platform="10x Chromium scRNA-seq (Breast / PDAC / Colon / Lung / HNSCC)",
+        organ=Some("Multi-organ"),
+        has_response_labels=False,
+        n_samples_or_cells=Some(29741),
+        raw_source_url=Some(
+            "https://zenodo.org/records/7540604/files/scRNA-seq_dataobjects.zip?download=1"
+        ),
+        checksum=Some(
+            ChecksumSpec(
+                algorithm="md5",
+                expected_hash="af5c346c93944c643d2bad97950e0f52",
+                size_bytes=Some(2172690224),
+            )
+        ),
+        qc_spec=Nothing,
+        tier=Some("Reference Atlas"),
+        publication_pmid=Some("38242124"),
+        publication_doi=Some("10.1016/j.ccell.2023.12.021"),
+    ),
+    "Buechler_CAF_Atlas": DatasetSpec(
+        id="Buechler_CAF_Atlas",
+        title="Buechler et al. 2021 Cross-Tissue Perturbed-State Human Fibroblast Lineage Atlas",
+        modality=Modality.SINGLE_CELL,
+        cancer_type="Pan-Cancer",
+        platform="Multi-platform scRNA-seq (NSCLC / PDAC / IPF / COVID / UC)",
+        organ=Some("Multi-organ"),
+        has_response_labels=False,
+        n_samples_or_cells=Some(10355),
+        raw_source_url=Some(
+            "https://drive.google.com/uc?export=download&id=1n-XLSYacOIXSlFQbe0XZP3BhhW0CBl7Z"
+        ),
+        checksum=Some(
+            ChecksumSpec(
+                algorithm="md5",
+                expected_hash="f357cf64d2239b7ec7d2988ecb1334dd",
+                size_bytes=Some(174346125),
+            )
+        ),
+        qc_spec=Nothing,
+        tier=Some("Reference Atlas"),
+        publication_pmid=Some("33981032"),
+        publication_doi=Some("10.1038/s41586-021-03549-5"),
+    ),
+    "Zheng_TCell_Atlas": DatasetSpec(
+        id="Zheng_TCell_Atlas",
+        title="Zheng et al. 2021 Pan-Cancer Tumor-Infiltrating T-Cell Atlas",
+        modality=Modality.SINGLE_CELL,
+        cancer_type="Pan-Cancer",
+        platform="Multi-platform scRNA-seq + TCR-seq (10x / Smart-seq2 / InDrop)",
+        organ=Some("Multi-organ"),
+        has_response_labels=False,
+        n_samples_or_cells=Some(397810),
+        raw_source_url=Some(
+            "https://zenodo.org/records/5461803/files/data.expression.tar.gz?download=1"
+        ),
+        checksum=Some(
+            ChecksumSpec(
+                algorithm="md5",
+                expected_hash="e4abd31e6a8dfe8b9b33b6f22b264b3f",
+                size_bytes=Some(14004090334),
+            )
+        ),
+        qc_spec=Nothing,
+        tier=Some("Reference Atlas"),
+        publication_pmid=Some("34914499"),
+        publication_doi=Some("10.1126/science.abe6474"),
+    ),
+    "Chu_TCell_Atlas": DatasetSpec(
+        id="Chu_TCell_Atlas",
+        title="Chu et al. 2023 Pan-Cancer T-Cell Stress Response (Tstr) Atlas",
+        modality=Modality.SINGLE_CELL,
+        cancer_type="Pan-Cancer",
+        platform="Multi-platform scRNA-seq (16 cancer types, 39 fine T-cell states)",
+        organ=Some("Multi-organ"),
+        has_response_labels=False,
+        n_samples_or_cells=Some(308048),
+        raw_source_url=Some("https://singlecell.mdanderson.org/TCM/"),
+        checksum=Nothing,
+        qc_spec=Nothing,
+        tier=Some("Reference Atlas"),
+        publication_pmid=Some("37248301"),
+        publication_doi=Some("10.1038/s41591-023-02371-y"),
+    ),
+    "Shi_PanCancer_Atlas": DatasetSpec(
+        id="Shi_PanCancer_Atlas",
+        title="Shi et al. 2025 Cross-Tissue Multicellular Coordination Pan-Cancer Atlas",
+        modality=Modality.SINGLE_CELL,
+        cancer_type="Pan-Cancer",
+        platform="Multi-platform scRNA-seq (PanCancer_igt_s9_fine_counts)",
+        organ=Some("Multi-organ"),
+        has_response_labels=False,
+        n_samples_or_cells=Some(1200000),
+        raw_source_url=Some(
+            "https://zenodo.org/records/15554080/files/PanCancer_igt_s9_fine_counts.h5ad?download=1"
+        ),
+        checksum=Some(
+            ChecksumSpec(
+                algorithm="md5",
+                expected_hash="95547a82eebf08e1c1d93c837693f23d",
+                size_bytes=Some(18204274013),
+            )
+        ),
+        qc_spec=Nothing,
+        tier=Some("Reference Atlas"),
+        publication_pmid=Some("40437094"),
+        publication_doi=Some("10.1038/s41586-025-09053-4"),
     ),
 
     # -------------------------------------------------------------------------
@@ -1633,18 +1794,6 @@ DATASET_REGISTRY: Mapping[str, DatasetSpec] = {
         tier=Some("Tier 2"),
         qc_spec=Some(QualityControlSpec()),
     ),
-    "GSE172433": DatasetSpec(
-        id="GSE172433",
-        title="Genome-wide H3k27ac levels following FOXA1 KO in UMUC-1 human bladder cancer cells",
-        modality=Modality.SINGLE_CELL,
-        cancer_type="Bladder",
-        platform="10x_v3",
-        organ=Some("Bladder"),
-        has_response_labels=False,
-        n_samples_or_cells=Some(6217),
-        tier=Some("Tier 2"),
-        qc_spec=Some(QualityControlSpec()),
-    ),
     "CELLxGENE_f0e0575d": DatasetSpec(
         id="CELLxGENE_f0e0575d",
         title="Single-cell RNA sequencing of bladder cancer [SMBO-114]",
@@ -2426,6 +2575,49 @@ DATASET_ALIASES: Mapping[str, str] = {
     "Cho2020": "Cho",
     "Cho_NSCLC": "Cho",
     "Cho-NSCLC": "Cho",
+    # Coulton et al. 2024 Pan-Cancer TAM Atlas (Zenodo 11222158)
+    "TAM_Atlas": "Coulton_TAM_Atlas",
+    "Coulton2024": "Coulton_TAM_Atlas",
+    "Coulton_2024": "Coulton_TAM_Atlas",
+    "Coulton": "Coulton_TAM_Atlas",
+    "Zenodo_11222158": "Coulton_TAM_Atlas",
+    "11222158": "Coulton_TAM_Atlas",
+    "mac.atlas.zenodo.200524": "Coulton_TAM_Atlas",
+    "mac.atlas.zenodo.200524.rds": "Coulton_TAM_Atlas",
+    # Pan-Cancer CAF & T-Cell Reference Atlases
+    "CAF_Atlas": "Gao_CAF_Atlas",
+    "Gao2024": "Gao_CAF_Atlas",
+    "Gao_2024": "Gao_CAF_Atlas",
+    "Gao_Fibroblast_Atlas": "Gao_CAF_Atlas",
+    "Zenodo_13950610": "Gao_CAF_Atlas",
+    "13950610": "Gao_CAF_Atlas",
+    "Fib_Atlas_expression.rda": "Gao_CAF_Atlas",
+    "Cords2024": "Cords_CAF_Atlas",
+    "Cords_2024": "Cords_CAF_Atlas",
+    "Cords2023": "Cords_CAF_Atlas",
+    "Zenodo_7540604": "Cords_CAF_Atlas",
+    "7540604": "Cords_CAF_Atlas",
+    "Buechler2021": "Buechler_CAF_Atlas",
+    "Buechler_2021": "Buechler_CAF_Atlas",
+    "FibroXplorer": "Buechler_CAF_Atlas",
+    "Human_PS_Fibro": "Buechler_CAF_Atlas",
+    "Human_PS_Fibro.RDS": "Buechler_CAF_Atlas",
+    "TCell_Atlas": "Zheng_TCell_Atlas",
+    "Zheng2021": "Zheng_TCell_Atlas",
+    "Zheng_2021": "Zheng_TCell_Atlas",
+    "GSE156728": "Zheng_TCell_Atlas",
+    "Zenodo_5461803": "Zheng_TCell_Atlas",
+    "5461803": "Zheng_TCell_Atlas",
+    "Chu2023": "Chu_TCell_Atlas",
+    "Chu_2023": "Chu_TCell_Atlas",
+    "TCM_Atlas": "Chu_TCell_Atlas",
+    "MDAnderson_TCM": "Chu_TCell_Atlas",
+    "panC_T_all": "Chu_TCell_Atlas",
+    "Shi2025": "Shi_PanCancer_Atlas",
+    "Shi_2025": "Shi_PanCancer_Atlas",
+    "Zenodo_15554080": "Shi_PanCancer_Atlas",
+    "15554080": "Shi_PanCancer_Atlas",
+    "PanCancer_igt_s9_fine_counts": "Shi_PanCancer_Atlas",
 }
 
 

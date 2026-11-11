@@ -221,10 +221,35 @@ def standardize_dual_layers(
     adata: ad.AnnData,
     target_sum: float = 1e4,
 ) -> Result[ad.AnnData, str]:
-    """Standardize AnnData to contain raw counts in .X and .layers['counts'], and log1p_norm in .layers['log1p_norm']."""
+    """Standardize AnnData to contain raw counts in .X and .layers['counts'], and log1p_norm in .layers['log1p_norm'].
+
+    For pre-normalized single-cell atlases lacking raw counts (`is_raw_counts=False` or
+    `expression_type='log_normalized'` with no `'counts'` layer), preserves the log-normalized
+    CSR matrix in `.X` and `.layers['log1p_norm']` without fabricating `.layers['counts']` or
+    re-applying log1p normalization.
+    """
     try:
         new_adata = adata.copy()
         new_adata.var_names_make_unique()
+
+        if "counts" not in new_adata.layers and (
+            new_adata.uns.get("is_raw_counts") is False
+            or new_adata.uns.get("expression_type") == "log_normalized"
+        ):
+            log_matrix = new_adata.layers.get("log1p_norm", new_adata.X)
+            if not sp.isspmatrix_csr(log_matrix):
+                log_csr = sp.csr_matrix(log_matrix, dtype=np.float32)
+            elif log_matrix.dtype != np.float32:
+                log_csr = log_matrix.astype(np.float32)
+            else:
+                log_csr = log_matrix
+
+            new_adata.X = log_csr
+            new_adata.layers["log1p_norm"] = log_csr
+            new_adata.layers["normalized"] = log_csr
+            new_adata.uns["is_raw_counts"] = False
+            new_adata.uns["expression_type"] = "log_normalized"
+            return Success(new_adata)
 
         if "counts" in new_adata.layers:
             raw_matrix = new_adata.layers["counts"]

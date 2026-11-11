@@ -17,10 +17,13 @@ from tme_datasets.download.gdrive import download_gdrive_file
 from tme_datasets.download.geo import download_geo_supplementary
 from tme_datasets.paths import (
     DataPathsConfig,
+    find_cached_pseudobulk,
     find_dataset_h5ad,
     find_repo_root,
     get_data_paths,
     get_preprocessed_h5ad_path,
+    get_pseudobulk_cache_path,
+    get_pseudobulk_dir,
     get_raw_dataset_dir,
     get_reference_h5ad_path,
     get_scratch_dataset_dir,
@@ -41,6 +44,7 @@ def test_data_paths_config_loading() -> None:
     assert cfg.data_root == (root / "data").resolve()
     assert cfg.raw_dir == (root / "data/raw").resolve()
     assert cfg.preprocessed_dir == (root / "data/preprocessed").resolve()
+    assert cfg.pseudobulk_dir == (root / "data/pseudobulk").resolve()
     assert cfg.scratch_dir == (root / "scratch").resolve()
     assert cfg.reference_h5ad == (root / "data/reference.h5ad").resolve()
 
@@ -50,6 +54,20 @@ def test_path_resolvers() -> None:
     root = find_repo_root()
     h5ad_target = get_preprocessed_h5ad_path("GSE120575", repo_root=root)
     assert h5ad_target == (root / "data/preprocessed/GSE120575.h5ad").resolve()
+
+    pb_dir = get_pseudobulk_dir(repo_root=Some(root))
+    assert pb_dir == (root / "data/pseudobulk").resolve()
+
+    pb_target = get_pseudobulk_cache_path("GSE120575", repo_root=Some(root))
+    assert pb_target == (root / "data/pseudobulk/GSE120575.parquet").resolve()
+
+    pb_tagged = get_pseudobulk_cache_path("GSE120575", cache_tag=Some("cp10k_mean"), repo_root=Some(root))
+    assert pb_tagged == (root / "data/pseudobulk/GSE120575__cp10k_mean.parquet").resolve()
+
+    found_pb = find_cached_pseudobulk("GSE120575", repo_root=Some(root))
+    assert isinstance(found_pb, Some)
+    assert found_pb.unwrap() == pb_target
+    assert find_cached_pseudobulk("NON_EXISTENT_COHORT_XYZ", repo_root=Some(root)) is Nothing
 
     raw_target = get_raw_dataset_dir("GSE120575", repo_root=root)
     assert raw_target == (root / "data/raw/GSE120575").resolve()
@@ -185,4 +203,54 @@ def test_cscs_internet_download_blocked(monkeypatch: pytest.MonkeyPatch, tmp_pat
     res_gdrive = download_gdrive_file("fake_file_id", tmp_path / "file.h5ad")
     assert isinstance(res_gdrive, Failure)
     assert "strictly disabled on CSCS Eiger" in res_gdrive.failure()
+
+
+def test_find_dataset_h5ad_manual_download_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify manual_download cohorts (e.g. Maynard_NSCLC, Jung, Cho, Ravi) resolve via find_dataset_h5ad."""
+    scratch_data = tmp_path / "data-test"
+    manual_dir = scratch_data / "manual_download"
+    manual_dir.mkdir(parents=True)
+    rng = np.random.default_rng(7)
+    dummy = ad.AnnData(X=rng.poisson(1.0, size=(4, 3)).astype(np.float32))
+    target = manual_dir / "Maynard_NSCLC.h5ad"
+    dummy.write_h5ad(target)
+
+    monkeypatch.setenv("TME_DATA_DIR", str(scratch_data))
+    found = find_dataset_h5ad("Maynard_NSCLC", repo_root=tmp_path)
+    assert isinstance(found, Some)
+    assert found.unwrap() == target.resolve()
+
+
+def test_cscs_gene_normalization_blocks_network(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify pyensembl download is strictly blocked in CSCS offline mode."""
+    from tme_datasets.preprocessing.gene_normalization import (
+        ensure_ensembl_release_installed,
+    )
+
+    monkeypatch.setenv("TME_DISABLE_DOWNLOADS", "1")
+    empty_ens = tmp_path / "empty_ensembl_cache"
+
+    # Missing Ensembl cache must raise RuntimeError instead of calling ensembl.download()
+    with pytest.raises(RuntimeError, match="strictly disabled on CSCS"):
+        ensure_ensembl_release_installed(release=109, ensembl_dir=empty_ens)
+
+
+def test_manuscript_pipeline_output_root_store_guard(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify TME_PIPELINE_OUTPUT_ROOT redirects manuscript_pipeline outputs to $SCRATCH and blocks $STORE."""
+    import sys
+
+    root = find_repo_root()
+    mp_dir = str(root / "scripts" / "manuscript_pipeline")
+    if mp_dir not in sys.path:
+        sys.path.insert(0, mp_dir)
+    from _helpers.paths import pipeline_output_root, script_output_dir  # type: ignore[import-not-found]
+
+    scratch_mp = tmp_path / "scratch_mp_out"
+    monkeypatch.setenv("TME_PIPELINE_OUTPUT_ROOT", str(scratch_mp))
+    assert pipeline_output_root().resolve() == scratch_mp.resolve()
+    assert script_output_dir("3f1_build_sf_reference").resolve() == (scratch_mp / "3f1_build_sf_reference").resolve()
+
+    monkeypatch.setenv("TME_PIPELINE_OUTPUT_ROOT", "/capstor/store/cscs/empa/em25/halu/output")
+    with pytest.raises(RuntimeError, match="Direct compute output to persistent \\$STORE"):
+        pipeline_output_root()
 

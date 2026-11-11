@@ -5,6 +5,7 @@
 data_root = "data"
 raw_dir = "data/raw"
 preprocessed_dir = "data/preprocessed"
+pseudobulk_dir = "data/pseudobulk"
 manual_download_dir = "data/manual_download"
 dataset_papers_dir = "dataset_papers"
 scratch_dir = "scratch"
@@ -20,6 +21,7 @@ default_species = "human"
 
 # File name templates
 preprocessed_template = "{dataset_id}.h5ad"
+pseudobulk_template = "{dataset_id}.parquet"
 raw_dataset_template = "{dataset_id}"
 
 # Custom path overrides for specific cohorts if needed

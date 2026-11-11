@@ -15,7 +15,7 @@ from returns.result import Failure, Result, Success
 import scipy.sparse as sp
 
 from ..logging import get_logger
-from ..paths import get_data_paths, get_ensembl_dir
+from ..paths import get_data_paths, get_ensembl_dir, is_cscs_environment
 
 logger = get_logger("preprocessing.gene_normalization")
 
@@ -53,6 +53,12 @@ def ensure_ensembl_release_installed(
     )
 
     if not files_ok or not db_indexed:
+        if is_cscs_environment():
+            raise RuntimeError(
+                f"Ensembl release {release} ({species}) not found in {target_dir} on CSCS Eiger. "
+                "Internet downloads are strictly disabled on CSCS. Run 'make stage-in' to copy "
+                "ensembl/ from $STORE to $SCRATCH."
+            )
         logger.info(
             "Ensembl release %d (%s) not found in %s. Downloading and indexing via pyensembl...",
             release,
@@ -196,9 +202,9 @@ def _load_or_update_mapping_cache(
 
     missing_queries = [v for v in var_names if v not in existing_cache]
 
-    # Pre-fetch aliases for missing queries via mygene if needed
+    # Pre-fetch aliases for missing queries via mygene if needed (disabled on CSCS)
     alias_dict: dict[str, str] = {}
-    if missing_queries:
+    if missing_queries and not is_cscs_environment():
         try:
             import mygene
             mg = mygene.MyGeneInfo()
@@ -336,6 +342,30 @@ def _build_ensembl_projection_operator(
     return var_final, keep_mask, M, unmapped_genes
 
 
+def _project_sparse_chunk_to_ensembl(
+    chunk: Any,
+    keep_mask: np.ndarray[Any, Any],
+    M: sp.csr_matrix,
+    aggregation: str,
+) -> sp.csr_matrix:
+    """Project a (batch_cells x n_raw_genes) sparse/dense chunk onto canonical Ensembl columns."""
+    csr_chunk = chunk if sp.isspmatrix_csr(chunk) else sp.csr_matrix(chunk, dtype=np.float32)
+    chunk_kept = csr_chunk[:, keep_mask]
+    if aggregation == "log1p_sum" and chunk_kept.nnz > 0 and float(chunk_kept.data.min()) >= -1e-6:
+        lin_data = np.expm1(np.maximum(chunk_kept.data.astype(np.float64), 0.0))
+        lin_kept = sp.csr_matrix(
+            (lin_data, chunk_kept.indices, chunk_kept.indptr),
+            shape=chunk_kept.shape,
+        )
+        lin_proj = (lin_kept @ M.astype(np.float64)).tocsr()
+        return sp.csr_matrix(
+            (np.log1p(lin_proj.data).astype(np.float32), lin_proj.indices, lin_proj.indptr),
+            shape=lin_proj.shape,
+        )
+    proj = (chunk_kept.astype(np.float32, copy=False) @ M).tocsr()
+    return proj.astype(np.float32, copy=False)
+
+
 def normalize_genes_to_ensembl(
     adata: ad.AnnData,
     release: int = 111,
@@ -363,17 +393,27 @@ def normalize_genes_to_ensembl(
         species: Organism species (default 'human').
         ensembl_dir: Target cache directory. Defaults to get_ensembl_dir().
         drop_unmapped: If True, drops unmapped features and stores them in adata.uns['unmapped_genes'].
-        aggregation: Aggregation function for duplicate Ensembl IDs ('sum', 'mean').
+        aggregation: Aggregation function for duplicate Ensembl IDs ('sum', 'mean', 'log1p_sum').
         chunk_size: Row chunk size for memory-bounded sparse projection.
 
     Returns:
         AnnData with Ensembl gene IDs as var_names and full genomic attributes in .var.
     """
+    effective_agg = (
+        "log1p_sum"
+        if aggregation == "sum"
+        and (
+            adata.uns.get("is_raw_counts") is False
+            and adata.uns.get("expression_type") == "log_normalized"
+        )
+        else aggregation
+    )
     logger.info(
-        "Normalizing %d genes to Ensembl Release %d (%s)...",
+        "Normalizing %d genes to Ensembl Release %d (%s, aggregation=%s)...",
         adata.n_vars,
         release,
         species,
+        effective_agg,
     )
     var_final, keep_mask, M, unmapped_genes = _build_ensembl_projection_operator(
         raw_var_names=list(adata.var_names),
@@ -382,41 +422,47 @@ def normalize_genes_to_ensembl(
         species=species,
         ensembl_dir=ensembl_dir,
         drop_unmapped=drop_unmapped,
-        aggregation=aggregation,
+        aggregation="mean" if effective_agg == "mean" else "sum",
     )
 
     # Process in row chunks if large to prevent SciPy sparse multiplication memory spike
     if adata.n_obs > chunk_size:
-        parts: list[sp.csr_matrix] = []
-        for start in range(0, adata.n_obs, chunk_size):
-            end = min(start + chunk_size, adata.n_obs)
-            chunk = adata.X[start:end]
-            if not sp.isspmatrix_csr(chunk):
-                chunk = sp.csr_matrix(chunk, dtype=np.float32)
-            chunk_kept = chunk[:, keep_mask]
-            parts.append(chunk_kept @ M)
+        parts: list[sp.csr_matrix] = [
+            _project_sparse_chunk_to_ensembl(
+                adata.X[start : min(start + chunk_size, adata.n_obs)],
+                keep_mask,
+                M,
+                effective_agg,
+            )
+            for start in range(0, adata.n_obs, chunk_size)
+        ]
         new_X = sp.vstack(parts, format="csr")
-        del parts
     else:
-        X_csr = adata.X if sp.isspmatrix_csr(adata.X) else sp.csr_matrix(adata.X, dtype=np.float32)
-        new_X = X_csr[:, keep_mask] @ M
+        new_X = _project_sparse_chunk_to_ensembl(adata.X, keep_mask, M, effective_agg)
 
     # Project layers identically
     new_layers: dict[str, Any] = {}
     for layer_name, layer_mat in adata.layers.items():
+        layer_agg = (
+            "log1p_sum"
+            if layer_name in {"log1p", "log1p_norm", "sct_data", "rna_log1p"}
+            else ("sum" if layer_name == "counts" else effective_agg)
+        )
         if adata.n_obs > chunk_size:
-            l_parts = []
-            for start in range(0, adata.n_obs, chunk_size):
-                end = min(start + chunk_size, adata.n_obs)
-                chunk = layer_mat[start:end]
-                if not sp.isspmatrix_csr(chunk):
-                    chunk = sp.csr_matrix(chunk, dtype=np.float32)
-                l_parts.append(chunk[:, keep_mask] @ M)
+            l_parts = [
+                _project_sparse_chunk_to_ensembl(
+                    layer_mat[start : min(start + chunk_size, adata.n_obs)],
+                    keep_mask,
+                    M,
+                    layer_agg,
+                )
+                for start in range(0, adata.n_obs, chunk_size)
+            ]
             new_layers[layer_name] = sp.vstack(l_parts, format="csr")
-            del l_parts
         else:
-            l_csr = layer_mat if sp.isspmatrix_csr(layer_mat) else sp.csr_matrix(layer_mat, dtype=np.float32)
-            new_layers[layer_name] = l_csr[:, keep_mask] @ M
+            new_layers[layer_name] = _project_sparse_chunk_to_ensembl(
+                layer_mat, keep_mask, M, layer_agg
+            )
 
     uns_dict = dict(adata.uns) if adata.uns else {}
     if unmapped_genes:
@@ -480,6 +526,15 @@ def batch_normalize_to_sparse_h5ad(
             target_release,
             target_species,
         )
+        effective_agg = (
+            "log1p_sum"
+            if aggregation == "sum"
+            and (
+                adata.uns.get("is_raw_counts") is False
+                and adata.uns.get("expression_type") == "log_normalized"
+            )
+            else aggregation
+        )
         var_final, keep_mask, M, unmapped_genes = _build_ensembl_projection_operator(
             raw_var_names=list(adata.var_names),
             raw_var=adata.var,
@@ -487,7 +542,7 @@ def batch_normalize_to_sparse_h5ad(
             species=target_species,
             ensembl_dir=target_dir,
             drop_unmapped=drop_unmapped,
-            aggregation=aggregation,
+            aggregation="mean" if effective_agg == "mean" else "sum",
         )
 
         uns_dict = dict(adata.uns) if adata.uns else {}
@@ -496,26 +551,29 @@ def batch_normalize_to_sparse_h5ad(
             uns_dict["n_unmapped_genes"] = len(unmapped_genes)
 
         logger.info(
-            "Batch normalizing %d cells x %d raw genes -> %d Ensembl genes in batches of %d...",
+            "Batch normalizing %d cells x %d raw genes -> %d Ensembl genes in batches of %d (agg=%s)...",
             adata.n_obs,
             adata.n_vars,
             len(var_final),
             batch_size,
+            effective_agg,
         )
+
+        def _append_single_batch(
+            writer_obj: H5ADSparseIncrementalWriter,
+            start_idx: int,
+            end_idx: int,
+        ) -> None:
+            obs_chunk = adata.obs.iloc[start_idx:end_idx].copy()
+            X_final = _project_sparse_chunk_to_ensembl(
+                adata.X[start_idx:end_idx], keep_mask, M, effective_agg
+            )
+            writer_obj.append_batch(obs_chunk, X_final)
 
         with H5ADSparseIncrementalWriter(target_h5ad, var=var_final, uns=uns_dict) as writer:
             for start in range(0, adata.n_obs, batch_size):
                 end = min(start + batch_size, adata.n_obs)
-                obs_chunk = adata.obs.iloc[start:end].copy()
-                X_chunk = adata.X[start:end]
-                if not sp.isspmatrix_csr(X_chunk):
-                    X_chunk = sp.csr_matrix(X_chunk, dtype=np.float32)
-
-                X_kept = X_chunk[:, keep_mask]
-                X_final = X_kept @ M
-
-                writer.append_batch(obs_chunk, X_final)
-                del X_chunk, X_kept, X_final, obs_chunk
+                _append_single_batch(writer, start, end)
                 gc.collect()
 
         size_mb = target_h5ad.stat().st_size / (1024 * 1024)
