@@ -35,12 +35,13 @@ import altair as alt
 import numpy as np
 import numpy.typing as npt
 import polars as pl
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from returns.maybe import Maybe, Nothing, Some
 from returns.result import Failure, Result, Success
 from scipy import cluster as sp_cluster
 from scipy import spatial as sp_spatial
 from scipy import stats
+from tme_datasets import get_data_paths, load_empirical_pseudobulk
 import vl_convert as vlc
 
 try:
@@ -85,7 +86,8 @@ class UnifiedBenchmarkConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    benchmark_dir: Path = Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark")
+    benchmark_dir: Path = Path("output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark")
+    pseudobulk_cache_dir: Path = Field(default_factory=lambda: get_data_paths().pseudobulk_dir)
     out_dir: Path = Path("output/manuscript_pipeline/3b_pan_cohort_unified_deconv_benchmark")
     results_dir: Path = Path("output/manuscript_pipeline/3b_pan_cohort_unified_deconv_benchmark")
     n_meta_states: int = 42
@@ -137,31 +139,45 @@ class UnifiedReferenceAtlas(BaseModel):
 def load_single_cohort_bundle(
     meta: dict[str, str],
     benchmark_dir: Path,
+    pseudobulk_cache_dir: Path,
 ) -> Result[CohortEmpiricalBundle, str]:
-    """Load cached empirical reference, pseudobulk, fractions, and Milopy DA for one cohort."""
+    """Load cached empirical pseudobulk via tme_datasets and reference/Milopy DA from stage 3a."""
     cid = meta["cohort"]
     c_dir = benchmark_dir / cid
     phi_path = c_dir / "reference_phi.parquet"
-    pb_path = c_dir / "pseudobulk.parquet"
     frac_path = c_dir / "pseudobulk_fractions.parquet"
     conc_path = c_dir / f"{cid}_self_concordance.parquet"
 
-    for p in (phi_path, pb_path, frac_path, conc_path):
+    for p in (phi_path, conc_path):
         if not p.exists():
             return Failure(f"Required empirical file missing for {cid}: {p}")
 
+    match load_empirical_pseudobulk(cid, cache_dir=Some(pseudobulk_cache_dir)):
+        case Failure(pb_err):
+            return Failure(f"Failed to load empirical pseudobulk for '{cid}' via tme_datasets: {pb_err}")
+        case Success(pb_res):
+            pass
+
     phi_df = pl.read_parquet(phi_path)
-    pb_df = pl.read_parquet(pb_path)
-    frac_df = pl.read_parquet(frac_path)
     conc_df = pl.read_parquet(conc_path).filter(pl.col("condition") == "Combined")
+
+    meta_has_response = (
+        "response" in pb_res.sample_metadata_df.columns
+        and pb_res.sample_metadata_df.filter(
+            ~pl.col("response").cast(pl.Utf8).str.to_lowercase().is_in(["unknown", ""])
+        ).height
+        > 0
+    )
+    if meta_has_response:
+        frac_df = pb_res.sample_metadata_df
+    elif frac_path.exists():
+        frac_df = pl.read_parquet(frac_path)
+    else:
+        return Failure(f"Sample clinical response metadata missing for {cid} in pseudobulk cache and {frac_path}")
 
     clusters = tuple(phi_df["cluster"].cast(pl.Utf8).to_list())
     phi_genes = tuple(c for c in phi_df.columns if c != "cluster")
     phi_mat = phi_df.select(phi_genes).to_numpy().astype(np.float64)
-
-    sample_ids = tuple(pb_df["sample_id"].cast(pl.Utf8).to_list())
-    bulk_genes = tuple(c for c in pb_df.columns if c != "sample_id")
-    bulk_mat = pb_df.select(bulk_genes).to_numpy().astype(np.float64)
 
     return Success(
         CohortEmpiricalBundle(
@@ -173,9 +189,9 @@ def load_single_cohort_bundle(
             clusters=clusters,
             phi_genes=phi_genes,
             phi_mat=phi_mat,
-            sample_ids=sample_ids,
-            bulk_genes=bulk_genes,
-            bulk_mat=bulk_mat,
+            sample_ids=pb_res.sample_ids,
+            bulk_genes=pb_res.genes,
+            bulk_mat=pb_res.bulk_matrix,
             fractions_df=frac_df,
             self_concordance_df=conc_df,
         )
@@ -188,7 +204,7 @@ def load_all_nine_cohorts(
     """Load all 9 single-cell immunotherapy cohorts into immutable bundles."""
     bundles: list[CohortEmpiricalBundle] = []
     for meta in COHORT_ORDER:
-        match load_single_cohort_bundle(meta, config.benchmark_dir):
+        match load_single_cohort_bundle(meta, config.benchmark_dir, config.pseudobulk_cache_dir):
             case Failure(err):
                 return Failure(err)
             case Success(bundle):
@@ -1111,8 +1127,14 @@ def parse_args(argv: Sequence[str] | None = None) -> UnifiedBenchmarkConfig:
     parser.add_argument(
         "--benchmark-dir",
         type=Path,
-        default=Path("output/manuscript_pipeline/3a_sade_feldman_pseudobulk_deconv_benchmark"),
-        help="Directory containing the 9 cohort pseudobulk and reference parquets",
+        default=Path("output/manuscript_pipeline/3a_cross_cohort_pseudobulk_deconv_benchmark"),
+        help="Directory containing the 9 cohort reference_phi and self_concordance parquets",
+    )
+    parser.add_argument(
+        "--pseudobulk-cache-dir",
+        type=Path,
+        default=get_data_paths().pseudobulk_dir,
+        help="Directory containing cached empirical pseudobulk parquets managed by tme_datasets",
     )
     parser.add_argument(
         "--out-dir",
@@ -1147,6 +1169,7 @@ def parse_args(argv: Sequence[str] | None = None) -> UnifiedBenchmarkConfig:
     args = parser.parse_args(argv)
     return UnifiedBenchmarkConfig(
         benchmark_dir=args.benchmark_dir,
+        pseudobulk_cache_dir=args.pseudobulk_cache_dir,
         out_dir=args.out_dir,
         results_dir=args.results_dir,
         n_meta_states=args.n_meta_states,
