@@ -12,6 +12,7 @@ from returns.result import Failure, Result, Success
 from .genes.reconcile import reconcile_genes
 from .genesets.collections import (
     get_bagaev_core_collection,
+    get_bagaev_mfp_collection,
     get_tme_major_lineage_collection,
     get_tme_subtype_collection,
 )
@@ -820,15 +821,22 @@ def load_dataset(
                             norm_err,
                         )
 
-            # 3c. Dual-Layer Standardization (adata.X & layers['counts'] raw, layers['log1p_norm'])
-            from .preprocessing.normalization import standardize_dual_layers
+            # 3c. Dual-Layer Standardization (Single-Cell / Spatial only; Bulk keeps .X only with no redundant layers)
+            if spec.modality != Modality.BULK_RNA:
+                from .preprocessing.normalization import standardize_dual_layers
 
-            std_res = standardize_dual_layers(adata)
-            match std_res:
-                case Success(std_adata):
-                    adata = std_adata
-                case Failure(std_err):
-                    logger.warning("Dual layer standardization failed: %s", std_err)
+                std_res = standardize_dual_layers(adata)
+                match std_res:
+                    case Success(std_adata):
+                        adata = std_adata
+                    case Failure(std_err):
+                        logger.warning("Dual layer standardization failed: %s", std_err)
+            elif "is_raw_counts" not in adata.uns and "expression_type" not in adata.uns:
+                from .preprocessing.matrix_inspection import inspect_expression_type
+
+                inspection = inspect_expression_type(adata)
+                adata.uns["is_raw_counts"] = inspection.is_raw_counts
+                adata.uns["expression_type"] = inspection.expression_type.value
 
             # 3d. Serialization to H5AD Cache
             if should_cache and target_h5ad is not None:
@@ -1010,6 +1018,8 @@ def load_geneset_collection(collection_id: str) -> Result[GeneSetCollection, str
             return Success(get_tme_subtype_collection())
         case "bagaev_core":
             return Success(get_bagaev_core_collection())
+        case "bagaev_mfp_29" | "bagaev_mfp":
+            return Success(get_bagaev_mfp_collection())
         case _:
             return Failure(f"Gene set collection '{collection_id}' not found")
 

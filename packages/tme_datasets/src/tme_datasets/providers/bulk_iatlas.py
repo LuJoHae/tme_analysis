@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Mapping
 import anndata as ad
 import numpy as np
 import pandas as pd
 from returns.result import Failure, Result, Success
 
 from ..logging import get_logger
+from ..preprocessing.matrix_inspection import (
+    ExpressionInspectionResult,
+    ExpressionType,
+    inspect_expression_type,
+)
 from ..preprocessing.metadata import binarize_response, standardize_recist
 
 logger = get_logger("providers.bulk_iatlas")
@@ -24,6 +30,86 @@ IATLAS_COHORTS = (
     "McDermott-iAtlas",
     "Choueiri-iAtlas",
 )
+
+
+def _parse_cbioportal_meta_text(text: str) -> dict[str, str]:
+    """Parse `key: value` lines from a cBioPortal `meta_mrna_seq_*.txt` file purely."""
+    return {
+        key.strip(): val.strip()
+        for line in text.splitlines()
+        if ":" in line and not line.lstrip().startswith("#")
+        for key, val in (line.split(":", 1),)
+    }
+
+
+def _read_cbioportal_mrna_meta(target_dir: Path, expr_filename: str) -> dict[str, str]:
+    """Read companion `meta_mrna_seq_*.txt` file for a cBioPortal expression matrix if present."""
+    candidate = target_dir / expr_filename.replace("data_", "meta_", 1)
+    if candidate.is_file():
+        return _parse_cbioportal_meta_text(candidate.read_text(encoding="utf-8", errors="replace"))
+    for meta_path in sorted(target_dir.glob("meta_mrna*.txt")):
+        parsed = _parse_cbioportal_meta_text(meta_path.read_text(encoding="utf-8", errors="replace"))
+        if parsed.get("data_filename") == expr_filename:
+            return parsed
+    return {}
+
+
+def _infer_iatlas_normalization_metadata(
+    expr_filename: str,
+    meta_fields: Mapping[str, str],
+    inspection: ExpressionInspectionResult,
+) -> dict[str, str]:
+    """Infer structured normalization unit, scale, and method from filename, cBioPortal metadata, and matrix values."""
+    profile_name = meta_fields.get("profile_name", "")
+    profile_desc = meta_fields.get("profile_description", "")
+    combined = f"{expr_filename} {profile_name} {profile_desc}".lower()
+
+    unit = (
+        "TPM"
+        if "tpm" in combined
+        else "FPKM"
+        if "fpkm" in combined
+        else "RPKM"
+        if "rpkm" in combined
+        else "upper_quartile_counts"
+        if "upper quartile" in combined
+        else "CPM"
+        if "cpm" in combined
+        else "counts"
+        if inspection.is_raw_counts
+        else "unknown"
+    )
+
+    scale = (
+        "raw_counts"
+        if inspection.is_raw_counts
+        else "log2"
+        if "log2" in combined
+        else "log"
+        if (inspection.expression_type == ExpressionType.LOG_NORMALIZED or "log" in combined)
+        else "linear"
+        if inspection.expression_type == ExpressionType.LINEAR_NORMALIZED
+        else "unknown"
+    )
+
+    method = (
+        "raw_counts"
+        if scale == "raw_counts"
+        else f"{scale}_{unit}"
+        if scale in ("log", "log2") and unit != "unknown"
+        else unit
+        if scale == "linear" and unit != "unknown"
+        else scale
+    )
+
+    return {
+        "unit": unit,
+        "scale": scale,
+        "method": method,
+        "source_file": expr_filename,
+        "cbioportal_profile_name": profile_name,
+        "cbioportal_profile_description": profile_desc,
+    }
 
 
 def load_iatlas_cohort(
@@ -225,6 +311,13 @@ def load_iatlas_cohort(
             obs=df_clinical,
             var=pd.DataFrame(index=genes),
         )
+        inspection = inspect_expression_type(adata)
+        meta_fields = _read_cbioportal_mrna_meta(target_dir, found_expr.name)
+        norm_meta = _infer_iatlas_normalization_metadata(found_expr.name, meta_fields, inspection)
+        adata.uns["is_raw_counts"] = inspection.is_raw_counts
+        adata.uns["expression_type"] = inspection.expression_type.value
+        adata.uns["normalization_method"] = norm_meta["method"]
+        adata.uns["normalization"] = norm_meta
         return Success(adata)
     except Exception as exc:
         return Failure(f"Failed to load iAtlas cohort from {cohort_dir}: {exc}")

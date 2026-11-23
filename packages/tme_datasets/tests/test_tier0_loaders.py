@@ -277,6 +277,34 @@ def test_standardize_dual_layers() -> None:
     assert np.isclose(actual_c0_g0, expected_c0_g0, rtol=1e-5)
 
 
+def test_standardize_dual_layers_auto_detects_log_normalized() -> None:
+    """Verify standardize_dual_layers inspects .X when uns flags are absent and avoids double-logging."""
+    log_X = np.array(
+        [
+            [0.0, 12.34, 5.67, 0.0],
+            [8.91, 0.0, 21.45, 3.21],
+        ],
+        dtype=np.float32,
+    )
+    adata = ad.AnnData(
+        X=log_X.copy(),
+        obs=pd.DataFrame(index=["sample_1", "sample_2"]),
+        var=pd.DataFrame(index=["GENE1", "GENE2", "GENE3", "GENE4"]),
+    )
+
+    res = standardize_dual_layers(adata, target_sum=1e4)
+    assert isinstance(res, Success)
+    std_adata = res.unwrap()
+
+    assert "counts" not in std_adata.layers
+    assert std_adata.uns.get("is_raw_counts") is False
+    assert std_adata.uns.get("expression_type") == "log_normalized"
+    assert sp.isspmatrix_csr(std_adata.X)
+    assert np.allclose(std_adata.X.toarray(), log_X)
+    assert np.allclose(std_adata.layers["log1p_norm"].toarray(), log_X)
+    assert np.allclose(std_adata.layers["normalized"].toarray(), log_X)
+
+
 def test_mock_loaders_for_8_verified_cohorts() -> None:
     """Verify all 8 verified Tier 0 loaders construct AnnData adhering to the standardized schema."""
     import gzip

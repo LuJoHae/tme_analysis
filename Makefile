@@ -772,3 +772,37 @@ run-sc9-deconv-pipeline-local:
 dryrun-sc9-deconv-pipeline-local:
 	@echo "Dry-running 9-Cohort Deconvolution Pipeline locally via Snakemake..."
 	$(LOCAL_UV) run snakemake run_sc9_deconv_pipeline --dry-run
+
+# ------------------------------------------------------------------------------
+# Bagaev et al. (2021) MFP Pan-Cancer TME Subtyping, Deconvolution & SC23 Analysis
+# ------------------------------------------------------------------------------
+BAGAEV_SMK = -s workflow/rules/bagaev_mfp_analysis.smk
+
+.PHONY: stage-bagaev-mfp-olm test-bagaev-mfp-olm bagaev-mfp-analysis-olm pull-bagaev-mfp-olm
+
+stage-bagaev-mfp-olm: push-olm
+	@echo "Staging Consensus-Meta42 fractions, OOF predictions, and SC9 sample metadata to $(OLM_HOST):$(OLM_DATA_DIR)..."
+	ssh $(OLM_HOST) "mkdir -p $(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions $(OLM_DATA_DIR)/pseudobulk $(OLM_DATA_DIR)/output/bagaev_mfp_analysis $(OLM_DATA_DIR)/results/bagaev_mfp_analysis"
+	rsync -qavz --update \
+		output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/fractions_Consensus-Meta42_on_PanCancer-Combined.parquet \
+		$(OLM_HOST):$(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/
+	rsync -qavz --update \
+		output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/oof_9a_9b_patient_landscape_and_curves.parquet \
+		output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/consensus_metastate_all42_top_degs.parquet \
+		$(OLM_HOST):$(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/
+	rsync -qavz --update data/pseudobulk/*.sample_meta.parquet $(OLM_HOST):$(OLM_DATA_DIR)/pseudobulk/
+
+test-bagaev-mfp-olm: push-olm
+	@echo "Running Bagaev MFP unit & property tests on $(OLM_HOST)..."
+	ssh $(OLM_HOST) "cd $(OLM_DIR) && $(OLM_ENV) $(OLM_UV) run --with pytest pytest packages/tme_datasets/tests/test_bagaev_mfp_scoring.py packages/tme_response/tests/test_bagaev_mfp.py -v"
+
+pull-bagaev-mfp-olm:
+	@echo "Pulling Bagaev MFP analysis outputs and figures from $(OLM_HOST)..."
+	mkdir -p output/bagaev_mfp_analysis results/bagaev_mfp_analysis
+	rsync -qavz --update $(OLM_HOST):$(OLM_DATA_DIR)/output/bagaev_mfp_analysis/ output/bagaev_mfp_analysis/
+	rsync -qavz --update $(OLM_HOST):$(OLM_DATA_DIR)/results/bagaev_mfp_analysis/ results/bagaev_mfp_analysis/
+
+bagaev-mfp-analysis-olm: stage-bagaev-mfp-olm
+	@echo "Running Snakemake target 'all_bagaev_mfp_analysis' on $(OLM_HOST)..."
+	ssh $(OLM_HOST) "cd $(OLM_DIR) && $(SNAKEMAKE_OLM) $(BAGAEV_SMK) all_bagaev_mfp_analysis"
+	$(MAKE) pull-bagaev-mfp-olm

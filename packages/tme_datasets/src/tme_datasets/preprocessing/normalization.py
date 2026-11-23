@@ -232,9 +232,24 @@ def standardize_dual_layers(
         new_adata = adata.copy()
         new_adata.var_names_make_unique()
 
+        if (
+            "counts" not in new_adata.layers
+            and "is_raw_counts" not in new_adata.uns
+            and "expression_type" not in new_adata.uns
+        ):
+            from .matrix_inspection import inspect_expression_type
+
+            inspection = inspect_expression_type(new_adata)
+            new_adata.uns["is_raw_counts"] = inspection.is_raw_counts
+            new_adata.uns["expression_type"] = inspection.expression_type.value
+
+        expr_type = new_adata.uns.get("expression_type")
         if "counts" not in new_adata.layers and (
-            new_adata.uns.get("is_raw_counts") is False
-            or new_adata.uns.get("expression_type") == "log_normalized"
+            expr_type == "log_normalized"
+            or (
+                new_adata.uns.get("is_raw_counts") is False
+                and expr_type not in ("linear_normalized", "tpm")
+            )
         ):
             log_matrix = new_adata.layers.get("log1p_norm", new_adata.X)
             if not sp.isspmatrix_csr(log_matrix):
@@ -249,6 +264,23 @@ def standardize_dual_layers(
             new_adata.layers["normalized"] = log_csr
             new_adata.uns["is_raw_counts"] = False
             new_adata.uns["expression_type"] = "log_normalized"
+            return Success(new_adata)
+
+        if "counts" not in new_adata.layers and expr_type in ("linear_normalized", "tpm"):
+            lin_matrix = new_adata.X
+            if not sp.isspmatrix_csr(lin_matrix):
+                lin_csr = sp.csr_matrix(lin_matrix, dtype=np.float32)
+            elif lin_matrix.dtype != np.float32:
+                lin_csr = lin_matrix.astype(np.float32)
+            else:
+                lin_csr = lin_matrix
+
+            new_adata.X = lin_csr
+            new_adata.layers["normalized"] = lin_csr
+            new_adata.layers["log1p_norm"] = compute_log1p_norm_matrix(
+                lin_csr, target_sum=target_sum
+            )
+            new_adata.uns["is_raw_counts"] = False
             return Success(new_adata)
 
         if "counts" in new_adata.layers:

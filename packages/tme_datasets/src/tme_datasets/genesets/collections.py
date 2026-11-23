@@ -151,6 +151,278 @@ def get_bagaev_core_collection() -> GeneSetCollection:
         gene_sets=BAGAEV_CORE_SIGNATURES,
     )
 
+
+# Canonical ordering of all 29 Bagaev et al. (2021, Cancer Cell) Fges signatures
+# matching BostonGene/MFP `gene_signatures_order.tsv`
+BAGAEV_MFP_SIGNATURE_ORDER: tuple[str, ...] = (
+    "Angiogenesis",
+    "Endothelium",
+    "CAF",
+    "Matrix",
+    "Matrix_remodeling",
+    "Protumor_cytokines",
+    "Neutrophil_signature",
+    "Granulocyte_traffic",
+    "Macrophages",
+    "Macrophage_DC_traffic",
+    "MDSC_traffic",
+    "MDSC",
+    "Th2_signature",
+    "T_reg_traffic",
+    "Treg",
+    "M1_signatures",
+    "MHCII",
+    "Antitumor_cytokines",
+    "Coactivation_molecules",
+    "B_cells",
+    "NK_cells",
+    "Checkpoint_inhibition",
+    "Effector_cells",
+    "T_cells",
+    "Th1_signature",
+    "T_cell_traffic",
+    "MHCI",
+    "EMT_signature",
+    "Proliferation_rate",
+)
+
+BAGAEV_MFP_FUNCTIONAL_GROUPS: dict[str, tuple[str, ...]] = {
+    "Angiogenesis_Fibroblasts": (
+        "Angiogenesis",
+        "Endothelium",
+        "CAF",
+        "Matrix",
+        "Matrix_remodeling",
+        "Protumor_cytokines",
+    ),
+    "Protumor_Immune": (
+        "Neutrophil_signature",
+        "Granulocyte_traffic",
+        "Macrophages",
+        "Macrophage_DC_traffic",
+        "MDSC_traffic",
+        "MDSC",
+        "Th2_signature",
+        "T_reg_traffic",
+        "Treg",
+    ),
+    "Antitumor_Immune": (
+        "M1_signatures",
+        "MHCII",
+        "Antitumor_cytokines",
+        "Coactivation_molecules",
+        "B_cells",
+        "NK_cells",
+        "Checkpoint_inhibition",
+        "Effector_cells",
+        "T_cells",
+        "Th1_signature",
+        "T_cell_traffic",
+        "MHCI",
+    ),
+    "Malignant_Properties": (
+        "EMT_signature",
+        "Proliferation_rate",
+    ),
+}
+
+# Complete 29 Functional Gene Expression Signatures (Fges) from Bagaev et al. (2021)
+BAGAEV_MFP_29_SIGNATURES: dict[str, GeneSet] = {
+    "MHCI": GeneSet(
+        id="MHCI",
+        name="MHCI",
+        genes=("HLA-A", "HLA-B", "HLA-C", "B2M", "TAP1", "TAP2", "NLRC5", "TAPBP"),
+    ),
+    "MHCII": GeneSet(
+        id="MHCII",
+        name="MHCII",
+        genes=(
+            "HLA-DRA", "HLA-DRB1", "HLA-DMA", "HLA-DPA1", "HLA-DPB1",
+            "HLA-DMB", "HLA-DQB1", "HLA-DQA1", "CIITA",
+        ),
+    ),
+    "Coactivation_molecules": GeneSet(
+        id="Coactivation_molecules",
+        name="Co-stimulatory molecules",
+        genes=(
+            "CD28", "CD40", "TNFRSF4", "ICOS", "TNFRSF9", "CD27", "CD80",
+            "CD86", "CD40LG", "CD83", "TNFSF4", "ICOSLG", "TNFSF9", "CD70",
+        ),
+    ),
+    "Effector_cells": GeneSet(
+        id="Effector_cells",
+        name="Effector cells",
+        genes=(
+            "IFNG", "GZMA", "GZMB", "PRF1", "GZMK", "ZAP70", "GNLY",
+            "FASLG", "TBX21", "EOMES", "CD8A", "CD8B",
+        ),
+    ),
+    "T_cell_traffic": GeneSet(
+        id="T_cell_traffic",
+        name="Effector cell traffic",
+        genes=("CXCL9", "CXCL10", "CXCL11", "CX3CL1", "CCL3", "CCL4", "CX3CR1", "CCL5", "CXCR3"),
+    ),
+    "NK_cells": GeneSet(
+        id="NK_cells",
+        name="NK cells",
+        genes=(
+            "NKG7", "CD160", "CD244", "NCR1", "KLRC2", "KLRK1", "CD226", "GZMH",
+            "GNLY", "IFNG", "KIR2DL4", "EOMES", "GZMB", "FGFBP2", "KLRF1", "SH2D1B", "NCR3",
+        ),
+    ),
+    "T_cells": GeneSet(
+        id="T_cells",
+        name="T cells",
+        genes=("TBX21", "ITK", "CD3D", "CD3E", "CD3G", "TRAC", "TRBC1", "TRBC2", "CD28", "CD5", "TRAT1"),
+    ),
+    "B_cells": GeneSet(
+        id="B_cells",
+        name="B cells",
+        genes=(
+            "CD19", "MS4A1", "TNFRSF13C", "CR2", "TNFRSF17", "TNFRSF13B",
+            "CD22", "CD79A", "CD79B", "BLK", "FCRL5", "PAX5", "STAP1",
+        ),
+    ),
+    "M1_signatures": GeneSet(
+        id="M1_signatures",
+        name="M1 signature",
+        genes=("NOS2", "TNF", "IL1B", "SOCS3", "CMKLR1", "IRF5", "IL12A", "IL12B", "IL23A"),
+    ),
+    "Th1_signature": GeneSet(
+        id="Th1_signature",
+        name="Th1 signature",
+        genes=("IFNG", "IL2", "CD40LG", "IL21", "TBX21", "STAT4", "IL12RB2"),
+    ),
+    "Antitumor_cytokines": GeneSet(
+        id="Antitumor_cytokines",
+        name="Antitumor cytokines",
+        genes=("TNF", "IFNB1", "IFNA2", "CCL3", "TNFSF10", "IL21"),
+    ),
+    "Checkpoint_inhibition": GeneSet(
+        id="Checkpoint_inhibition",
+        name="Checkpoint molecules",
+        genes=("PDCD1", "CD274", "CTLA4", "LAG3", "PDCD1LG2", "BTLA", "HAVCR2", "TIGIT", "VSIR"),
+    ),
+    "Treg": GeneSet(
+        id="Treg",
+        name="Treg",
+        genes=("FOXP3", "CTLA4", "IL10", "TNFRSF18", "CCR8", "IKZF4", "IKZF2"),
+    ),
+    "T_reg_traffic": GeneSet(
+        id="T_reg_traffic",
+        name="Treg and Th2 traffic",
+        genes=("CCL17", "CCL22", "CCL1", "CCL28", "CCR4", "CCR8", "CCR10"),
+    ),
+    "Neutrophil_signature": GeneSet(
+        id="Neutrophil_signature",
+        name="Neutrophil signature",
+        genes=("MPO", "ELANE", "PRTN3", "CTSG", "CXCR1", "CXCR2", "FCGR3B", "CD177", "FFAR2", "PGLYRP1"),
+    ),
+    "Granulocyte_traffic": GeneSet(
+        id="Granulocyte_traffic",
+        name="Granulocyte traffic",
+        genes=("CXCL8", "CXCL1", "CXCL2", "CXCL5", "CCL11", "KITLG", "CXCR1", "CXCR2", "CCR3"),
+    ),
+    "MDSC": GeneSet(
+        id="MDSC",
+        name="Immune Suppression by Myeloid Cells",
+        genes=("IDO1", "ARG1", "IL10", "CYBB", "PTGS2", "IL4I1", "IL6"),
+    ),
+    "MDSC_traffic": GeneSet(
+        id="MDSC_traffic",
+        name="Myeloid cells traffic",
+        genes=(
+            "CSF2", "CSF3", "CXCL12", "CCL26", "IL6", "CXCL8", "CXCL5",
+            "CSF1R", "CSF2RA", "CSF3R", "CXCR4", "IL6R", "CXCR2", "CCL15", "CSF1",
+        ),
+    ),
+    "Macrophages": GeneSet(
+        id="Macrophages",
+        name="Tumor-associated Macrophages",
+        genes=("IL10", "MRC1", "MSR1", "CD163", "CSF1R", "IL4I1", "SIGLEC1", "CD68"),
+    ),
+    "Macrophage_DC_traffic": GeneSet(
+        id="Macrophage_DC_traffic",
+        name="Macrophage and DC traffic",
+        genes=("CCL2", "CCL7", "CCL8", "XCL1", "CCR2", "XCR1", "CSF1R", "CSF1"),
+    ),
+    "Th2_signature": GeneSet(
+        id="Th2_signature",
+        name="Th2 signature",
+        genes=("IL4", "IL5", "IL13", "IL10", "CCR4"),
+    ),
+    "Protumor_cytokines": GeneSet(
+        id="Protumor_cytokines",
+        name="Protumor cytokines",
+        genes=("IL10", "TGFB1", "TGFB2", "TGFB3", "IL22", "MIF", "IL6"),
+    ),
+    "CAF": GeneSet(
+        id="CAF",
+        name="Fibroblasts",
+        genes=(
+            "COL1A1", "COL1A2", "COL5A1", "ACTA2", "FGF2", "FAP", "LRP1",
+            "CD248", "COL6A1", "COL6A2", "COL6A3", "CXCL12", "FBLN1", "LUM",
+            "MFAP5", "MMP3", "MMP2", "PDGFRB", "PDGFRA",
+        ),
+    ),
+    "Matrix": GeneSet(
+        id="Matrix",
+        name="Matrix",
+        genes=(
+            "FN1", "COL1A1", "COL1A2", "COL4A1", "COL3A1", "VTN", "LGALS7",
+            "LGALS9", "LAMA3", "LAMB3", "LAMC2", "TNC", "ELN", "COL5A1", "COL11A1",
+        ),
+    ),
+    "Matrix_remodeling": GeneSet(
+        id="Matrix_remodeling",
+        name="Matrix remodeling",
+        genes=(
+            "CA9", "MMP9", "MMP2", "MMP1", "MMP3", "MMP12",
+            "MMP7", "MMP11", "PLOD2", "ADAMTS4", "ADAMTS5", "LOX",
+        ),
+    ),
+    "Angiogenesis": GeneSet(
+        id="Angiogenesis",
+        name="Angiogenesis",
+        genes=(
+            "VEGFA", "VEGFB", "VEGFC", "PDGFC", "CXCL8", "CXCR2", "FLT1",
+            "PGF", "CXCL5", "KDR", "ANGPT1", "ANGPT2", "TEK", "VWF", "CDH5",
+        ),
+    ),
+    "Endothelium": GeneSet(
+        id="Endothelium",
+        name="Endothelium",
+        genes=("NOS3", "KDR", "FLT1", "VCAM1", "VWF", "CDH5", "MMRN1", "ENG", "CLEC14A", "MMRN2"),
+    ),
+    "Proliferation_rate": GeneSet(
+        id="Proliferation_rate",
+        name="Tumor proliferation rate",
+        genes=(
+            "MKI67", "ESCO2", "CETN3", "CDK2", "CCND1", "CCNE1", "AURKA",
+            "AURKB", "E2F1", "MYBL2", "BUB1", "PLK1", "CCNB1", "MCM2", "MCM6",
+        ),
+    ),
+    "EMT_signature": GeneSet(
+        id="EMT_signature",
+        name="EMT signature",
+        genes=("SNAI1", "SNAI2", "TWIST1", "TWIST2", "ZEB1", "ZEB2", "CDH2"),
+    ),
+}
+
+
+def get_bagaev_mfp_collection() -> GeneSetCollection:
+    """Return the complete 29-signature Bagaev et al. (2021) Molecular Functional Portrait collection."""
+    ordered_sets = {
+        sig_id: BAGAEV_MFP_29_SIGNATURES[sig_id]
+        for sig_id in BAGAEV_MFP_SIGNATURE_ORDER
+    }
+    return GeneSetCollection(
+        id="bagaev_mfp_29",
+        name="Bagaev MFP 29 Functional Gene Expression Signatures",
+        description="Complete 29 functional gene expression signatures defining conserved pan-cancer TME subtypes (IE/F, IE, F, D)",
+        gene_sets=ordered_sets,
+    )
+
 # Immune Checkpoint Hallmark Markers (13 genes)
 IMMUNE_CHECKPOINT_GENES: tuple[str, ...] = (
     "CD274",   # PD-L1
