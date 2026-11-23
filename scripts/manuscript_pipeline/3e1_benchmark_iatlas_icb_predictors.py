@@ -54,7 +54,6 @@ from tme_response import (
     compute_messina_cks_score,
     compute_meta_analytic_auc,
     compute_nurmik_cafs_score,
-    compute_perturbation_resilience,
     compute_roh_is_score,
     compute_single_gene_score,
     compute_tide_score,
@@ -62,7 +61,6 @@ from tme_response import (
     evaluate_prediction,
     load_multi_omic_cohort,
     pool_cohort_stratum_data,
-    run_cohort_perturbation_sweep,
     standardize_prediction_scores,
 )
 
@@ -108,7 +106,7 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=Path("output/manuscript_pipeline/3e1_benchmark_iatlas_icb_predictors"),
-        help="Output directory for tabular results and publication SVGs.",
+        help="Output directory for tabular benchmark results (.parquet, .csv).",
     )
     parser.add_argument(
         "--n-bootstrap",
@@ -130,53 +128,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--enable-combined-pools",
-        action="store_true",
-        default=True,
-        help="Enable combined cancer-type and pan-cancer cohort pools (default: True).",
-    )
-    parser.add_argument(
-        "--run-perturbations",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Run systematic data perturbation sweeps (default: True).",
-    )
-    parser.add_argument(
-        "--perturbation-cohorts",
-        type=str,
-        default=",".join(DEFAULT_IATLAS_COHORTS),
-        help="Comma-separated cohorts to stress-test under perturbations (default: all cohorts).",
-    )
-    parser.add_argument(
-        "--perturbation-bootstrap",
-        type=int,
-        default=200,
-        help="Number of bootstrap iterations for perturbation points (default: 200).",
-    )
-    parser.add_argument(
-        "--only-perturbations",
-        "--skip-baseline",
-        dest="only_perturbations",
-        action="store_true",
-        default=False,
-        help="Skip baseline recomputation and regenerate figures or run perturbation sweeps.",
-    )
-    parser.add_argument(
-        "--force-perturbations",
-        action="store_true",
-        default=False,
-        help="Force recomputation of perturbation sweeps even if cached evaluations exist.",
-    )
-    parser.add_argument(
-        "--run-survival",
-        action="store_true",
-        default=False,
-        help="Run Time-to-Event Survival (OS/PFS) and Decision Curve Analysis (DCA).",
-    )
-    parser.add_argument(
-        "--survival-bootstrap",
-        type=int,
-        default=500,
-        help="Number of bootstrap resamples for survival C-index (default: 500).",
+        help="Enable combined cancer-type and pan-cancer cohort pools (default: True).",
     )
     return parser.parse_args()
 
@@ -378,313 +332,224 @@ def main() -> None:
 
     all_benchmark_records: list[dict[str, object]] = []
 
-    if args.only_perturbations:
-        parquet_path = output_dir / "iatlas_benchmark_metrics.parquet"
-        if not parquet_path.exists():
-            print(f"[ERROR] Cannot run only perturbations: {parquet_path} does not exist.")
-            return
-        results_df = pl.read_parquet(parquet_path)
-        print(f"Loaded existing baseline benchmark dataset ({len(results_df)} evaluations).")
-        pred_parquet = output_dir / "cohort_predictability_metrics.parquet"
-        predictability_df = pl.read_parquet(pred_parquet) if pred_parquet.exists() else pl.DataFrame()
-    else:
-        # Cache for cohort pooling: cohort_id -> dict(cancer_type, strata, predictors)
-        cohort_cache: dict[str, dict[str, object]] = {}
+    # Cache for cohort pooling: cohort_id -> dict(cancer_type, strata, predictors)
+    cohort_cache: dict[str, dict[str, object]] = {}
 
-        # ---------------------------------------------------------
-        # 1. Process Individual Cohorts
-        # ---------------------------------------------------------
-        for cohort_id in cohort_list:
-            print(f"\n--- Loading Cohort: {cohort_id} ---")
-            match load_multi_omic_cohort(cohort_id, repo_root=repo_root, filter_baseline=False):
-                case Failure(err):
-                    print(f"  [SKIPPED] Failed to load {cohort_id}: {err}")
-                    continue
-                case Success(cohort):
-                    n_samples = len(cohort.sample_ids)
-                    has_tmb = isinstance(cohort.tmb_scores, Some)
-                    has_mut = isinstance(cohort.driver_mutations, Some)
-                    print(
-                        f"  Loaded {cohort_id} ({cohort.cancer_type}): "
-                        f"{n_samples} total samples (TMB: {has_tmb}, Mutations: {has_mut})"
-                    )
+    # ---------------------------------------------------------
+    # 1. Process Individual Cohorts
+    # ---------------------------------------------------------
+    for cohort_id in cohort_list:
+        print(f"\n--- Loading Cohort: {cohort_id} ---")
+        match load_multi_omic_cohort(cohort_id, repo_root=repo_root, filter_baseline=False):
+            case Failure(err):
+                print(f"  [SKIPPED] Failed to load {cohort_id}: {err}")
+                continue
+            case Success(cohort):
+                n_samples = len(cohort.sample_ids)
+                has_tmb = isinstance(cohort.tmb_scores, Some)
+                has_mut = isinstance(cohort.driver_mutations, Some)
+                print(
+                    f"  Loaded {cohort_id} ({cohort.cancer_type}): "
+                    f"{n_samples} total samples (TMB: {has_tmb}, Mutations: {has_mut})"
+                )
 
-                    predictors = compute_all_cohort_predictors(cohort)
-                    print(f"  Calculated {len(predictors)} predictors.")
+                predictors = compute_all_cohort_predictors(cohort)
+                print(f"  Calculated {len(predictors)} predictors.")
 
-                    strata = generate_combinatorial_strata(
-                        cohort.clinical_annotations,
-                        min_samples=args.min_samples,
-                        min_class_samples=args.min_class_samples,
-                    )
-                    print(f"  Valid Strata ({len(strata)}): {', '.join(strata.keys())}")
+                strata = generate_combinatorial_strata(
+                    cohort.clinical_annotations,
+                    min_samples=args.min_samples,
+                    min_class_samples=args.min_class_samples,
+                )
+                print(f"  Valid Strata ({len(strata)}): {', '.join(strata.keys())}")
 
-                    # Save into cache for combined pool processing
-                    cohort_cache[cohort_id] = {
-                        "cancer_type": cohort.cancer_type,
-                        "strata": strata,
-                        "predictors": predictors,
-                    }
+                # Save into cache for combined pool processing
+                cohort_cache[cohort_id] = {
+                    "cancer_type": cohort.cancer_type,
+                    "strata": strata,
+                    "predictors": predictors,
+                }
 
-                    # Evaluate individual cohort
-                    for stratum_key, stratum_clinical in strata.items():
-                        t_stratum, r_stratum = stratum_key.split("_", 1)
-
-                        for pred in predictors:
-                            match evaluate_prediction(
-                                prediction=pred,
-                                clinical_df=stratum_clinical,
-                                cohort_id=cohort.cohort_id,
-                                cancer_type=cohort.cancer_type,
-                                time_stratum=t_stratum,
-                                response_stratum=r_stratum,
-                                pooling_strategy="cohort",
-                                n_bootstrap=args.n_bootstrap,
-                            ):
-                                case Success(res):
-                                    all_benchmark_records.append({
-                                        "cohort_id": res.cohort_id,
-                                        "cancer_type": res.cancer_type,
-                                        "predictor_name": res.predictor_name,
-                                        "category": res.category.value,
-                                        "time_stratum": res.time_stratum,
-                                        "response_stratum": res.response_stratum,
-                                        "pooling_strategy": res.pooling_strategy,
-                                        "n_samples": res.n_samples,
-                                        "n_responders": res.n_responders,
-                                        "n_non_responders": res.n_non_responders,
-                                        "roc_auc": res.roc_auc,
-                                        "roc_auc_ci_lower": res.roc_auc_ci_lower,
-                                        "roc_auc_ci_upper": res.roc_auc_ci_upper,
-                                        "p_value_vs_half": res.p_value_vs_half,
-                                        "pr_auc": res.pr_auc,
-                                        "pr_auc_ci_lower": res.pr_auc_ci_lower,
-                                        "pr_auc_ci_upper": res.pr_auc_ci_upper,
-                                        "baseline_prevalence": res.baseline_prevalence,
-                                        "delta_pr_auc": res.delta_pr_auc,
-                                        "p_value_prauc": res.p_value_prauc,
-                                        "brier_score": res.brier_score,
-                                    })
-                                case Failure(_):
-                                    continue
-
-        # ---------------------------------------------------------
-        # 2. Process Combined Cohort Pools (Raw vs. Standardized)
-        # ---------------------------------------------------------
-        if args.enable_combined_pools and cohort_cache:
-            print(f"\n=== Processing Combined Cohort Pools ===")
-            for pool_id, pool_spec in COMBINED_COHORT_SPECS.items():
-                pool_cancer_type = pool_spec["cancer_type"]
-                member_cohorts = [cid for cid in pool_spec["cohort_ids"] if cid in cohort_cache]
-
-                if len(member_cohorts) < 2:
-                    print(f"  [SKIPPED] {pool_id}: Fewer than 2 available member cohorts.")
-                    continue
-
-                print(f"\n--- Constructing Pool: {pool_id} ({pool_cancer_type}) from {len(member_cohorts)} cohorts ---")
-
-                # Discover all distinct stratum keys across member cohorts
-                all_stratum_keys: set[str] = set()
-                for cid in member_cohorts:
-                    all_stratum_keys.update(cohort_cache[cid]["strata"].keys())
-
-                for stratum_key in sorted(all_stratum_keys):
+                # Evaluate individual cohort
+                for stratum_key, stratum_clinical in strata.items():
                     t_stratum, r_stratum = stratum_key.split("_", 1)
 
-                    # Assemble cohort strata
-                    strata_tuples: list[tuple[str, pl.DataFrame, Sequence[PredictionResult]]] = []
-                    for cid in member_cohorts:
-                        c_strata = cohort_cache[cid]["strata"]
-                        if stratum_key in c_strata:
-                            strata_tuples.append((
-                                cid,
-                                c_strata[stratum_key],
-                                cohort_cache[cid]["predictors"],
-                            ))
-
-                    if len(strata_tuples) < 2:
-                        continue
-
-                    # Run both pooling strategies: standardized (z-score) and raw
-                    for strategy in ["standardized", "raw"]:
-                        do_std = strategy == "standardized"
-                        match pool_cohort_stratum_data(
-                            strata_tuples,
-                            group_id=pool_id,
-                            cancer_type=pool_cancer_type,
-                            standardize=do_std,
+                    for pred in predictors:
+                        match evaluate_prediction(
+                            prediction=pred,
+                            clinical_df=stratum_clinical,
+                            cohort_id=cohort.cohort_id,
+                            cancer_type=cohort.cancer_type,
+                            time_stratum=t_stratum,
+                            response_stratum=r_stratum,
+                            pooling_strategy="cohort",
+                            n_bootstrap=args.n_bootstrap,
                         ):
-                            case Failure(err):
-                                print(f"    Failed pooling {pool_id} ({stratum_key}, {strategy}): {err}")
+                            case Success(res):
+                                all_benchmark_records.append({
+                                    "cohort_id": res.cohort_id,
+                                    "cancer_type": res.cancer_type,
+                                    "predictor_name": res.predictor_name,
+                                    "category": res.category.value,
+                                    "time_stratum": res.time_stratum,
+                                    "response_stratum": res.response_stratum,
+                                    "pooling_strategy": res.pooling_strategy,
+                                    "n_samples": res.n_samples,
+                                    "n_responders": res.n_responders,
+                                    "n_non_responders": res.n_non_responders,
+                                    "roc_auc": res.roc_auc,
+                                    "roc_auc_ci_lower": res.roc_auc_ci_lower,
+                                    "roc_auc_ci_upper": res.roc_auc_ci_upper,
+                                    "p_value_vs_half": res.p_value_vs_half,
+                                    "pr_auc": res.pr_auc,
+                                    "pr_auc_ci_lower": res.pr_auc_ci_lower,
+                                    "pr_auc_ci_upper": res.pr_auc_ci_upper,
+                                    "baseline_prevalence": res.baseline_prevalence,
+                                    "delta_pr_auc": res.delta_pr_auc,
+                                    "p_value_prauc": res.p_value_prauc,
+                                    "brier_score": res.brier_score,
+                                })
+                            case Failure(_):
                                 continue
-                            case Success((pooled_clin, pooled_preds)):
-                                n_total = len(pooled_clin)
-                                n_resp = int(pooled_clin["response_binary"].sum() or 0)
-                                n_non = n_total - n_resp
-
-                                if (
-                                    n_total < args.min_samples
-                                    or n_resp < args.min_class_samples
-                                    or n_non < args.min_class_samples
-                                ):
-                                    continue
-
-                                print(
-                                    f"    Evaluated {pool_id} ({stratum_key}, strategy={strategy}): "
-                                    f"{n_total} samples ({n_resp} responders, {len(pooled_preds)} predictors)"
-                                )
-
-                                for p in pooled_preds:
-                                    match evaluate_prediction(
-                                        prediction=p,
-                                        clinical_df=pooled_clin,
-                                        cohort_id=pool_id,
-                                        cancer_type=pool_cancer_type,
-                                        time_stratum=t_stratum,
-                                        response_stratum=r_stratum,
-                                        pooling_strategy=strategy,
-                                        n_bootstrap=args.n_bootstrap,
-                                    ):
-                                        case Success(res):
-                                            all_benchmark_records.append({
-                                                "cohort_id": res.cohort_id,
-                                                "cancer_type": res.cancer_type,
-                                                "predictor_name": res.predictor_name,
-                                                "category": res.category.value,
-                                                "time_stratum": res.time_stratum,
-                                                "response_stratum": res.response_stratum,
-                                                "pooling_strategy": res.pooling_strategy,
-                                                "n_samples": res.n_samples,
-                                                "n_responders": res.n_responders,
-                                                "n_non_responders": res.n_non_responders,
-                                                "roc_auc": res.roc_auc,
-                                                "roc_auc_ci_lower": res.roc_auc_ci_lower,
-                                                "roc_auc_ci_upper": res.roc_auc_ci_upper,
-                                                "p_value_vs_half": res.p_value_vs_half,
-                                                "pr_auc": res.pr_auc,
-                                                "pr_auc_ci_lower": res.pr_auc_ci_lower,
-                                                "pr_auc_ci_upper": res.pr_auc_ci_upper,
-                                                "baseline_prevalence": res.baseline_prevalence,
-                                                "delta_pr_auc": res.delta_pr_auc,
-                                                "p_value_prauc": res.p_value_prauc,
-                                                "brier_score": res.brier_score,
-                                            })
-                                        case Failure(_):
-                                            continue
-
-        if not all_benchmark_records:
-            print("\n[ERROR] No valid benchmark results generated across cohorts.")
-            return
-
-        # Consolidate results into a Polars DataFrame
-        results_df = pl.DataFrame(all_benchmark_records)
-        print(f"\n=== Benchmark Complete: {len(results_df)} evaluations generated ===")
-
-        # ---------------------------------------------------------
-        # 3. Export Tabular Datasets
-        # ---------------------------------------------------------
-        parquet_path = output_dir / "iatlas_benchmark_metrics.parquet"
-        csv_path = output_dir / "iatlas_benchmark_metrics.csv"
-        results_df.write_parquet(parquet_path)
-        results_df.write_csv(csv_path)
-        print(f"Saved: {parquet_path}")
-        print(f"Saved: {csv_path}")
-
-        # Compute and Export Cohort Predictability Index
-        match compute_cohort_predictability(results_df):
-            case Success(predictability_df):
-                pred_parquet = output_dir / "cohort_predictability_metrics.parquet"
-                pred_csv = output_dir / "cohort_predictability_metrics.csv"
-                predictability_df.write_parquet(pred_parquet)
-                predictability_df.write_csv(pred_csv)
-                print(f"Saved: {pred_parquet}")
-                print(f"Saved: {pred_csv}")
-            case Failure(err):
-                print(f"Failed to compute cohort predictability: {err}")
-                predictability_df = pl.DataFrame()
 
     # ---------------------------------------------------------
-    # 4. Perturbation & Robustness Benchmarking
+    # 2. Process Combined Cohort Pools (Raw vs. Standardized)
     # ---------------------------------------------------------
-    if args.run_perturbations:
-        print("\n=== Running Systematic Data Perturbation & Robustness Benchmarks ===")
-        pert_cohort_ids = [c.strip() for c in args.perturbation_cohorts.split(",") if c.strip()]
+    if args.enable_combined_pools and cohort_cache:
+        print(f"\n=== Processing Combined Cohort Pools ===")
+        for pool_id, pool_spec in COMBINED_COHORT_SPECS.items():
+            pool_cancer_type = pool_spec["cancer_type"]
+            member_cohorts = [cid for cid in pool_spec["cohort_ids"] if cid in cohort_cache]
 
-        pert_pq = output_dir / "perturbation_benchmark_metrics.parquet"
-        pert_csv = output_dir / "perturbation_benchmark_metrics.csv"
-
-        cached_records: list[dict[str, object]] = []
-        already_computed: set[str] = set()
-        if pert_pq.exists() and not args.force_perturbations:
-            cached_df = pl.read_parquet(pert_pq)
-            cached_records = cached_df.to_dicts()
-            already_computed = set(cached_df["cohort_id"].unique().to_list())
-            print(f"Loaded {len(cached_df)} existing perturbation evaluations across {len(already_computed)} cohorts: {', '.join(sorted(already_computed))}")
-
-        new_pert_records: list[dict[str, object]] = []
-        for p_cid in pert_cohort_ids:
-            if p_cid in already_computed:
-                print(f"\n--- Cohort {p_cid}: Already evaluated in cache; skipping recomputation ---")
+            if len(member_cohorts) < 2:
+                print(f"  [SKIPPED] {pool_id}: Fewer than 2 available member cohorts.")
                 continue
 
-            print(f"\n--- Perturbation Sweep on: {p_cid} ---")
-            match load_multi_omic_cohort(p_cid, repo_root=repo_root, filter_baseline=True):
-                case Failure(err):
-                    print(f"  [SKIPPED] Failed loading {p_cid}: {err}")
+            print(f"\n--- Constructing Pool: {pool_id} ({pool_cancer_type}) from {len(member_cohorts)} cohorts ---")
+
+            # Discover all distinct stratum keys across member cohorts
+            all_stratum_keys: set[str] = set()
+            for cid in member_cohorts:
+                all_stratum_keys.update(cohort_cache[cid]["strata"].keys())
+
+            for stratum_key in sorted(all_stratum_keys):
+                t_stratum, r_stratum = stratum_key.split("_", 1)
+
+                # Assemble cohort strata
+                strata_tuples: list[tuple[str, pl.DataFrame, Sequence[PredictionResult]]] = []
+                for cid in member_cohorts:
+                    c_strata = cohort_cache[cid]["strata"]
+                    if stratum_key in c_strata:
+                        strata_tuples.append((
+                            cid,
+                            c_strata[stratum_key],
+                            cohort_cache[cid]["predictors"],
+                        ))
+
+                if len(strata_tuples) < 2:
                     continue
-                case Success(p_cohort):
-                    match run_cohort_perturbation_sweep(
-                        p_cohort, n_bootstrap=args.perturbation_bootstrap
+
+                # Run both pooling strategies: standardized (z-score) and raw
+                for strategy in ["standardized", "raw"]:
+                    do_std = strategy == "standardized"
+                    match pool_cohort_stratum_data(
+                        strata_tuples,
+                        group_id=pool_id,
+                        cancer_type=pool_cancer_type,
+                        standardize=do_std,
                     ):
-                        case Success(pert_df):
-                            print(f"  Generated {len(pert_df)} perturbation evaluations on {p_cid}.")
-                            new_pert_records.extend(pert_df.to_dicts())
                         case Failure(err):
-                            print(f"  Perturbation sweep failed on {p_cid}: {err}")
+                            print(f"    Failed pooling {pool_id} ({stratum_key}, {strategy}): {err}")
+                            continue
+                        case Success((pooled_clin, pooled_preds)):
+                            n_total = len(pooled_clin)
+                            n_resp = int(pooled_clin["response_binary"].sum() or 0)
+                            n_non = n_total - n_resp
 
-        all_pert_records = cached_records + new_pert_records
+                            if (
+                                n_total < args.min_samples
+                                or n_resp < args.min_class_samples
+                                or n_non < args.min_class_samples
+                            ):
+                                continue
 
-        if all_pert_records:
-            pert_benchmark_df = pl.DataFrame(all_pert_records)
-            pert_benchmark_df.write_parquet(pert_pq)
-            pert_benchmark_df.write_csv(pert_csv)
-            print(f"Saved: {pert_pq}")
-            print(f"Saved: {pert_csv}")
+                            print(
+                                f"    Evaluated {pool_id} ({stratum_key}, strategy={strategy}): "
+                                f"{n_total} samples ({n_resp} responders, {len(pooled_preds)} predictors)"
+                            )
 
-            # Compute resilience index across all cohorts
-            match compute_perturbation_resilience(pert_benchmark_df):
-                case Success(resilience_df):
-                    resil_pq = output_dir / "perturbation_resilience_metrics.parquet"
-                    resil_csv = output_dir / "perturbation_resilience_metrics.csv"
-                    resilience_df.write_parquet(resil_pq)
-                    resilience_df.write_csv(resil_csv)
-                    print(f"Saved: {resil_pq}")
-                    print(f"Saved: {resil_csv}")
-                case Failure(err):
-                    print(f"Failed to compute resilience index: {err}")
+                            for p in pooled_preds:
+                                match evaluate_prediction(
+                                    prediction=p,
+                                    clinical_df=pooled_clin,
+                                    cohort_id=pool_id,
+                                    cancer_type=pool_cancer_type,
+                                    time_stratum=t_stratum,
+                                    response_stratum=r_stratum,
+                                    pooling_strategy=strategy,
+                                    n_bootstrap=args.n_bootstrap,
+                                ):
+                                    case Success(res):
+                                        all_benchmark_records.append({
+                                            "cohort_id": res.cohort_id,
+                                            "cancer_type": res.cancer_type,
+                                            "predictor_name": res.predictor_name,
+                                            "category": res.category.value,
+                                            "time_stratum": res.time_stratum,
+                                            "response_stratum": res.response_stratum,
+                                            "pooling_strategy": res.pooling_strategy,
+                                            "n_samples": res.n_samples,
+                                            "n_responders": res.n_responders,
+                                            "n_non_responders": res.n_non_responders,
+                                            "roc_auc": res.roc_auc,
+                                            "roc_auc_ci_lower": res.roc_auc_ci_lower,
+                                            "roc_auc_ci_upper": res.roc_auc_ci_upper,
+                                            "p_value_vs_half": res.p_value_vs_half,
+                                            "pr_auc": res.pr_auc,
+                                            "pr_auc_ci_lower": res.pr_auc_ci_lower,
+                                            "pr_auc_ci_upper": res.pr_auc_ci_upper,
+                                            "baseline_prevalence": res.baseline_prevalence,
+                                            "delta_pr_auc": res.delta_pr_auc,
+                                            "p_value_prauc": res.p_value_prauc,
+                                            "brier_score": res.brier_score,
+                                        })
+                                    case Failure(_):
+                                        continue
+
+    if not all_benchmark_records:
+        print("\n[ERROR] No valid benchmark results generated across cohorts.")
+        return
+
+    # Consolidate results into a Polars DataFrame
+    results_df = pl.DataFrame(all_benchmark_records)
+    print(f"\n=== Benchmark Complete: {len(results_df)} evaluations generated ===")
 
     # ---------------------------------------------------------
-    # 5. Time-to-Event Survival (OS/PFS) and Decision Curve Analysis (DCA)
+    # 3. Export Tabular Datasets
     # ---------------------------------------------------------
-    if args.run_survival:
-        import importlib
+    parquet_path = output_dir / "iatlas_benchmark_metrics.parquet"
+    csv_path = output_dir / "iatlas_benchmark_metrics.csv"
+    results_df.write_parquet(parquet_path)
+    results_df.write_csv(csv_path)
+    print(f"Saved: {parquet_path}")
+    print(f"Saved: {csv_path}")
 
-        _surv_mod = importlib.import_module(
-            "scripts.manuscript_pipeline.3e3_benchmark_survival_and_dca"
-        )
-        run_survival_and_dca_benchmark = _surv_mod.run_survival_and_dca_benchmark
+    # Compute and Export Cohort Predictability Index
+    match compute_cohort_predictability(results_df):
+        case Success(predictability_df):
+            pred_parquet = output_dir / "cohort_predictability_metrics.parquet"
+            pred_csv = output_dir / "cohort_predictability_metrics.csv"
+            predictability_df.write_parquet(pred_parquet)
+            predictability_df.write_csv(pred_csv)
+            print(f"Saved: {pred_parquet}")
+            print(f"Saved: {pred_csv}")
+        case Failure(err):
+            print(f"Failed to compute cohort predictability: {err}")
+            predictability_df = pl.DataFrame()
 
-        print("\n=== Running Survival & Decision Curve Analysis Benchmark ===")
-        run_survival_and_dca_benchmark(
-            cohorts=cohort_list,
-            output_dir=output_dir,
-            n_bootstrap=args.survival_bootstrap,
-            enable_combined_pools=args.enable_combined_pools,
-        )
 
     print("\n=== Benchmark Pipeline Finished Successfully ===")
 
 
 if __name__ == "__main__":
     main()
-

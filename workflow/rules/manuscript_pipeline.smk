@@ -300,6 +300,7 @@ rule mp_3d_curate_expert_gene_list:
 rule mp_3e1_benchmark_iatlas_icb_predictors:
     input:
         script="scripts/manuscript_pipeline/3e1_benchmark_iatlas_icb_predictors.py",
+        pert_script="scripts/manuscript_pipeline/3e1b_benchmark_iatlas_perturbations.py",
     output:
         metrics=f"{MP_3E1_DIR}/iatlas_benchmark_metrics.parquet",
         predictability=f"{MP_3E1_DIR}/cohort_predictability_metrics.parquet",
@@ -309,7 +310,8 @@ rule mp_3e1_benchmark_iatlas_icb_predictors:
     shell:
         """
         set -euo pipefail
-        python {input.script} --output-dir {params.out_dir} --enable-combined-pools --run-perturbations
+        python {input.script} --output-dir {params.out_dir} --enable-combined-pools
+        python {input.pert_script} --output-dir {params.out_dir}
         """
 
 
