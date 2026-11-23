@@ -2,7 +2,8 @@
 .venv/
 .ai/
 .aiignore
-jupyter/
+jupyter/*
+!jupyter/script_3e_guide.ipynb
 data/
 .make-sentinels/
 output/
