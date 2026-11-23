@@ -6,7 +6,8 @@ to the cBioPortal iAtlas cohorts in tme_datasets. Evaluates ROC-AUC, 95% bootstr
 PR-AUC, excess precision (ΔPR-AUC), and cohort predictability.
 Constructs pooled cancer cohorts (Melanoma-Combined, RenalCell-Combined, PanCancer-Combined)
 under both raw and z-score standardized pooling strategies.
-Exports tabular summaries (.parquet, .csv) and publication-grade Altair vector SVGs.
+Exports tabular summaries (.parquet, .csv). Publication SVGs are generated separately
+by `3e2_plot_iatlas_icb_predictors.py`.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Sequence
-import altair as alt
 import numpy as np
 import polars as pl
 from returns.maybe import Nothing, Some
@@ -59,19 +59,7 @@ from tme_response import (
     compute_single_gene_score,
     compute_tide_score,
     compute_wu_mias_score,
-    create_auc_heatmap,
-    create_benchmark_bar_chart,
-    create_cohort_predictability_forest_plot,
-    create_cross_cohort_resilience_heatmap,
-    create_meta_analytic_decay_chart,
-    create_pan_cohort_faceted_decay_chart,
-    create_perturbation_decay_chart,
-    create_pooling_comparison_chart,
-    create_resilience_ranking_chart,
-    create_roc_chart,
-    create_summary_forest_plot,
     evaluate_prediction,
-    export_chart_svg,
     load_multi_omic_cohort,
     pool_cohort_stratum_data,
     run_cohort_perturbation_sweep,
@@ -616,259 +604,7 @@ def main() -> None:
                 predictability_df = pl.DataFrame()
 
     # ---------------------------------------------------------
-    # 4. Generate and Export Publication Vector Figures (SVG)
-    # ---------------------------------------------------------
-    print("\n--- Generating Publication Vector Figures (SVG) ---")
-
-    # Primary display cohort subset: Individual cohorts + Standardized pools (exclude unnormalized raw pools from primary heatmaps)
-    primary_display_df = results_df.filter(
-        pl.col("pooling_strategy").is_in(["cohort", "standardized"])
-    )
-
-    pre_std_primary = primary_display_df.filter(
-        (pl.col("time_stratum") == "Pre") & (pl.col("response_stratum") == "Standard")
-    )
-    extreme_primary = primary_display_df.filter(
-        (pl.col("time_stratum") == "Pre") & (pl.col("response_stratum") == "Extreme")
-    )
-
-    GENOMIC_MUTATION_PREDICTORS = {
-        "TMB_Genomic",
-        "Composite_Gene_CXCL9_TMB",
-        "Composite_Ayers_GEP_TMB",
-        "Gene_CXCL9_AP_Gated",
-    }
-    pre_std_transcriptomic = pre_std_primary.filter(
-        ~pl.col("predictor_name").is_in(GENOMIC_MUTATION_PREDICTORS)
-    )
-    extreme_transcriptomic = extreme_primary.filter(
-        ~pl.col("predictor_name").is_in(GENOMIC_MUTATION_PREDICTORS)
-    )
-
-    # 1A. Heatmap: Full Multi-Omic ROC-AUC Pre-Treatment Standard Response (Preserved)
-    if not pre_std_primary.is_empty():
-        match create_auc_heatmap(
-            pre_std_primary,
-            metric="roc_auc",
-            title="Pre-Treatment Standard ICB Response (Multi-Omic, ROC-AUC)",
-            subtitle="All 31 predictors across 9 cohorts + 3 pools (gaps in Gide et al., 2019 indicate unprofiled WES/CNA data)",
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_roc_auc_heatmap_pre_standard.svg"
-                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export ROC-AUC heatmap SVG: {err}")
-            case Failure(err):
-                print(f"ROC-AUC heatmap generation failed: {err}")
-
-    # 1B. Heatmap: Pure Transcriptomic Complete-Matrix ROC-AUC Pre-Treatment Standard Response (NEW - Gap-Free)
-    if not pre_std_transcriptomic.is_empty():
-        match create_auc_heatmap(
-            pre_std_transcriptomic,
-            metric="roc_auc",
-            title="Pre-Treatment Standard ICB Response (Transcriptomic Complete Matrix, ROC-AUC)",
-            subtitle="27 RNA-seq gene expression predictors evaluated across all 9 cohorts (100% complete data, zero missing values)",
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_roc_auc_heatmap_transcriptomic_pre_standard.svg"
-                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export transcriptomic ROC-AUC heatmap SVG: {err}")
-            case Failure(err):
-                print(f"Transcriptomic ROC-AUC heatmap generation failed: {err}")
-
-    # 2. Heatmap: ROC-AUC Extreme Responders (CR/PR vs PD)
-    if not extreme_primary.is_empty():
-        match create_auc_heatmap(
-            extreme_primary,
-            metric="roc_auc",
-            title="Pre-Treatment Extreme Responders: CR/PR vs PD (Multi-Omic, ROC-AUC)",
-            subtitle="All 31 predictors across 9 cohorts + 3 pools (gaps denote unprofiled WES/CNA)",
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_roc_auc_heatmap_pre_extreme.svg"
-                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export extreme ROC-AUC heatmap SVG: {err}")
-            case Failure(err):
-                print(f"Extreme ROC-AUC heatmap generation failed: {err}")
-
-    if not extreme_transcriptomic.is_empty():
-        match create_auc_heatmap(
-            extreme_transcriptomic,
-            metric="roc_auc",
-            title="Pre-Treatment Extreme Responders: CR/PR vs PD (Transcriptomic Complete Matrix, ROC-AUC)",
-            subtitle="27 RNA-seq gene expression predictors (100% complete data, zero missing values)",
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_roc_auc_heatmap_transcriptomic_pre_extreme.svg"
-                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export transcriptomic extreme ROC-AUC heatmap SVG: {err}")
-            case Failure(err):
-                print(f"Transcriptomic extreme ROC-AUC heatmap generation failed: {err}")
-
-    # 3A. Heatmap: Full Multi-Omic PR-AUC Pre-Treatment Standard Response (Preserved)
-    if not pre_std_primary.is_empty():
-        match create_auc_heatmap(
-            pre_std_primary,
-            metric="pr_auc",
-            title="Pre-Treatment Standard ICB Response (Multi-Omic, PR-AUC)",
-            subtitle="All 31 predictors across 9 cohorts + 3 pools (gaps in Gide et al., 2019 indicate unprofiled WES/CNA data)",
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_pr_auc_heatmap_pre_standard.svg"
-                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export PR-AUC heatmap SVG: {err}")
-            case Failure(err):
-                print(f"PR-AUC heatmap generation failed: {err}")
-
-    # 3B. Heatmap: Pure Transcriptomic Complete-Matrix PR-AUC Pre-Treatment Standard Response (NEW - Gap-Free)
-    if not pre_std_transcriptomic.is_empty():
-        match create_auc_heatmap(
-            pre_std_transcriptomic,
-            metric="pr_auc",
-            title="Pre-Treatment Standard ICB Response (Transcriptomic Complete Matrix, PR-AUC)",
-            subtitle="27 RNA-seq gene expression predictors evaluated across all 9 cohorts (100% complete data, zero missing values)",
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_pr_auc_heatmap_transcriptomic_pre_standard.svg"
-                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export transcriptomic PR-AUC heatmap SVG: {err}")
-            case Failure(err):
-                print(f"Transcriptomic PR-AUC heatmap generation failed: {err}")
-
-    # 4. Heatmap: PR-AUC Extreme Responders
-    if not extreme_primary.is_empty():
-        match create_auc_heatmap(
-            extreme_primary,
-            metric="pr_auc",
-            title="Pre-Treatment Extreme Responders: CR/PR vs PD (Multi-Omic, PR-AUC)",
-            subtitle="All 31 predictors across 9 cohorts + 3 pools (gaps denote unprofiled WES/CNA)",
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_pr_auc_heatmap_pre_extreme.svg"
-                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export extreme PR-AUC heatmap SVG: {err}")
-            case Failure(err):
-                print(f"Extreme PR-AUC heatmap generation failed: {err}")
-
-    if not extreme_transcriptomic.is_empty():
-        match create_auc_heatmap(
-            extreme_transcriptomic,
-            metric="pr_auc",
-            title="Pre-Treatment Extreme Responders: CR/PR vs PD (Transcriptomic Complete Matrix, PR-AUC)",
-            subtitle="27 RNA-seq gene expression predictors (100% complete data, zero missing values)",
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_pr_auc_heatmap_transcriptomic_pre_extreme.svg"
-                match export_chart_svg(chart, svg_path, target_width_mm=180.0, min_font_size=10.0):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export transcriptomic extreme PR-AUC heatmap SVG: {err}")
-            case Failure(err):
-                print(f"Transcriptomic extreme PR-AUC heatmap generation failed: {err}")
-
-    # 5. Forest Plot: Predictor Summary ROC-AUC ± 95% CI
-    if not pre_std_primary.is_empty():
-        match create_summary_forest_plot(pre_std_primary, metric="roc_auc", title="Cross-Cohort Predictor Performance (Mean ROC-AUC ± 95% CI)"):
-            case Success(chart):
-                svg_path = output_dir / "fig_forest_summary_pre_standard.svg"
-                match export_chart_svg(chart, svg_path):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export predictor ROC-AUC forest SVG: {err}")
-            case Failure(err):
-                print(f"Predictor ROC-AUC forest plot failed: {err}")
-
-    # 6. Forest Plot: Predictor Summary PR-AUC ± 95% CI
-    if not pre_std_primary.is_empty():
-        match create_summary_forest_plot(pre_std_primary, metric="pr_auc", title="Cross-Cohort Predictor Performance (Mean PR-AUC ± 95% CI)"):
-            case Success(chart):
-                svg_path = output_dir / "fig_forest_summary_prauc_pre_standard.svg"
-                match export_chart_svg(chart, svg_path):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export predictor PR-AUC forest SVG: {err}")
-            case Failure(err):
-                print(f"Predictor PR-AUC forest plot failed: {err}")
-
-    # 7. Forest Plot: Cohort Predictability Index (Pre_Standard)
-    if not predictability_df.is_empty():
-        pred_pre_std = predictability_df.filter(
-            (pl.col("time_stratum") == "Pre")
-            & (pl.col("response_stratum") == "Standard")
-            & (pl.col("pooling_strategy").is_in(["cohort", "standardized"]))
-        )
-        if not pred_pre_std.is_empty():
-            match create_cohort_predictability_forest_plot(
-                pred_pre_std, title="Cohort Predictability Index (Mean RNA Biomarker ROC-AUC ± SD)"
-            ):
-                case Success(chart):
-                    svg_path = output_dir / "fig_cohort_predictability_forest.svg"
-                    match export_chart_svg(chart, svg_path):
-                        case Success(p):
-                            print(f"Saved: {p}")
-                        case Failure(err):
-                            print(f"Failed to export cohort predictability forest SVG: {err}")
-                case Failure(err):
-                    print(f"Cohort predictability forest plot failed: {err}")
-
-    # 8. Comparison Plot: Raw vs Standardized Pooling
-    pre_std_all_pools = results_df.filter(
-        (pl.col("time_stratum") == "Pre")
-        & (pl.col("response_stratum") == "Standard")
-        & (pl.col("pooling_strategy").is_in(["raw", "standardized"]))
-    )
-    if not pre_std_all_pools.is_empty():
-        match create_pooling_comparison_chart(
-            pre_std_all_pools, title="Impact of Score Standardization on Pooled ROC-AUC"
-        ):
-            case Success(chart):
-                svg_path = output_dir / "fig_pooling_comparison_pre_standard.svg"
-                match export_chart_svg(chart, svg_path):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export pooling comparison SVG: {err}")
-            case Failure(err):
-                print(f"Pooling comparison chart failed: {err}")
-
-    # 9. Grouped Bar Chart
-    if not pre_std_primary.is_empty():
-        match create_benchmark_bar_chart(pre_std_primary, metric="roc_auc"):
-            case Success(chart):
-                svg_path = output_dir / "fig_benchmark_bars_pre_standard.svg"
-                match export_chart_svg(chart, svg_path):
-                    case Success(p):
-                        print(f"Saved: {p}")
-                    case Failure(err):
-                        print(f"Failed to export bar chart SVG: {err}")
-            case Failure(err):
-                print(f"Bar chart generation failed: {err}")
-
-    # ---------------------------------------------------------
-    # 5. Perturbation & Robustness Benchmarking
+    # 4. Perturbation & Robustness Benchmarking
     # ---------------------------------------------------------
     if args.run_perturbations:
         print("\n=== Running Systematic Data Perturbation & Robustness Benchmarks ===")
@@ -924,80 +660,8 @@ def main() -> None:
                     resilience_df.write_csv(resil_csv)
                     print(f"Saved: {resil_pq}")
                     print(f"Saved: {resil_csv}")
-
-                    # 1. Cross-Cohort PRI Heatmap
-                    match create_cross_cohort_resilience_heatmap(resilience_df):
-                        case Success(chart):
-                            svg_p = output_dir / "fig_perturbation_resilience_cross_cohort_heatmap.svg"
-                            export_chart_svg(chart, svg_p)
-                            print(f"Saved: {svg_p}")
-                        case Failure(err):
-                            print(f"Failed to export cross-cohort resilience heatmap: {err}")
-
-                    # 2. Cohort-Specific Resilience Ranking SVGs
-                    for cid in pert_benchmark_df["cohort_id"].unique().to_list():
-                        cid_resil = resilience_df.filter(pl.col("cohort_id") == cid)
-                        if not cid_resil.is_empty():
-                            cohort_dir = output_dir / "cohorts" / cid
-                            cid_disp = get_cohort_display_label(cid)
-                            match create_resilience_ranking_chart(
-                                cid_resil,
-                                title=f"Predictor Perturbation Resilience Index (PRI) - {cid_disp}",
-                                subtitle=f"Cohort: {cid_disp} | Metric: Normalized Area Retention (1.0 = Complete Resilience)",
-                            ):
-                                case Success(chart):
-                                    export_chart_svg(chart, cohort_dir / "fig_perturbation_resilience_ranking.svg")
-                                    if cid == "Gide-iAtlas":
-                                        export_chart_svg(chart, output_dir / "fig_perturbation_resilience_ranking.svg")
-                                case Failure(err):
-                                    print(f"Failed to export resilience ranking chart for {cid}: {err}")
                 case Failure(err):
                     print(f"Failed to compute resilience index: {err}")
-
-            # 3. Pan-Cohort 3x3 Faceted Decay Grids (Export shaded, no_uncertainty, and errorbars)
-            for p_type in ["jitter", "dropout", "dilution", "label_noise"]:
-                for u_mode, suffix in [("shaded", "_shaded"), ("none", "_no_uncertainty"), ("errorbars", "_errorbars"), ("shaded", "")]:
-                    match create_pan_cohort_faceted_decay_chart(
-                        pert_benchmark_df, perturbation_type=p_type, columns=3, uncertainty=u_mode
-                    ):
-                        case Success(chart):
-                            svg_p = output_dir / f"fig_perturbation_decay_{p_type}_all_cohorts{suffix}.svg"
-                            export_chart_svg(chart, svg_p)
-                            print(f"Saved: {svg_p}")
-                        case Failure(err):
-                            print(f"Failed to export pan-cohort faceted decay chart for {p_type} ({u_mode}): {err}")
-
-            # 4. Pan-Cohort Meta-Analytic Mean Decay Curves (Export shaded, no_uncertainty, and errorbars)
-            for p_type in ["jitter", "dropout", "dilution", "label_noise"]:
-                for u_mode, suffix in [("shaded", "_shaded"), ("none", "_no_uncertainty"), ("errorbars", "_errorbars"), ("shaded", "")]:
-                    match create_meta_analytic_decay_chart(
-                        pert_benchmark_df, perturbation_type=p_type, uncertainty=u_mode
-                    ):
-                        case Success(chart):
-                            svg_p = output_dir / f"fig_perturbation_decay_pan_cohort_mean_{p_type}{suffix}.svg"
-                            export_chart_svg(chart, svg_p)
-                            print(f"Saved: {svg_p}")
-                        case Failure(err):
-                            print(f"Failed to export meta-analytic decay chart for {p_type} ({u_mode}): {err}")
-
-            # 5. Individual Cohort Decay SVGs for ALL Cohorts
-            for cid in pert_benchmark_df["cohort_id"].unique().to_list():
-                cid_pert = pert_benchmark_df.filter(pl.col("cohort_id") == cid)
-                cohort_dir = output_dir / "cohorts" / cid
-                cohort_dir.mkdir(parents=True, exist_ok=True)
-                for p_type in ["jitter", "dropout", "dilution", "label_noise"]:
-                    for u_mode, suffix in [("shaded", "_shaded"), ("none", "_no_uncertainty"), ("errorbars", "_errorbars"), ("shaded", "")]:
-                        match create_perturbation_decay_chart(
-                            cid_pert,
-                            perturbation_type=p_type,
-                            uncertainty=u_mode,
-                        ):
-                            case Success(chart):
-                                export_chart_svg(chart, cohort_dir / f"fig_perturbation_decay_{p_type}{suffix}.svg")
-                                if cid == "Gide-iAtlas":
-                                    export_chart_svg(chart, output_dir / f"fig_perturbation_decay_{p_type}{suffix}.svg")
-                            case Failure(err):
-                                print(f"Failed to export decay chart for {p_type} on {cid} ({u_mode}): {err}")
 
     # ---------------------------------------------------------
     # 5. Time-to-Event Survival (OS/PFS) and Decision Curve Analysis (DCA)
