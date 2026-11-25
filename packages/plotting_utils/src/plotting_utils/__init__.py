@@ -56,6 +56,7 @@ from .theme import (
     chart_to_svg,
     create_nature_axis,
     export_altair_figure,
+    export_altair_inkscape_svg,
 )
 from .cohorts import COHORT_METADATA, COHORT_PANELS, get_single_cell_cohort_display_label
 from .svg import (
@@ -135,6 +136,7 @@ __all__ = [
     "DECONV_METHOD_ORDER",
     "DECONV_COLOR_MAP",
     "export_altair_figure",
+    "export_altair_inkscape_svg",
     "chart_to_svg",
     "BoundingBox",
     "SvgRasterizationConfig",

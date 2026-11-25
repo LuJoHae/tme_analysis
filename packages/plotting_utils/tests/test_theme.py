@@ -18,7 +18,9 @@ from plotting_utils import (
     apply_nature_methods_theme,
     chart_to_svg,
     export_altair_figure,
+    export_altair_inkscape_svg,
 )
+from plotting_utils.svg import INKSCAPE_NS
 
 
 def test_plotting_utils_palettes_and_cohorts() -> None:
@@ -118,3 +120,23 @@ def test_chart_to_svg_multi_panel_cumulative_threshold() -> None:
     root = ET.fromstring(res.unwrap())
     images = [e for e in root.iter() if e.tag.endswith("image")]
     assert len(images) == 2
+
+
+def test_export_altair_inkscape_svg_layers_and_png(tmp_path: Path) -> None:
+    """Verify Altair Inkscape exporter wraps 01_Background & 02_Panels_and_Marks layers and renders PNG."""
+    df = pl.DataFrame({"x": [1.0, 2.0, 3.0], "y": [2.0, 4.0, 1.0]})
+    chart = apply_nature_methods_theme(
+        alt.Chart(df).mark_circle(size=30, color=OKABE_BLUE).encode(x="x:Q", y="y:Q")
+    )
+    res = export_altair_inkscape_svg(chart, tmp_path / "layered_demo", scale=2.0)
+    assert isinstance(res, Success)
+    svg_path, png_path = res.unwrap()
+    assert svg_path.is_file() and png_path.is_file() and png_path.stat().st_size > 0
+
+    root = ET.parse(svg_path).getroot()
+    layers = [
+        elem.attrib.get(f"{{{INKSCAPE_NS}}}label")
+        for elem in root.iter()
+        if elem.attrib.get(f"{{{INKSCAPE_NS}}}groupmode") == "layer"
+    ]
+    assert layers == ["01_Background", "02_Panels_and_Marks"]
