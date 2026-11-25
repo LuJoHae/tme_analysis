@@ -94,7 +94,6 @@ def run_step01(out_dir: Path, lair_dir: Path) -> None:
         raise RuntimeError(tcga_res.failure())
     tcga_ref = tcga_res.unwrap()
     print(f"Loaded Bagaev TCGA reference: {tcga_ref.height} samples across {tcga_ref['TCGA_project'].n_unique()} projects.")
-    tcga_ref.write_parquet(out_dir / "tcga_bagaev_reference_29fges.parquet")
 
     raw_cohort_dfs: list[pl.DataFrame] = []
     for cid in IATLAS_COHORTS:
