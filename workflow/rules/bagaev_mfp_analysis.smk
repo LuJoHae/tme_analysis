@@ -3,7 +3,6 @@
 import os
 
 DATA_DIR = os.environ.get("TME_DATA_DIR", "data")
-LAIR_DIR = os.environ.get("TME_LAIR_DIR", f"{DATA_DIR}/lair")
 BAGAEV_OUT_DIR = f"{DATA_DIR}/output/bagaev_mfp_analysis"
 BAGAEV_RESULTS_DIR = f"{DATA_DIR}/results/bagaev_mfp_analysis"
 BENCH_3C_DIR = f"{DATA_DIR}/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark"
@@ -43,13 +42,11 @@ rule bagaev_01_classify_and_cluster_iatlas:
         subtypes=f"{BAGAEV_OUT_DIR}/iatlas_bagaev_sample_subtypes.parquet",
         means=f"{BAGAEV_OUT_DIR}/iatlas_subtype_29fges_means.parquet",
         resp=f"{BAGAEV_OUT_DIR}/iatlas_subtype_response_rates.parquet",
-        tcga_ref=f"{BAGAEV_OUT_DIR}/tcga_bagaev_reference_29fges.parquet",
     params:
         out_dir=BAGAEV_OUT_DIR,
-        lair_dir=LAIR_DIR,
     threads: 4
     shell:
-        "python3 {input.script} --out-dir {params.out_dir} --lair-dir {params.lair_dir}"
+        "python3 {input.script} --out-dir {params.out_dir}"
 
 
 rule bagaev_02_integrate_iatlas_deconvolution:
@@ -85,7 +82,6 @@ rule bagaev_02_integrate_iatlas_deconvolution:
 rule bagaev_03_analyze_sc_pseudobulk_and_milopy:
     input:
         script="scripts/bagaev_mfp_analysis/03_analyze_sc_pseudobulk_and_milopy.py",
-        tcga_ref=f"{BAGAEV_OUT_DIR}/tcga_bagaev_reference_29fges.parquet",
     output:
         summary=f"{BAGAEV_OUT_DIR}/sc23_pseudobulk_cohort_summary.parquet",
         samples=f"{BAGAEV_OUT_DIR}/sc23_pseudobulk_bagaev_samples.parquet",
@@ -95,12 +91,11 @@ rule bagaev_03_analyze_sc_pseudobulk_and_milopy:
         out_dir=BAGAEV_OUT_DIR,
         preprocessed_dir=f"{DATA_DIR}/preprocessed",
         ensembl_dir=f"{DATA_DIR}/ensembl",
-        lair_dir=LAIR_DIR,
         pb_cache_dir=f"{DATA_DIR}/pseudobulk",
         sc9_milo_dir=SC9_MILO_DIR,
     threads: 8
     shell:
-        "python3 {input.script} --out-dir {params.out_dir} --preprocessed-dir {params.preprocessed_dir} --ensembl-dir {params.ensembl_dir} --lair-dir {params.lair_dir} --pb-cache-dir {params.pb_cache_dir} --sc9-milo-dir {params.sc9_milo_dir}"
+        "python3 {input.script} --out-dir {params.out_dir} --preprocessed-dir {params.preprocessed_dir} --ensembl-dir {params.ensembl_dir} --pb-cache-dir {params.pb_cache_dir} --sc9-milo-dir {params.sc9_milo_dir}"
 
 
 rule bagaev_04_plot_figures:
