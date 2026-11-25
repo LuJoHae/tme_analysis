@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 import pytest
+from returns.maybe import Some
 from returns.result import Failure, Success
 
 from tme_response.evaluation.dca import (
@@ -110,6 +111,33 @@ def test_fit_univariable_cox_zero_variance() -> None:
     scores = [2.0] * 20
     res = fit_univariable_cox(times, events, scores)
     assert isinstance(res, Failure)
+
+
+def test_fit_univariable_cox_stratified_binary_and_separation_guard() -> None:
+    """Verify cohort-stratified binary Cox PH gives unscaled HR and guards complete separation."""
+    rng = np.random.default_rng(31)
+    n_c = 40
+    # Two cohorts with different baseline hazards and true HR = exp(-0.9) ~ 0.406 for exp=1
+    exp1 = np.array([1.0 if i < 20 else 0.0 for i in range(n_c)])
+    t1 = rng.exponential(scale=np.where(exp1 == 1.0, 20.0, 8.0))
+    exp2 = np.array([1.0 if i < 20 else 0.0 for i in range(n_c)])
+    t2 = rng.exponential(scale=np.where(exp2 == 1.0, 6.0, 2.5))
+    times = np.concatenate([t1, t2])
+    events = np.ones(2 * n_c, dtype=int)
+    scores = np.concatenate([exp1, exp2])
+    strata = ["C1"] * n_c + ["C2"] * n_c
+
+    strat_res = fit_univariable_cox(times, events, scores, standardize_score=False, strata=Some(strata))
+    assert isinstance(strat_res, Success)
+    cx = strat_res.unwrap()
+    assert 0.15 < cx.hazard_ratio < 0.85
+
+    # Complete separation: exposed arm has zero events -> must return Failure
+    sep_scores = np.array([1.0] * 10 + [0.0] * 10)
+    sep_events = np.array([0] * 10 + [1] * 10)
+    sep_times = np.linspace(5.0, 25.0, 20)
+    sep_res = fit_univariable_cox(sep_times, sep_events, sep_scores, standardize_score=False)
+    assert isinstance(sep_res, Failure)
 
 
 def test_calibrate_probabilities() -> None:

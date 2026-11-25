@@ -7,8 +7,9 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from pydantic import BaseModel, ConfigDict
+from returns.maybe import Maybe, Nothing, Some
 from returns.result import Failure, Result, Success
-from statsmodels.duration.hazard_regression import PHReg
+from statsmodels.duration.hazard_regression import PHReg  # type: ignore[import-untyped]
 
 
 class CIndexResult(BaseModel):
@@ -145,9 +146,9 @@ def calculate_c_index_bootstrap(
         ci_upper = float(np.percentile(boot_arr, 100.0 * (1.0 - alpha / 2.0)))
 
         # Two-sided empirical p-value vs 0.50
-        p_le = np.mean(boot_arr <= 0.5)
-        p_ge = np.mean(boot_arr >= 0.5)
-        p_val = float(min(1.0, 2.0 * min(p_le, p_ge)))
+        p_le = float(np.mean(boot_arr <= 0.5))
+        p_ge = float(np.mean(boot_arr >= 0.5))
+        p_val = min(1.0, 2.0 * min(p_le, p_ge))
 
         return Success(
             CIndexResult(
@@ -169,11 +170,13 @@ def fit_univariable_cox(
     events: Sequence[float | int | bool],
     scores: Sequence[float],
     standardize_score: bool = True,
+    strata: Maybe[Sequence[str | int]] = Nothing,
 ) -> Result[CoxHazardResult, str]:
     """Fit a univariable Cox Proportional Hazards regression model using statsmodels PHReg.
 
     If standardize_score is True, scores are z-scored so the Hazard Ratio represents
     the hazard multiplier per 1 standard deviation increase in score.
+    When `strata` is Some(...), fits a stratified Cox model allowing cohort-specific baseline hazards.
     """
     try:
         t_arr = np.asarray(times, dtype=float)
@@ -191,7 +194,6 @@ def fit_univariable_cox(
         if n_samples < 10 or n_events < 3:
             return Failure(f"Insufficient survival data for Cox model: n_samples={n_samples}, n_events={n_events}")
 
-        # Standardize score for interpretable HR per 1-SD
         if standardize_score:
             std_val = float(np.std(s_clean))
             if std_val > 1e-8:
@@ -199,20 +201,64 @@ def fit_univariable_cox(
             else:
                 return Failure("Score has zero variance; cannot fit Cox regression.")
         else:
+            if float(np.std(s_clean)) <= 1e-8:
+                return Failure("Score has zero variance; cannot fit Cox regression.")
             s_model = s_clean
 
+        u_vals = np.unique(s_model)
+        if len(u_vals) <= 2:
+            if len(u_vals) < 2:
+                return Failure("Binary predictor has fewer than 2 levels; cannot fit Cox regression.")
+            arm0_mask = s_model == u_vals[0]
+            arm1_mask = s_model == u_vals[1]
+            if int(np.sum(arm0_mask)) < 2 or int(np.sum(arm1_mask)) < 2:
+                return Failure("Binary Cox regression requires at least 2 samples per exposure arm.")
+            if int(np.sum(e_clean[arm0_mask])) == 0 or int(np.sum(e_clean[arm1_mask])) == 0:
+                return Failure("Zero-event arm in binary Cox regression indicates complete separation.")
+
+        strata_arg: list[str] | None = None
+        match strata:
+            case Some(s_vals):
+                if len(s_vals) != len(t_arr):
+                    return Failure(f"Strata length ({len(s_vals)}) does not match times ({len(t_arr)}).")
+                strata_arg = [str(v) for v, keep in zip(s_vals, valid_mask.tolist(), strict=True) if keep]
+            case _:
+                pass
+
         df_model = pd.DataFrame({"time": t_clean, "event": e_clean, "score": s_model})
-        mod = PHReg(endog=df_model["time"], exog=df_model[["score"]], status=df_model["event"])
+        mod = (
+            PHReg(
+                endog=df_model["time"],
+                exog=df_model[["score"]],
+                status=df_model["event"],
+                strata=np.asarray(strata_arg, dtype=object),
+            )
+            if strata_arg is not None
+            else PHReg(endog=df_model["time"], exog=df_model[["score"]], status=df_model["event"])
+        )
         res = mod.fit(disp=False)
 
         coef = float(res.params[0])
         bse = float(res.bse[0])
         p_val = float(res.pvalues[0])
-        hr = float(np.exp(coef))
-
         ci = res.conf_int()
+        hr = float(np.exp(np.clip(coef, -50.0, 50.0)))
         hr_lower = float(np.exp(ci[0, 0]))
         hr_upper = float(np.exp(ci[0, 1]))
+
+        if (
+            not np.isfinite(coef)
+            or not np.isfinite(bse)
+            or not np.isfinite(p_val)
+            or not np.isfinite(hr_lower)
+            or not np.isfinite(hr_upper)
+            or abs(coef) > 10.0
+            or bse > 10.0
+            or hr_upper > 1e4
+        ):
+            return Failure(
+                f"Degenerate Cox PH fit (quasi-complete separation): coef={coef:.3f}, se={bse:.3f}."
+            )
 
         return Success(
             CoxHazardResult(
