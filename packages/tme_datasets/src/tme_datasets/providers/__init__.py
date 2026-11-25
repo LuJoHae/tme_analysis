@@ -1,6 +1,13 @@
 """Dataset providers for single-cell, bulk iAtlas, direct papers, spatial, and TCGA."""
 
 from .bulk_iatlas import IATLAS_COHORTS, load_iatlas_cohort
+from .bagaev_reference import (
+    VALID_BAGAEV_SUBTYPES,
+    load_panmelanoma_bagaev_labels,
+    load_tcga_bagaev_reference,
+    match_iatlas_to_panmelanoma_labels,
+    normalize_sample_key,
+)
 from .bulk_papers import (
     PAPER_DATASETS,
     download_cho,
@@ -364,6 +371,11 @@ __all__ = [
     "load_chu_tcell_atlas",
     "load_shi_pancancer_atlas",
     "load_zheng_tcell_atlas",
+    "VALID_BAGAEV_SUBTYPES",
+    "load_tcga_bagaev_reference",
+    "load_panmelanoma_bagaev_labels",
+    "match_iatlas_to_panmelanoma_labels",
+    "normalize_sample_key",
     "preprocess_chu_tcell_atlas",
     "preprocess_shi_pancancer_atlas",
     "preprocess_zheng_tcell_atlas",

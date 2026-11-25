@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import anndata as ad  # type: ignore[import-untyped]
 from hypothesis import given, settings, strategies as st
 import numpy as np
@@ -9,6 +10,7 @@ import pandas as pd
 import polars as pl
 from returns.maybe import Nothing, Some
 from returns.result import Failure, Success
+import scipy.sparse as sp  # type: ignore[import-untyped]
 
 from tme_datasets import (
     BAGAEV_MFP_29_SIGNATURES,
@@ -16,11 +18,18 @@ from tme_datasets import (
     BAGAEV_MFP_SIGNATURE_ORDER,
     GeneSet,
     GeneSetCollection,
+    TumorPseudobulkSpec,
     compute_ssgsea_matrix,
+    deduplicate_patient_profiles,
     get_bagaev_mfp_collection,
+    load_ensembl_symbol_map,
     load_geneset_collection,
+    load_panmelanoma_bagaev_labels,
+    load_tcga_bagaev_reference,
+    match_iatlas_to_panmelanoma_labels,
     median_mad_scale_signatures,
     score_geneset_ssgsea,
+    stream_tumor_pseudobulk_h5ad,
 )
 
 
@@ -142,3 +151,138 @@ def test_median_mad_scale_signatures_global_and_grouped() -> None:
 
     err_res = median_mad_scale_signatures(df, ("MISSING_COL",), group_col=Nothing)
     assert isinstance(err_res, Failure)
+
+
+def test_load_tcga_bagaev_reference_and_panmelanoma_timepoint_preservation(tmp_path: Path) -> None:
+    """Verify TCGA reference loader and non-colliding Pre/On Pan-Melanoma matching."""
+    tcga_dir = tmp_path / "DatasetBagaev-TCGA"
+    tcga_dir.mkdir(parents=True)
+    (tcga_dir / "annotations.tsv").write_text(
+        "\tTCGA_project\tHISTOLOGICAL_SUBTYPE\tMFP\n"
+        "TCGA-01\tSKCM\tCutaneous\tIE\n"
+        "TCGA-02\tSKCM\tCutaneous\tF\n",
+        encoding="utf-8",
+    )
+    (tcga_dir / "signature.tsv").write_text(
+        "\tTCGA-01\tTCGA-02\nEffector_cells\t1.5\t-1.2\nCAF\t-0.9\t2.1\n",
+        encoding="utf-8",
+    )
+    ref_res = load_tcga_bagaev_reference(tmp_path)
+    assert isinstance(ref_res, Success)
+    ref_df = ref_res.unwrap()
+    assert ref_df.shape == (2, 6)
+    assert ref_df.filter(pl.col("sample_id") == "TCGA-01")["MFP"][0] == "IE"
+
+    pan_dir = tmp_path / "DatasetBagaev-PanMelanoma"
+    pan_dir.mkdir(parents=True)
+    # Same Patient (Riaz_Pt1) switches MFP across Pre vs On — must NOT overwrite Pre with On
+    (pan_dir / "annotations.tsv").write_text(
+        "Sample\tCohort\tMFP\tPatient\tResponse\tTime\n"
+        "SRR1\tRiaz\tIE\tRiaz_Pt1\tR\tPre\n"
+        "SRR2\tRiaz\tD\tRiaz_Pt1\tR\tOn\n",
+        encoding="utf-8",
+    )
+    pan_res = load_panmelanoma_bagaev_labels(tmp_path)
+    assert isinstance(pan_res, Success)
+    iatlas_df = pl.DataFrame(
+        {
+            "cohort": ["Riaz-iAtlas", "Riaz-iAtlas"],
+            "raw_sample_id": ["Pt1_PRE", "Pt1_ON"],
+            "patient_id": ["Pt1", "Pt1"],
+            "sample_treatment": ["Pre", "On"],
+        }
+    )
+    matched = match_iatlas_to_panmelanoma_labels(iatlas_df, pan_res.unwrap())
+    assert matched["published_bagaev_mfp"].to_list() == ["IE", "D"]
+
+
+def test_stream_tumor_pseudobulk_excludes_blood_resolves_ensg_and_inverts_log_scales(tmp_path: Path) -> None:
+    """Verify tumor-only gating, Ensembl parquet resolution, ln vs log2 base inversion & dedup."""
+    # Write synthetic release 111 Ensembl map parquet
+    ens_dir = tmp_path / "ensembl"
+    ens_dir.mkdir()
+    pl.DataFrame(
+        {
+            "gene_id": ["ENSG00000153563", "ENSG00000108821"],
+            "gene_name": ["CD8A", "COL1A1"],
+        }
+    ).write_parquet(ens_dir / "gene_mapping_cache_release_111.parquet")
+    ens_map = load_ensembl_symbol_map(ens_dir)
+
+    # Cohort 1: CELLxGENE_05a8c945 style with blood + normal + tumor + metastasis and ln(CP10k + 1) X
+    # Donor D1 has a blood sample with high CD8A and a tumor sample with high COL1A1; blood must be excluded!
+    n_blood = 30
+    n_tum = 30
+    x_ln = np.vstack(
+        [
+            np.tile(np.array([[np.log1p(9000.0), np.log1p(1000.0)]]), (n_blood, 1)),
+            np.tile(np.array([[np.log1p(1000.0), np.log1p(9000.0)]]), (n_tum, 1)),
+        ]
+    ).astype(np.float32)
+    ad_crc = ad.AnnData(
+        X=sp.csr_matrix(x_ln),
+        obs=pd.DataFrame(
+            {
+                "sample_id": ["D1_Blood"] * n_blood + ["D1_Tumor"] * n_tum,
+                "donor_id": ["D1"] * (n_blood + n_tum),
+                "sample_type": ["blood"] * n_blood + ["tumor"] * n_tum,
+                "treatment_status": ["naive"] * (n_blood + n_tum),
+                "clinical_response": ["responder"] * (n_blood + n_tum),
+            },
+            index=[f"c_{i}" for i in range(n_blood + n_tum)],
+        ),
+        var=pd.DataFrame(index=["ENSG00000153563.10", "ENSG00000108821"]),
+    )
+    crc_path = tmp_path / "crc.h5ad"
+    ad_crc.write_h5ad(crc_path)
+
+    res_crc = stream_tumor_pseudobulk_h5ad(
+        crc_path,
+        TumorPseudobulkSpec(cohort_id="CELLxGENE_05a8c945", sample_col="sample_id", min_cells_per_sample=20),
+        ens_map,
+    )
+    assert isinstance(res_crc, Success)
+    out_crc = res_crc.unwrap()
+    assert out_crc.scale_mode == "ln_cp10k"
+    assert out_crc.sample_ids == ("D1_Tumor",)
+    assert out_crc.gene_symbols == ("CD8A", "COL1A1")
+    # Reconstructed log2(CPM+1) must preserve COL1A1:CD8A = 9:1 -> COL1A1 ~ 900k CPM, CD8A ~ 100k CPM
+    assert np.isclose(out_crc.log2_cpm[0, 1], np.log2(900000.0 + 1.0), atol=1e-2)
+    assert np.isclose(out_crc.log2_cpm[0, 0], np.log2(100000.0 + 1.0), atol=1e-2)
+
+    # Verify log2(TPM + 1) Smart-seq2 detection (max_nz > 12.5) and GSE120575 patient deduplication
+    x_log2 = np.vstack(
+        [
+            np.tile(np.array([[np.log2(65536.0 + 1.0), np.log2(1024.0 + 1.0)]]), (25, 1)),
+            np.tile(np.array([[np.log2(1024.0 + 1.0), np.log2(65536.0 + 1.0)]]), (35, 1)),
+        ]
+    ).astype(np.float32)
+    ad_ss2 = ad.AnnData(
+        X=sp.csr_matrix(x_log2),
+        obs=pd.DataFrame(
+            {
+                "patient_geo": ["Pre_P1"] * 25 + ["Post_P1"] * 35,
+                "response": ["Responder"] * 60,
+            },
+            index=[f"s_{i}" for i in range(60)],
+        ),
+        var=pd.DataFrame(index=["CD8A", "COL1A1"]),
+    )
+    ss2_path = tmp_path / "gse120575.h5ad"
+    ad_ss2.write_h5ad(ss2_path)
+    res_ss2 = stream_tumor_pseudobulk_h5ad(
+        ss2_path,
+        TumorPseudobulkSpec(cohort_id="GSE120575", sample_col="patient_geo", min_cells_per_sample=20),
+        ens_map,
+    )
+    assert isinstance(res_ss2, Success)
+    out_ss2 = res_ss2.unwrap()
+    assert out_ss2.scale_mode == "log2_tpm"
+    dedup_df = deduplicate_patient_profiles(
+        out_ss2.meta_df.with_columns(pl.lit("GSE120575").alias("cohort")),
+        mode="strict_pre",
+        weight_col=Some("n_cells"),
+    )
+    assert dedup_df.height == 1
+    assert dedup_df["sample_id"][0] == "Pre_P1"
+    assert dedup_df["patient_id"][0] == "P1"

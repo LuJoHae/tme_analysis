@@ -110,7 +110,8 @@ def get_data_paths(
     """
     env_data_dir = os.environ.get("TME_DATA_DIR", "").strip()
     env_cfg = os.environ.get("TME_DATA_PATHS_CONFIG", "").strip()
-    return _get_data_paths_cached(repo_root, config_path, env_data_dir, env_cfg)
+    env_lair_dir = os.environ.get("TME_LAIR_DIR", "").strip()
+    return _get_data_paths_cached(repo_root, config_path, env_data_dir, env_cfg, env_lair_dir)
 
 
 @lru_cache(maxsize=8)
@@ -119,6 +120,7 @@ def _get_data_paths_cached(
     config_path: Path | None,
     env_data_dir: str,
     env_cfg: str,
+    env_lair_dir: str,
 ) -> DataPathsConfig:
     root = (repo_root or find_repo_root()).resolve()
 
@@ -146,6 +148,11 @@ def _get_data_paths_cached(
 
     if env_data_dir and repo_root is None and config_path is None:
         base_data = validate_no_store_io(Path(env_data_dir).resolve())
+        resolved_lair = (
+            validate_no_store_io(Path(env_lair_dir).resolve())
+            if env_lair_dir
+            else base_data / "lair"
+        )
         return DataPathsConfig(
             repo_root=validate_no_store_io(root),
             data_root=base_data,
@@ -157,7 +164,7 @@ def _get_data_paths_cached(
             scratch_dir=base_data / "scratch",
             reference_h5ad=base_data / "reference.h5ad",
             ensembl_dir=base_data / "ensembl",
-            lair_dir=base_data / "lair",
+            lair_dir=resolved_lair,
             results_dir=base_data / "results",
             output_dir=base_data / "output",
             reports_dir=base_data / "reports",
@@ -175,6 +182,12 @@ def _get_data_paths_cached(
         resolved = p if p.is_absolute() else (root / p).resolve()
         return validate_no_store_io(resolved)
 
+    resolved_lair_cfg = (
+        validate_no_store_io(Path(env_lair_dir).resolve())
+        if env_lair_dir
+        else _resolve(str(paths_sec.get("lair_dir", "data/lair")))
+    )
+
     return DataPathsConfig(
         repo_root=root,
         data_root=_resolve(str(paths_sec.get("data_root", "data"))),
@@ -186,7 +199,7 @@ def _get_data_paths_cached(
         scratch_dir=_resolve(str(paths_sec.get("scratch_dir", "scratch"))),
         reference_h5ad=_resolve(str(paths_sec.get("reference_h5ad", "data/reference.h5ad"))),
         ensembl_dir=_resolve(str(paths_sec.get("ensembl_dir", "data/ensembl"))),
-        lair_dir=_resolve(str(paths_sec.get("lair_dir", "data/lair"))),
+        lair_dir=resolved_lair_cfg,
         results_dir=_resolve(str(paths_sec.get("results_dir", "data/results"))),
         output_dir=_resolve(str(paths_sec.get("output_dir", "data/output"))),
         reports_dir=_resolve(str(paths_sec.get("reports_dir", "data/reports"))),
