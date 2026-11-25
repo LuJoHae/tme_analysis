@@ -651,6 +651,7 @@ OLM_UV ?= /home/halu/.local/bin/uv
 OLM_CORES ?= 16
 
 OLM_ENV = TME_DATA_DIR=$(OLM_DATA_DIR) \
+          TME_LAIR_DIR=$(OLM_BASE)/lair \
           TME_PIPELINE_OUTPUT_ROOT=$(OLM_DATA_DIR)/output/manuscript_pipeline \
           TME_DISABLE_DOWNLOADS=1 \
           DISCOVERED_DATA_DIR=$(OLM_DATA_DIR) \
@@ -781,20 +782,24 @@ BAGAEV_SMK = -s workflow/rules/bagaev_mfp_analysis.smk
 .PHONY: stage-bagaev-mfp-olm test-bagaev-mfp-olm bagaev-mfp-analysis-olm pull-bagaev-mfp-olm
 
 stage-bagaev-mfp-olm: push-olm
-	@echo "Staging Consensus-Meta42 fractions, OOF predictions, and SC9 sample metadata to $(OLM_HOST):$(OLM_DATA_DIR)..."
+	@echo "Ensuring zero-leakage Consensus-Meta42 raw fractions, hub metadata, and SC9 sample metadata exist on $(OLM_HOST):$(OLM_DATA_DIR)..."
 	ssh $(OLM_HOST) "mkdir -p $(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions $(OLM_DATA_DIR)/pseudobulk $(OLM_DATA_DIR)/output/bagaev_mfp_analysis $(OLM_DATA_DIR)/results/bagaev_mfp_analysis"
-	rsync -qavz --update \
-		output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/fractions_Consensus-Meta42_on_PanCancer-Combined.parquet \
-		$(OLM_HOST):$(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/
-	rsync -qavz --update \
-		output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/oof_9a_9b_patient_landscape_and_curves.parquet \
-		output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/consensus_metastate_all42_top_degs.parquet \
-		$(OLM_HOST):$(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/
-	rsync -qavz --update data/pseudobulk/*.sample_meta.parquet $(OLM_HOST):$(OLM_DATA_DIR)/pseudobulk/
+	@if [ -f output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/raw_instaprism_Consensus-Meta42_on_PanCancer-Combined.parquet ]; then \
+		rsync -qavz --update output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/raw_instaprism_Consensus-Meta42_on_PanCancer-Combined.parquet $(OLM_HOST):$(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/; \
+	fi
+	@for f in consensus_metastate_all42_hub_summary.parquet consensus_metastate_all42_top_degs.parquet; do \
+		if [ -f "output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/$$f" ]; then \
+			rsync -qavz --update "output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/$$f" $(OLM_HOST):$(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/; \
+		fi; \
+	done
+	@if ls data/pseudobulk/*.sample_meta.parquet > /dev/null 2>&1; then \
+		rsync -qavz --update data/pseudobulk/*.sample_meta.parquet $(OLM_HOST):$(OLM_DATA_DIR)/pseudobulk/; \
+	fi
+	ssh $(OLM_HOST) "test -f $(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/raw_instaprism_Consensus-Meta42_on_PanCancer-Combined.parquet && test -f $(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/consensus_metastate_all42_hub_summary.parquet && test -f $(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/consensus_metastate_all42_top_degs.parquet"
 
 test-bagaev-mfp-olm: push-olm
-	@echo "Running Bagaev MFP unit & property tests on $(OLM_HOST)..."
-	ssh $(OLM_HOST) "cd $(OLM_DIR) && $(OLM_ENV) $(OLM_UV) run --with pytest pytest packages/tme_datasets/tests/test_bagaev_mfp_scoring.py packages/tme_response/tests/test_bagaev_mfp.py -v"
+	@echo "Running Bagaev MFP unit, property & strict type checks on $(OLM_HOST)..."
+	ssh $(OLM_HOST) "cd $(OLM_DIR) && $(OLM_ENV) $(OLM_UV) run --with pytest pytest packages/tme_datasets/tests/test_bagaev_mfp_scoring.py packages/tme_response/tests/test_bagaev_mfp.py packages/tme_response/tests/test_survival_and_dca.py packages/plotting_utils/tests/test_theme.py -v && $(OLM_ENV) $(OLM_UV) run --with mypy mypy --strict --follow-imports=silent packages/tme_datasets/src/tme_datasets/paths.py packages/tme_datasets/src/tme_datasets/genesets/scoring.py packages/tme_datasets/src/tme_datasets/providers/bagaev_reference.py packages/tme_datasets/src/tme_datasets/simulation/sc_pseudobulk_stream.py packages/tme_response/src/tme_response/evaluation/survival.py packages/tme_response/src/tme_response/models/bagaev_mfp.py packages/plotting_utils/src/plotting_utils/theme.py scripts/bagaev_mfp_analysis/01_classify_and_cluster_iatlas.py scripts/bagaev_mfp_analysis/02_integrate_iatlas_deconvolution.py scripts/bagaev_mfp_analysis/03_analyze_sc_pseudobulk_and_milopy.py scripts/bagaev_mfp_analysis/04_plot_bagaev_mfp_figures.py"
 
 pull-bagaev-mfp-olm:
 	@echo "Pulling Bagaev MFP analysis outputs and figures from $(OLM_HOST)..."
