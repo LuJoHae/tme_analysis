@@ -5,6 +5,8 @@ description = "Unified single-cell, spatial, bulk immunotherapy datasets, gene s
 requires-python = ">=3.11"
 dependencies = [
     "anndata>=0.10.0",
+    "h5py>=3.10.0",
+    "pandas>=2.0.0",
     "scanpy>=1.9.0",
     "polars>=0.20.0",
     "returns>=0.22.0",
