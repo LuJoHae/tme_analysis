@@ -155,7 +155,7 @@ def test_median_mad_scale_signatures_global_and_grouped() -> None:
 
 def test_load_tcga_bagaev_reference_and_panmelanoma_timepoint_preservation(tmp_path: Path) -> None:
     """Verify TCGA reference loader and non-colliding Pre/On Pan-Melanoma matching."""
-    tcga_dir = tmp_path / "DatasetBagaev-TCGA"
+    tcga_dir = tmp_path / "Bagaev_TCGA"
     tcga_dir.mkdir(parents=True)
     (tcga_dir / "annotations.tsv").write_text(
         "\tTCGA_project\tHISTOLOGICAL_SUBTYPE\tMFP\n"
@@ -167,13 +167,13 @@ def test_load_tcga_bagaev_reference_and_panmelanoma_timepoint_preservation(tmp_p
         "\tTCGA-01\tTCGA-02\nEffector_cells\t1.5\t-1.2\nCAF\t-0.9\t2.1\n",
         encoding="utf-8",
     )
-    ref_res = load_tcga_bagaev_reference(tmp_path)
+    ref_res = load_tcga_bagaev_reference(Some(tmp_path))
     assert isinstance(ref_res, Success)
     ref_df = ref_res.unwrap()
     assert ref_df.shape == (2, 6)
     assert ref_df.filter(pl.col("sample_id") == "TCGA-01")["MFP"][0] == "IE"
 
-    pan_dir = tmp_path / "DatasetBagaev-PanMelanoma"
+    pan_dir = tmp_path / "Bagaev_PanMelanoma"
     pan_dir.mkdir(parents=True)
     # Same Patient (Riaz_Pt1) switches MFP across Pre vs On — must NOT overwrite Pre with On
     (pan_dir / "annotations.tsv").write_text(
@@ -182,7 +182,7 @@ def test_load_tcga_bagaev_reference_and_panmelanoma_timepoint_preservation(tmp_p
         "SRR2\tRiaz\tD\tRiaz_Pt1\tR\tOn\n",
         encoding="utf-8",
     )
-    pan_res = load_panmelanoma_bagaev_labels(tmp_path)
+    pan_res = load_panmelanoma_bagaev_labels(Some(tmp_path))
     assert isinstance(pan_res, Success)
     iatlas_df = pl.DataFrame(
         {

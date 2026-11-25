@@ -3,6 +3,8 @@
 from .bulk_iatlas import IATLAS_COHORTS, load_iatlas_cohort
 from .bagaev_reference import (
     VALID_BAGAEV_SUBTYPES,
+    ensure_bagaev_references,
+    load_bagaev_mfp_gmt_collection,
     load_panmelanoma_bagaev_labels,
     load_tcga_bagaev_reference,
     match_iatlas_to_panmelanoma_labels,
@@ -372,6 +374,8 @@ __all__ = [
     "load_shi_pancancer_atlas",
     "load_zheng_tcell_atlas",
     "VALID_BAGAEV_SUBTYPES",
+    "ensure_bagaev_references",
+    "load_bagaev_mfp_gmt_collection",
     "load_tcga_bagaev_reference",
     "load_panmelanoma_bagaev_labels",
     "match_iatlas_to_panmelanoma_labels",
