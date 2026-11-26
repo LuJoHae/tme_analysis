@@ -682,6 +682,121 @@ def aggregate_multi_file_tumor_pseudobulk(
     )
 
 
+def _aggregate_in_memory_adata(
+    adata: ad.AnnData,
+    spec: TumorPseudobulkSpec,
+    ens_map: Mapping[str, str],
+) -> Result[TumorPseudobulkResult, str]:
+    """Aggregate an in-memory AnnData object into tumor-only log2(CPM+1) pseudobulk profiles."""
+    n_pre = int(adata.n_obs)
+    if n_pre == 0:
+        return Failure(f"Empty AnnData for {spec.cohort_id}.")
+    scol = _resolve_sample_column(adata.obs, spec.sample_col)
+    raw_sids_all = tuple(str(v).strip() for v in adata.obs[scol].tolist())
+    tumor_mask = build_tumor_cell_mask(adata.obs, spec.cohort_id, sample_values=Some(raw_sids_all))
+    if int(np.sum(tumor_mask)) < spec.min_cells_per_sample:
+        return Failure(f"Fewer than {spec.min_cells_per_sample} tumor cells in {spec.cohort_id}.")
+
+    sub_ad = adata[tumor_mask].copy()
+    n_post = int(sub_ad.n_obs)
+    use_raw = sub_ad.raw is not None and int(sub_ad.raw.n_vars) > int(sub_ad.n_vars)
+    src_x = sub_ad.raw.X if use_raw and sub_ad.raw is not None else sub_ad.X
+    src_var = sub_ad.raw.var if use_raw and sub_ad.raw is not None else sub_ad.var
+    syms = extract_h5ad_var_symbols(src_var, ens_map)
+
+    x_csr = cast(Any, src_x).tocsr() if sp.issparse(src_x) else sp.csr_matrix(src_x)
+    nz = np.asarray(x_csr.data[: min(20000, len(x_csr.data))], dtype=np.float64)
+    scale_mode: ScaleMode = "raw_counts"
+    if nz.size > 0 and not np.allclose(nz, np.round(nz), atol=1e-3):
+        scale_mode = "ln_cp10k" if float(np.nanmax(nz)) <= 12.5 else "log2_tpm"
+        lin_data = _invert_to_linear(np.asarray(x_csr.data, dtype=np.float64), scale_mode)
+        x_csr = sp.csr_matrix((lin_data, x_csr.indices, x_csr.indptr), shape=x_csr.shape)
+
+    sids_raw = tuple(str(v).strip() for v in sub_ad.obs[scol].tolist())
+    u_s, cnt_s = np.unique(np.asarray(sids_raw, dtype=object), return_counts=True)
+    kept = tuple(
+        sorted(
+            str(s)
+            for s, c in zip(u_s.tolist(), cnt_s.tolist(), strict=True)
+            if int(c) >= spec.min_cells_per_sample and not bool(_NON_TUMOR_SAMPLE_RE.search(str(s)))
+        )
+    )
+    if not kept:
+        return Failure(f"No tumor samples with >= {spec.min_cells_per_sample} cells in {spec.cohort_id}.")
+
+    s_map = {s: i for i, s in enumerate(kept)}
+    grp = np.array([s_map.get(s, -1) for s in sids_raw], dtype=np.int64)
+    valid_cells = np.flatnonzero(grp >= 0)
+    ind = sp.csr_matrix(
+        (np.ones(len(valid_cells), dtype=np.float64), (grp[valid_cells], valid_cells)),
+        shape=(len(kept), n_post),
+    )
+    sums = np.asarray((ind @ x_csr).toarray(), dtype=np.float64)
+    lib = np.maximum(np.sum(sums, axis=1, keepdims=True), 1.0)
+    log2_cpm = np.log2((sums / lib) * 1e6 + 1.0)
+    c_counts = np.array([int(np.sum(grp == i)) for i in range(len(kept))], dtype=np.int64)
+
+    meta_df = _build_sample_metadata(
+        obs=sub_ad.obs,
+        raw_sids=sids_raw,
+        tumor_mask=np.ones(n_post, dtype=bool),
+        final_samples=kept,
+        kept_cell_counts=c_counts,
+        spec=spec,
+    )
+    return Success(
+        TumorPseudobulkResult(
+            log2_cpm=log2_cpm,
+            sample_ids=kept,
+            gene_symbols=syms,
+            meta_df=meta_df,
+            scale_mode=scale_mode,
+            n_cells_pre_filter=n_pre,
+            n_cells_post_tumor_filter=n_post,
+        )
+    )
+
+
+def _is_complete_h5ad(h5_path: Path) -> bool:
+    if not h5_path.is_file() or h5_path.stat().st_size == 0:
+        return False
+    try:
+        with h5py.File(h5_path, "r") as f:
+            return "X" in f and "obs" in f and "var" in f and len(f["obs"].keys()) > 0
+    except Exception:
+        return False
+
+
+def stream_cohort_tumor_pseudobulk(
+    dataset_id: str,
+    spec: TumorPseudobulkSpec,
+    ens_map: Mapping[str, str],
+    *,
+    auto_download: bool = False,
+) -> Result[TumorPseudobulkResult, str]:
+    """Stream tumor-only pseudobulk strictly from `TME_DATA_DIR/{preprocessed,raw}`."""
+    from ..paths import get_data_paths
+    from ..query import load_dataset
+
+    paths = get_data_paths()
+    h5_path = paths.preprocessed_dir / f"{dataset_id}.h5ad"
+    if _is_complete_h5ad(h5_path):
+        res = stream_tumor_pseudobulk_h5ad(h5_path, spec, ens_map)
+        if isinstance(res, Success):
+            return res
+
+    raw_ds_dir = paths.raw_dir / dataset_id
+    if dataset_id == "GSE156625":
+        gz_h5 = raw_ds_dir / "GSE156625_HCCFscanpyobj.h5ad.gz"
+        if gz_h5.is_file():
+            return aggregate_gzip_h5ad_tumor_pseudobulk(gz_h5, spec, ens_map)
+
+    ds_res = load_dataset(dataset_id, auto_download=auto_download)
+    if isinstance(ds_res, Failure):
+        return Failure(f"Failed loading {dataset_id} from {paths.data_root}: {ds_res.failure()}")
+    return _aggregate_in_memory_adata(ds_res.unwrap(), spec, ens_map)
+
+
 def aggregate_gzip_h5ad_tumor_pseudobulk(
     gz_path: Path,
     spec: TumorPseudobulkSpec,

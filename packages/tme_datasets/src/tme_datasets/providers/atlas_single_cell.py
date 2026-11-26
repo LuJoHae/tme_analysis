@@ -219,6 +219,7 @@ def load_azizi_brca(
 
             sub_adata = ad.AnnData(X=mat.astype(np.float32), obs=pd.DataFrame(index=barcodes), var=var_df)
             parts = prefix.split("_")
+            sub_adata.obs["sample"] = prefix
             sub_adata.obs["geo_id"] = parts[0] if len(parts) > 0 else "Unknown"
             sub_adata.obs["patient"] = parts[1] if len(parts) > 1 else "Unknown"
             sub_adata.obs["tissue"] = parts[2] if len(parts) > 2 else "Breast"
@@ -244,7 +245,7 @@ def load_azizi_brca(
             cancer_type="Breast Cancer",
             cancer_code="BRCA",
             patient_col="patient",
-            sample_col="geo_id",
+            sample_col="sample" if "sample" in combined.obs.columns else "geo_id",
         )
         combined = tag_expression_metadata(combined)
         return Success(_apply_subset_and_subsample(combined, subset, subsample_n))

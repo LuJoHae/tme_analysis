@@ -5,9 +5,30 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Final
 import polars as pl
+from returns.maybe import Maybe, Nothing, Some
 from returns.result import Failure, Result, Success
 
+from ..download.fetcher import download_single_file
+from ..genesets.models import GeneSet, GeneSetCollection
+from ..genesets.parser import parse_gmt
+from ..paths import get_data_paths
+
 VALID_BAGAEV_SUBTYPES: Final[tuple[str, ...]] = ("IE", "IE/F", "F", "D")
+
+BAGAEV_REFERENCE_URLS: Final[dict[str, dict[str, str]]] = {
+    "Bagaev_Signature": {
+        "gene_signatures.gmt": "https://raw.githubusercontent.com/BostonGene/MFP/refs/heads/master/signatures/gene_signatures.gmt",
+        "gene_signatures_order.tsv": "https://raw.githubusercontent.com/BostonGene/MFP/refs/heads/master/signatures/gene_signatures_order.tsv",
+    },
+    "Bagaev_PanMelanoma": {
+        "annotations.tsv": "https://science.bostongene.com/tumor-portrait/api/annotation_panmi/",
+        "signature.tsv": "https://science.bostongene.com/tumor-portrait/api/signatures_panmi/",
+    },
+    "Bagaev_TCGA": {
+        "annotations.tsv": "https://science.bostongene.com/tumor-portrait/api/annotation_tcga/",
+        "signature.tsv": "https://science.bostongene.com/tumor-portrait/api/signatures_tcga/",
+    },
+}
 
 _MELANOMA_COHORT_MAP: Final[dict[str, str]] = {
     "Hugo-iAtlas": "Hugo",
@@ -35,9 +56,90 @@ def _normalize_timepoint_token(raw_tp: str) -> str:
     return "UNK"
 
 
-def load_tcga_bagaev_reference(lair_dir: Path) -> Result[pl.DataFrame, str]:
+def _resolve_raw_root(raw_root: Maybe[Path]) -> Path:
+    return raw_root.unwrap() if isinstance(raw_root, Some) else get_data_paths().raw_dir
+
+
+def ensure_bagaev_references(raw_root: Maybe[Path] = Nothing) -> Result[Path, str]:
+    """Download Bagaev TCGA, PanMelanoma, and 29-Fges GMT files into `raw_dir/Bagaev_*`."""
+    base_raw = _resolve_raw_root(raw_root)
+    for subdir_name, files in BAGAEV_REFERENCE_URLS.items():
+        target_dir = base_raw / subdir_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for fname, url in files.items():
+            dest = target_dir / fname
+            if dest.is_file() and dest.stat().st_size > 0:
+                continue
+            dl_res = download_single_file(url, dest, resume=False)
+            if isinstance(dl_res, Failure):
+                return Failure(f"Failed downloading {subdir_name}/{fname}: {dl_res.failure()}")
+    return Success(base_raw)
+
+
+def _ensure_subdir(subdir_name: str, raw_root: Maybe[Path], auto_download: bool) -> Result[Path, str]:
+    base_raw = _resolve_raw_root(raw_root)
+    target_dir = base_raw / subdir_name
+    req_files = BAGAEV_REFERENCE_URLS[subdir_name]
+    missing = [fname for fname in req_files if not (target_dir / fname).is_file()]
+    if missing and auto_download:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for fname in missing:
+            dl_res = download_single_file(req_files[fname], target_dir / fname, resume=False)
+            if isinstance(dl_res, Failure):
+                return Failure(f"Failed downloading {subdir_name}/{fname}: {dl_res.failure()}")
+    return Success(target_dir)
+
+
+def load_bagaev_mfp_gmt_collection(
+    raw_root: Maybe[Path] = Nothing,
+    auto_download: bool = False,
+) -> Result[GeneSetCollection, str]:
+    """Load the 29-Fges GeneSetCollection from `raw/Bagaev_Signature/` inside `TME_DATA_DIR`."""
+    dir_res = _ensure_subdir("Bagaev_Signature", raw_root, auto_download)
+    if isinstance(dir_res, Failure):
+        return dir_res
+    sig_dir = dir_res.unwrap()
+    gmt_path = sig_dir / "gene_signatures.gmt"
+    if not gmt_path.is_file():
+        return Failure(f"Missing Bagaev signature GMT at {gmt_path}.")
+
+    gmt_res = parse_gmt(gmt_path)
+    if isinstance(gmt_res, Failure):
+        return Failure(gmt_res.failure())
+    col = gmt_res.unwrap()
+
+    order_path = sig_dir / "gene_signatures_order.tsv"
+    if order_path.is_file():
+        ordered_ids = [
+            line.split("\t")[0].strip()
+            for line in order_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if line.strip() and line.split("\t")[0].strip() in col.gene_sets
+        ]
+        if ordered_ids:
+            ordered_sets: dict[str, GeneSet] = {gid: col.gene_sets[gid] for gid in ordered_ids}
+            for gid, gs in col.gene_sets.items():
+                if gid not in ordered_sets:
+                    ordered_sets[gid] = gs
+            return Success(
+                GeneSetCollection(
+                    id="bagaev_mfp_29",
+                    name="Bagaev MFP 29 Fges",
+                    description="29 Functional Gene Expression Signatures from BostonGene/MFP",
+                    gene_sets=ordered_sets,
+                )
+            )
+    return Success(col)
+
+
+def load_tcga_bagaev_reference(
+    raw_root: Maybe[Path] = Nothing,
+    auto_download: bool = False,
+) -> Result[pl.DataFrame, str]:
     """Purely load BostonGene/Bagaev labeled TCGA 29-Fges reference profiles into Polars."""
-    tcga_dir = lair_dir / "DatasetBagaev-TCGA"
+    dir_res = _ensure_subdir("Bagaev_TCGA", raw_root, auto_download)
+    if isinstance(dir_res, Failure):
+        return dir_res
+    tcga_dir = dir_res.unwrap()
     annot_path = tcga_dir / "annotations.tsv"
     sig_path = tcga_dir / "signature.tsv"
     if not annot_path.is_file() or not sig_path.is_file():
@@ -85,9 +187,15 @@ def load_tcga_bagaev_reference(lair_dir: Path) -> Result[pl.DataFrame, str]:
     return Success(joined)
 
 
-def load_panmelanoma_bagaev_labels(lair_dir: Path) -> Result[pl.DataFrame, str]:
+def load_panmelanoma_bagaev_labels(
+    raw_root: Maybe[Path] = Nothing,
+    auto_download: bool = False,
+) -> Result[pl.DataFrame, str]:
     """Purely load published Bagaev et al. Pan-Melanoma clinical trial MFP annotations."""
-    pan_path = lair_dir / "DatasetBagaev-PanMelanoma" / "annotations.tsv"
+    dir_res = _ensure_subdir("Bagaev_PanMelanoma", raw_root, auto_download)
+    if isinstance(dir_res, Failure):
+        return dir_res
+    pan_path = dir_res.unwrap() / "annotations.tsv"
     if not pan_path.is_file():
         return Failure(f"Pan-Melanoma annotations file not found at {pan_path}.")
 

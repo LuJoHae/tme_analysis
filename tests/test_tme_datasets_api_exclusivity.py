@@ -84,6 +84,11 @@ DOWNSTREAM_CONSUMER_SCRIPTS: Final[tuple[str, ...]] = (
     "scripts/gse97168/plot_gse97168.py",
     "scripts/coulton_tam_comparison/compare_meta42_coulton_tam.py",
     "scripts/pan_cancer_atlas_comparison/compare_meta42_external_atlases.py",
+    "scripts/bagaev_mfp_analysis/shared.py",
+    "scripts/bagaev_mfp_analysis/01_classify_and_cluster_iatlas.py",
+    "scripts/bagaev_mfp_analysis/02_integrate_iatlas_deconvolution.py",
+    "scripts/bagaev_mfp_analysis/03_analyze_sc_pseudobulk_and_milopy.py",
+    "scripts/bagaev_mfp_analysis/04_plot_bagaev_mfp_figures.py",
 )
 
 

@@ -21,6 +21,7 @@ from .sc_pseudobulk_stream import (
     deduplicate_patient_profiles,
     extract_h5ad_var_symbols,
     load_ensembl_symbol_map,
+    stream_cohort_tumor_pseudobulk,
     stream_tumor_pseudobulk_h5ad,
 )
 from .simulator import simulate_pseudobulk
@@ -45,5 +46,6 @@ __all__ = [
     "resolve_adata_gene_symbols",
     "resolve_sample_column_name",
     "simulate_pseudobulk",
+    "stream_cohort_tumor_pseudobulk",
     "stream_tumor_pseudobulk_h5ad",
 ]

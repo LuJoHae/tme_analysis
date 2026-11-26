@@ -651,7 +651,6 @@ OLM_UV ?= /home/halu/.local/bin/uv
 OLM_CORES ?= 16
 
 OLM_ENV = TME_DATA_DIR=$(OLM_DATA_DIR) \
-          TME_LAIR_DIR=$(OLM_BASE)/lair \
           TME_PIPELINE_OUTPUT_ROOT=$(OLM_DATA_DIR)/output/manuscript_pipeline \
           TME_DISABLE_DOWNLOADS=1 \
           DISCOVERED_DATA_DIR=$(OLM_DATA_DIR) \
@@ -782,8 +781,8 @@ BAGAEV_SMK = -s workflow/rules/bagaev_mfp_analysis.smk
 .PHONY: stage-bagaev-mfp-olm test-bagaev-mfp-olm bagaev-mfp-analysis-olm pull-bagaev-mfp-olm
 
 stage-bagaev-mfp-olm: push-olm
-	@echo "Ensuring zero-leakage Consensus-Meta42 raw fractions, hub metadata, and SC9 sample metadata exist on $(OLM_HOST):$(OLM_DATA_DIR)..."
-	ssh $(OLM_HOST) "mkdir -p $(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions $(OLM_DATA_DIR)/pseudobulk $(OLM_DATA_DIR)/output/bagaev_mfp_analysis $(OLM_DATA_DIR)/results/bagaev_mfp_analysis"
+	@echo "Ensuring Bagaev references, Consensus-Meta42 raw fractions, hub metadata, and SC9 sample metadata exist inside $(OLM_HOST):$(OLM_DATA_DIR)..."
+	ssh $(OLM_HOST) "mkdir -p $(OLM_DATA_DIR)/raw $(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions $(OLM_DATA_DIR)/pseudobulk $(OLM_DATA_DIR)/output/bagaev_mfp_analysis $(OLM_DATA_DIR)/results/bagaev_mfp_analysis && cd $(OLM_DIR) && TME_DATA_DIR=$(OLM_DATA_DIR) TME_DISABLE_DOWNLOADS=0 $(OLM_UV) run python -c 'from tme_datasets import ensure_bagaev_references; res = ensure_bagaev_references(); print(res); assert res.value_or(None) is not None'"
 	@if [ -f output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/raw_instaprism_Consensus-Meta42_on_PanCancer-Combined.parquet ]; then \
 		rsync -qavz --update output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/raw_instaprism_Consensus-Meta42_on_PanCancer-Combined.parquet $(OLM_HOST):$(OLM_DATA_DIR)/output/manuscript_pipeline/3c_iatlas_instaprism_milopy_benchmark/fractions/; \
 	fi
@@ -799,7 +798,7 @@ stage-bagaev-mfp-olm: push-olm
 
 test-bagaev-mfp-olm: push-olm
 	@echo "Running Bagaev MFP unit, property & strict type checks on $(OLM_HOST)..."
-	ssh $(OLM_HOST) "cd $(OLM_DIR) && $(OLM_ENV) $(OLM_UV) run --with pytest pytest packages/tme_datasets/tests/test_bagaev_mfp_scoring.py packages/tme_response/tests/test_bagaev_mfp.py packages/tme_response/tests/test_survival_and_dca.py packages/plotting_utils/tests/test_theme.py -v && $(OLM_ENV) $(OLM_UV) run --with mypy mypy --strict --follow-imports=silent packages/tme_datasets/src/tme_datasets/paths.py packages/tme_datasets/src/tme_datasets/genesets/scoring.py packages/tme_datasets/src/tme_datasets/providers/bagaev_reference.py packages/tme_datasets/src/tme_datasets/simulation/sc_pseudobulk_stream.py packages/tme_response/src/tme_response/evaluation/survival.py packages/tme_response/src/tme_response/models/bagaev_mfp.py packages/plotting_utils/src/plotting_utils/theme.py scripts/bagaev_mfp_analysis/01_classify_and_cluster_iatlas.py scripts/bagaev_mfp_analysis/02_integrate_iatlas_deconvolution.py scripts/bagaev_mfp_analysis/03_analyze_sc_pseudobulk_and_milopy.py scripts/bagaev_mfp_analysis/04_plot_bagaev_mfp_figures.py"
+	ssh $(OLM_HOST) "cd $(OLM_DIR) && $(OLM_ENV) $(OLM_UV) run --with pytest pytest packages/tme_datasets/tests/test_bagaev_mfp_scoring.py packages/tme_response/tests/test_bagaev_mfp.py packages/tme_response/tests/test_survival_and_dca.py packages/plotting_utils/tests/test_theme.py -v && $(OLM_ENV) $(OLM_UV) run --with mypy mypy --strict --follow-imports=silent packages/tme_datasets/src/tme_datasets/paths.py packages/tme_datasets/src/tme_datasets/genesets/scoring.py packages/tme_datasets/src/tme_datasets/providers/bagaev_reference.py packages/tme_datasets/src/tme_datasets/simulation/sc_pseudobulk_stream.py packages/tme_response/src/tme_response/evaluation/survival.py packages/tme_response/src/tme_response/models/bagaev_mfp.py packages/plotting_utils/src/plotting_utils/theme.py scripts/bagaev_mfp_analysis/shared.py scripts/bagaev_mfp_analysis/01_classify_and_cluster_iatlas.py scripts/bagaev_mfp_analysis/02_integrate_iatlas_deconvolution.py scripts/bagaev_mfp_analysis/03_analyze_sc_pseudobulk_and_milopy.py scripts/bagaev_mfp_analysis/04_plot_bagaev_mfp_figures.py"
 
 pull-bagaev-mfp-olm:
 	@echo "Pulling Bagaev MFP analysis outputs and figures from $(OLM_HOST)..."
