@@ -4,7 +4,7 @@
 .aiignore
 jupyter/*
 !jupyter/script_3e_guide.ipynb
-data/
+/data/
 .make-sentinels/
 output/
 __pycache__/
